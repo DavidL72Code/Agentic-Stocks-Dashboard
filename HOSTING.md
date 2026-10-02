@@ -77,6 +77,52 @@ The backend already serves `web/`, so skipping Vercel is a valid deploy: one
 origin, no proxy, no CORS, nothing to configure. You lose Vercel's CDN. If the
 split gives you trouble, this is the simpler thing that definitely works.
 
+## Docker
+
+[`Dockerfile`](Dockerfile), [`docker-compose.yml`](docker-compose.yml),
+[`.dockerignore`](.dockerignore).
+
+**`render.yaml` deliberately does not use the image.** Render runs the native
+Python runtime there, because the free plan spins down when idle and a ~700MB
+image (pandas, numpy, langgraph) makes that cold start worse. Containerising
+the backend would trade a problem you have for a problem you do not.
+
+So what is it for:
+
+- **Local parity.** `docker compose up --build` gives you the app and a Redis,
+  wired together, in one command. Running the cache tier otherwise means
+  installing a Redis server and remembering to start it.
+- **Portability.** Fly.io wants a Dockerfile; ECS, Cloud Run and Kubernetes all
+  do. Moving host becomes a config change rather than a project.
+
+To put Render on the image instead, swap `runtime: python` and `buildCommand`
+in `render.yaml` for `runtime: docker` and `dockerfilePath: ./Dockerfile`. Worth
+doing once you are off the free plan, where the size stops mattering.
+
+```bash
+docker compose up --build          # app + redis, http://localhost:8077
+docker build -t monsoon .          # image only
+docker build --build-arg WITH_REDIS=true --build-arg WITH_TURSO=true -t monsoon .
+```
+
+The optional dependencies are build args rather than edits to
+`requirements.txt`, so the default image stays lean.
+
+**`.dockerignore` is the load-bearing file here**, not boilerplate. A bare
+`COPY . .` without it bakes `.env` (your Gemini key, your Turso token) and
+`data/` (positions, cost basis, password hashes) into a layer — and deleting
+them in a later layer does *not* remove them from the image. Anyone who pulls
+it has your key. The sweep asserts the exclusions still hold, so a new path
+holding credentials cannot quietly start shipping.
+
+Two details in the Dockerfile worth not undoing:
+
+- It runs as an unprivileged user, not root.
+- The `CMD` is `sh -c "exec uvicorn ..."`. The shell is needed so `$PORT`
+  expands, and `exec` is needed so uvicorn replaces the shell and becomes PID 1
+  — otherwise `sh` swallows `SIGTERM` and every container stop waits out the
+  kill timeout.
+
 ## The three that will bite you
 
 Read these before the table.

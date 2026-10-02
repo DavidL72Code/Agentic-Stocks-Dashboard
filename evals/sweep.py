@@ -396,6 +396,42 @@ def main(run_agent: bool) -> int:
         "the cookie's Secure flag is DERIVED from APP_BASE_URL, so a forgotten "
         "env var is a silent downgrade rather than an error")
 
+    head("docker build context")
+    # A bare COPY . . bakes .env and data/ into a layer, and deleting them in a
+    # later layer does not remove them from the image. This asserts the
+    # .dockerignore still excludes everything secret-bearing - the check that
+    # matters when a new path holding credentials or user data gets added.
+    import fnmatch as _fn
+    _di = _pl.Path(os.getcwd()) / ".dockerignore"
+    chk("meta", "dockerignore_exists", _di.exists(), str(_di.name),
+        "without it the image ships a live API key and somebody's portfolio")
+    if _di.exists():
+        _pats = [l.strip() for l in _di.read_text().splitlines()
+                 if l.strip() and not l.strip().startswith("#")]
+
+        def _excluded(rel: str) -> bool:
+            hit = False
+            for p in _pats:
+                neg = p.startswith("!")
+                d = (p[1:] if neg else p).rstrip("/")
+                if (_fn.fnmatch(rel, d) or rel.startswith(d + "/")
+                        or any(_fn.fnmatch(x, d) for x in rel.split("/"))):
+                    hit = not neg
+            return hit
+
+        secret = [".env", ".env.bak", "data/monsoon.db", "data/store.json.migrated",
+                  ".venv/bin/python", ".git/config"]
+        shipped = [f for f in secret if not _excluded(f)]
+        chk("meta", "dockerignore_blocks_secrets", not shipped,
+            shipped or f"all {len(secret)} excluded",
+            "an image layer keeps a file even after a later layer deletes it")
+        needed = ["requirements.txt", "backend/app/main.py", "web/index.html",
+                  "web/app.js", "web/charts.js"]
+        dropped = [f for f in needed if _excluded(f)]
+        chk("meta", "dockerignore_keeps_the_app", not dropped,
+            dropped or f"all {len(needed)} present",
+            "over-broad ignores give you an image that cannot start")
+
     head("coverage")
     import backend.app.main as M
     routes = {f"{m}:{r.path}" for r in M.app.routes

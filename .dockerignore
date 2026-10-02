@@ -1,0 +1,42 @@
+# Not hygiene - this file is the difference between a shareable image and one
+# that ships a live API key and somebody's portfolio. A bare `COPY . .` without
+# it bakes in .env (the Gemini key, the Turso token) and data/ (positions, cost
+# basis, password hashes), and an image layer keeps them even if a later layer
+# deletes the files.
+
+.env
+.env.*
+!.env.example
+
+data/
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+*.json.migrated
+
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+.git/
+.gitignore
+.github/
+
+# the image runs the app; it does not run the eval suite
+evals/
+*.md
+!README.md
+
+node_modules/
+.DS_Store
+.idea/
+.vscode/
+*.log
+_archive/
+.claude/

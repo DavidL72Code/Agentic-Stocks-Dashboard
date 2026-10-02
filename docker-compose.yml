@@ -1,0 +1,53 @@
+# Local stack: the app plus a Redis, in one command.
+#
+#   docker compose up --build
+#   open http://localhost:8077
+#
+# This is the reason Docker is here. Running the Redis cache tier otherwise
+# means installing a server and remembering to start it; here it is one
+# command, and the app is wired to it already.
+#
+# Needs a .env with at least GEMINI_API_KEY (see .env.example). It is read from
+# the host at run time and never copied into the image - .dockerignore makes
+# sure of that.
+
+services:
+  app:
+    build:
+      context: .
+      args:
+        WITH_REDIS: "true"
+        WITH_TURSO: "false"
+    ports:
+      - "8077:8077"
+    env_file:
+      - .env
+    environment:
+      # Inside the compose network the service name is the host, and no TLS -
+      # unlike a managed Redis, which needs rediss:// (see HOSTING.md).
+      REDIS_URL: redis://redis:6379/0
+      # A path on the mounted volume, so the database outlives the container.
+      DB_PATH: /data/monsoon.db
+      APP_BASE_URL: http://localhost:8077
+      AUTH_ENABLED: "true"
+    volumes:
+      - monsoon-data:/data
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  redis:
+    image: redis:8-alpine
+    # No persistence: it is a cache. Losing it costs one refetch, and a cache
+    # that needs backing up is a database wearing a disguise.
+    command: redis-server --save "" --appendonly no --maxmemory 128mb --maxmemory-policy allkeys-lru
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
+volumes:
+  monsoon-data:
