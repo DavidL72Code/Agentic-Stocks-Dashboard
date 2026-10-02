@@ -50,6 +50,12 @@ It also rewrites `/static/*` to `/*`, because `index.html` asks for
 `/static/app.js` — which is where FastAPI mounts it, but Vercel serves `web/`
 at the root.
 
+The `/api/*` headers block turns off Vercel's rewrite caching. Vercel caches
+external rewrites by default, and `/api/me` and `/api/portfolio` are per-user,
+so this holds even if the backend's own `no-store` ever regresses. (The note
+lives here because Vercel rejects unknown keys such as `comment` in
+`vercel.json`.)
+
 ### 4. Check it actually worked
 
 ```bash
