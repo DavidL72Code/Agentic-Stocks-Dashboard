@@ -134,9 +134,22 @@ or Turso anyway, and the throttle table moves with it. No Redis either way.
 ## Negative control
 
 `evals/negative_control.py` sabotages three auth defences and asserts the
-matching case goes red: minimum length dropped to 1, throttle disabled, hashing
-replaced with plaintext. A green suite means nothing until you have watched it
+matching case goes red. A green suite means nothing until you have watched it
 go red.
+
+    auth baseline: 28/28 pass
+      password minimum dropped to 1      rejects_weak_passwords   CAUGHT
+      login throttle disabled            throttle_locks_out       CAUGHT
+      hashing replaced by plaintext      hash_not_plaintext       CAUGHT
+    auth restored: 28/28 pass
+
+    negative control PASSED - every sabotage was detected
+
+Writing it surfaced one more bug, in the test rather than the code:
+`throttle_locks_out` looped `range(MAX_FAILS)`, so raising that setting to 1e9
+made the *test* try to insert a billion rows and the control hung for twenty
+minutes. A test that derives its workload from the value under test cannot be
+used to sabotage that value. The loop bound is now a fixed constant.
 
 ## Known limits
 
