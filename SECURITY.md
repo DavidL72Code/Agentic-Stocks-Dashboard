@@ -1,5 +1,30 @@
 # Isolation model — and no, there is no row-level security
 
+## The short answer
+
+Can one user read another's holdings, wipe their table, or dump the whole
+thing? **Tested, and no** — on every path I could find to try it:
+
+| Attack | Result |
+|---|---|
+| Call any endpoint with another user's portfolio id | 404, nothing returned, not even the account name |
+| Insert / edit / delete a position in their account | denied, their book unchanged |
+| Rename, activate, reset or delete their account | denied, 404 |
+| Read `all accounts` and hope theirs is included | only your own |
+| Rotate their password / delete their account | denied |
+| Ask the **agent** about "my portfolio" | each user gets their own book |
+| Hammer both users' reads concurrently | 24 interleaved reads, no crossover |
+| SQL injection through any user input | no path: every value is bound with `?` |
+| Read another user's data from the cache | the cache holds market data only, keyed by symbol |
+
+There is no endpoint that returns more than one user's rows, no endpoint that
+takes a filter or a query, and no raw SQL path. The closest thing to "read the
+whole table" is `all accounts`, which means all of *yours*.
+
+**But the guarantee comes from the application, not the database** — so the
+honest version is "tested, not structurally impossible". The rest of this page
+is what that distinction costs.
+
 **We do not have row-level security.** SQLite has no such feature, and neither
 does libSQL/Turso. RLS is a Postgres feature (`ALTER TABLE … ENABLE ROW LEVEL
 SECURITY` plus `CREATE POLICY`), which is why you meet it through Supabase.
@@ -36,9 +61,9 @@ check is a cross-account leak and the database will not stop it.
 
 Which is why it is tested rather than asserted.
 
-## The test
+## The tests
 
-`evals/tenancy_probe.py` creates two real accounts with real holdings, then
+**`evals/tenancy_probe.py`** creates two real accounts with real holdings, then
 hands user A user B's actual ids and tries **every id-taking operation in the
 API**: read the portfolio, read its analytics, rename it, insert a position,
 edit a position, delete a position, activate it, reset it, delete the account,
@@ -52,9 +77,19 @@ It also asserts the negative space: that a foreign id leaks not even the
 account *name*, that `positions` still has no `user_id` (so the check keeps
 being necessary), and that foreign keys are on.
 
-It runs in the suite as the **Tenancy** suite.
+**`evals/agent_tenancy_probe.py`** goes after the agent plane specifically,
+because that is where the per-request identity is most likely to break: the
+router fans out with `Send` into parallel subgraphs, each subgraph gathers
+several tools at once, and every portfolio tool resolves the user from that
+contextvar. It gives two users deliberately disjoint books, gives the *local*
+user a distinctive marker holding, and checks that neither user's answer ever
+contains the other's ticker or the marker. It also interleaves 24 concurrent
+reads looking for crossover, and asserts a context-less caller sees nothing and
+cannot write.
 
-## Two bugs this found
+Both run in the suite as the **Tenancy** suite.
+
+## Three bugs this found
 
 Both were reachable with your *own* valid ids, so neither was a leak — but both
 were real.
@@ -69,6 +104,26 @@ by a whole-book reset.
 **2. Two destructive routes returned 200 for a no-op.**
 `DELETE /api/portfolios/{unknown}` and `POST /api/reset?portfolio_id={unknown}`
 both reported success having done nothing. Now 404.
+
+**3. The current-user default failed open.**
+Requests get their `user_id` from a `contextvars.ContextVar`, set once by
+`UserMiddleware`. Its default was `LOCAL_USER_ID` — so any code running
+*outside* a request context read one real user's holdings and watchlist instead
+of nothing. Demonstrated from a bare thread: it returned that user's positions
+and full watchlist.
+
+Nothing reaches it today. The middleware sets it on every request, and
+contextvars propagate correctly through the agent's `Send` fan-out and its
+concurrent tool execution — both tested. But a fail-open default is a bug
+waiting for the first background job, scheduled brief or thread pool that does
+not inherit the context, and it would fail *silently*. The default is now
+`GUEST`, which owns nothing and cannot write, so a lost context yields `[]`.
+
+Note what `asyncio` does and does not do here: `asyncio.to_thread` and
+`create_task` both **copy** the current context, so neither loses it — my first
+attempt at this test used `to_thread`, inherited the user I had just set, and
+looked like a cross-user leak that wasn't one. Only a bare `threading.Thread`
+inherits nothing.
 
 The first tenancy run passed 18/18 *with both bugs present*, because I only
 asserted the victim's data was intact and never checked the caller's. A passing

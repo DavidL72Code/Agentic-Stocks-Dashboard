@@ -8,8 +8,14 @@ from __future__ import annotations
 import contextvars, os, pathlib
 from . import db
 
-# set per-request once auth exists; defaults to the local user until then
-_user: contextvars.ContextVar[str] = contextvars.ContextVar("user", default=db.LOCAL_USER_ID)
+# Set per request by auth.UserMiddleware. The DEFAULT MATTERS: it used to be
+# LOCAL_USER_ID, so any code running outside a request context - a bare thread,
+# a background job, a future scheduled brief - silently read one real user's
+# holdings and watchlist instead of failing. contextvars propagate correctly
+# through the agent's fan-out today (tested), but a fail-open default is a bug
+# waiting for the first piece of code that does not inherit the context.
+# GUEST reads nothing and cannot write, so a lost context yields nothing.
+_user: contextvars.ContextVar[str] = contextvars.ContextVar("user", default="guest")
 
 KINDS = ["taxable", "401(k)", "roth ira", "traditional ira", "hsa", "crypto", "other"]
 LEGACY_JSON = pathlib.Path(os.environ.get("STORE_PATH", "data/store.json"))

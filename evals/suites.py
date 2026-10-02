@@ -134,9 +134,16 @@ def suite_data_plane():
 # ───────────────────────── tools ─────────────────────────
 async def suite_tools():
     sys.path.insert(0, "backend")
+    from app import db, store
     from app.tools import TOOLS, DOMAIN_DESC, domain_tools
     from app.models import ToolResult, ToolFailure
     from app.providers import yahoo
+
+    # Say who we are. The portfolio tools read the current user from a
+    # contextvar whose default is now GUEST (which owns nothing), so a suite
+    # that stays anonymous would test them against an empty book and quietly
+    # stop checking they compute anything.
+    store.set_current_user(db.LOCAL_USER_ID)
 
     out = []
     await yahoo.bars("SPY", "5d")          # warm the session
@@ -160,7 +167,8 @@ async def suite_tools():
         if name in ("event_study", "read_across", "correlation"):
             kw = {"other": "AMD"}
         r, kind, ms = await run(name, tick, **kw)
-        out.append({"id": f"tool:{name}", "pass": kind in ("data", "empty"),
+        want = ("data",) if t.domain == "portfolio" else ("data", "empty")
+        out.append({"id": f"tool:{name}", "pass": kind in want,
                     "detail": f"{kind} ({t.domain}{', derived' if t.derived else ''})",
                     "ms": ms, "why": "must return typed data or a typed empty, never raise"})
 
@@ -373,6 +381,10 @@ from fastapi.testclient import TestClient
 from backend.app.main import app
 from backend.app import store, db
 c = TestClient(app)
+# Act as the implicit pre-login user explicitly. The contextvar's default is
+# GUEST now (it used to be this user), and a guest cannot save - which is the
+# point of the change.
+store.set_current_user(db.LOCAL_USER_ID)
 d = store.load()
 d["watchlist"].append("TSM")
 d["portfolios"].append({"id": db.new_id(), "name": "Roth IRA", "kind": "roth ira",
@@ -462,10 +474,15 @@ def suite_sweep(agent: bool = False):
                              ("--agent",) if agent else ())
 
 
-def suite_tenancy():
-    """Can one account reach another's book? (evals/tenancy_probe.py)"""
-    return _subprocess_suite("evals/tenancy_probe.py", "tenancy_probe_ran",
+def suite_tenancy(agent: bool = False):
+    """Can one account reach another's book? (evals/tenancy_probe.py), and can
+    the AGENT be made to (evals/agent_tenancy_probe.py)."""
+    rows = _subprocess_suite("evals/tenancy_probe.py", "tenancy_probe_ran",
                              "cross-account isolation must be tested, not assumed")
+    rows += _subprocess_suite("evals/agent_tenancy_probe.py", "agent_tenancy_probe_ran",
+                              "the agent plane reads the book through a contextvar",
+                              ("--agent",) if agent else ())
+    return rows
 
 
 def suite_login():

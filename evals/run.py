@@ -174,7 +174,7 @@ async def main():
     print("running claim...");        results["Auth"] += suite_claim()
     print("running login sweep...");  results["Sign-in"] = suite_login()
     print("running app sweep...");    results["App sweep"] = suite_sweep(args.agent)
-    print("running tenancy...");      results["Tenancy"] = suite_tenancy()
+    print("running tenancy...");      results["Tenancy"] = suite_tenancy(args.agent)
     print("running data plane...");   results["Data plane"] = suite_data_plane()
     print("running tools...");        results["Tools"] = await suite_tools()
     print("running regressions...");  results["Regressions"] = await suite_regressions()
