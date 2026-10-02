@@ -233,7 +233,37 @@ circuit breaker, a wrong scheme does not crash — it trips, stands down, and yo
 get no cache at all. The only symptom is `cache.l2.paused: true` in
 `/api/health`, so check that after wiring it up.
 
-### Render's own — simplest for this stack
+### Do you actually need it on Render? Probably not yet
+
+Redis earns its place by surviving a restart that kills the in-process cache.
+The two restart on different schedules, which is the whole point:
+
+| Event | How often | L1 (in-process) | L2 (Redis) |
+|---|---|---|---|
+| App spins down | every 15 min idle | lost | survives |
+| App redeploys | every push | lost | survives |
+| Key Value maintenance | occasional | survives | lost |
+
+The entries worth keeping across an app restart are the long ones — EDGAR
+financials, filings, company info, analysts and peers at 24h, logos and the
+ticker map at 7 days. Bars (1h), search (1h), news (15m) and intraday (60s)
+mostly expire between visits anyway.
+
+**On the free plan the maths does not favour it.** Spin-up is about a minute, so
+warming the cache saves a few hundred milliseconds on top of a 60-second boot —
+nobody notices. And if you add a keep-warm ping to stop the spin-down, the app
+never restarts, so L1 never dies and L2 is redundant for a single worker.
+
+It becomes worth wiring up when either is true:
+
+- you are on a paid plan running **more than one worker**, so they share a cache
+  instead of each warming its own;
+- you deploy often enough that losing the 24h and 7d entries each time grates.
+
+Until then `REDIS_URL` can stay unset on Render. It is genuinely useful locally,
+where `docker compose up` provides it and a reload costs a full refetch.
+
+### Render's own, when you do want it
 
 The backend is already on Render, so put the Redis there too: **Dashboard →
 New → Key Value** (older accounts call it Redis). Pick the same region as the
