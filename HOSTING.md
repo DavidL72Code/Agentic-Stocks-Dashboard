@@ -23,6 +23,10 @@ Render's free plan has no persistent disk, so a SQLite file under `DB_PATH` is
 destroyed on every deploy, silently. Set up Turso before anything else
 ([DATABASE.md](DATABASE.md)) and leave `DB_PATH` unset.
 
+Not Render Postgres either: their **free Postgres expires**, where a free Turso
+database does not. That was the original reason for choosing Turso and it still
+holds.
+
 ### 2. Render
 
 Push the repo, then **New → Blueprint** and point it at `render.yaml`. It sets
@@ -59,10 +63,20 @@ likely to be wrong.
 
 ### Two things to watch
 
-- **Render free spins down after ~15 minutes idle**, and the cold start is slow
-  enough that the first request may time out behind the proxy. Paid tier or a
-  keep-warm ping is the fix; it is the same idling problem you get with a free
-  Supabase, moved to the compute side.
+- **Render free spins down after 15 minutes idle and takes about a minute to
+  come back** — their documented figure, not an estimate. Behind a Vercel
+  rewrite that is a problem: Vercel enforces its own timeout on a proxied
+  response, well under a minute on the free plan, so **the first request after
+  an idle period will probably fail rather than wait.** The page loads (Vercel
+  serves it) and every `/api` call under it errors until Render is warm.
+
+  Three ways out, in the order I would try them: a keep-warm ping every ~10
+  minutes (a cron hitting `/api/health`, which is cheap and needs no plan
+  change); Render's paid tier, which does not spin down; or serve the frontend
+  from Render too, so a cold start shows their loading page instead of failing
+  behind a proxy. This is the same idling problem you disliked about free
+  Supabase, moved to the compute side — and the proxy makes it worse, not
+  better.
 - **Long agent requests through the proxy are the untested part.**
   `/api/agent/ask/stream` streams, and an agent run can take 20-60s. Vercel
   imposes its own limits on proxied responses, and I have not verified streaming
@@ -238,8 +252,18 @@ because access is controlled by the network instead. The External string is
 
 Keep `REDIS_TIMEOUT` at the default for internal; it is the same datacentre.
 
-Free tier does not persist data, which is exactly right for a cache — losing it
-costs one refetch.
+**The free plan is real** (checked against Render's docs, Oct 2026), with three
+limits that all happen to be fine for a cache:
+
+- **One free instance per workspace.**
+- **In-memory only** — "whenever an instance restarts, all of its data is lost",
+  and Render may restart it for maintenance whenever they like. For a cache that
+  costs one refetch.
+- **No expiry.** Worth noting because free *Postgres* on Render does expire —
+  another reason the database belongs on Turso rather than here.
+
+Upgrading to a paid plan also wipes the data, so don't start treating it as
+storage.
 
 ### Elsewhere
 
