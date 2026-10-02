@@ -3,6 +3,80 @@
 Nothing here is needed to run locally — `.env.example` covers that. This is
 what changes when the app is reachable from the internet.
 
+## Render (backend) + Vercel (frontend)
+
+The config is committed: [`render.yaml`](render.yaml), [`vercel.json`](vercel.json).
+
+**Vercel proxies `/api/*` through to Render rather than calling it directly.**
+That is the whole design, and it is not an optimisation — it is what keeps
+login working. A Vercel page calling a Render origin directly is a *cross-site*
+request, and the session cookie is `SameSite=Lax`, so the browser would not send
+it. Login would fail with no error anywhere. The usual fix, `SameSite=None` plus
+`allow_credentials=True`, works but discards the CSRF protection Lax gives for
+free — at which point you need CSRF tokens. Proxying avoids all of it: the
+browser sees one origin, the cookie stays same-site, and CORS never enters the
+picture.
+
+### 1. Turso first — it is required here, not optional
+
+Render's free plan has no persistent disk, so a SQLite file under `DB_PATH` is
+destroyed on every deploy, silently. Set up Turso before anything else
+([DATABASE.md](DATABASE.md)) and leave `DB_PATH` unset.
+
+### 2. Render
+
+Push the repo, then **New → Blueprint** and point it at `render.yaml`. It sets
+the start command (`--host 0.0.0.0 --port $PORT`) and a health check on
+`/api/health`. Fill these in the dashboard, since they are secrets:
+
+`GEMINI_API_KEY`, `TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN`, `SEC_USER_AGENT`,
+and `APP_BASE_URL` — which must be your **Vercel** URL, not the Render one,
+because it is your public origin and it decides the cookie's `Secure` flag.
+
+Note the service URL it gives you, e.g. `https://monsoon-api.onrender.com`.
+
+### 3. Vercel
+
+Edit the two `CHANGE-ME.onrender.com` entries in `vercel.json` to that URL, then
+import the repo. No framework preset — `vercel.json` already sets
+`outputDirectory: web` and a build step that stamps the asset version
+(`scripts/build-web.sh`, doing what FastAPI does at serve time).
+
+It also rewrites `/static/*` to `/*`, because `index.html` asks for
+`/static/app.js` — which is where FastAPI mounts it, but Vercel serves `web/`
+at the root.
+
+### 4. Check it actually worked
+
+```bash
+curl -s https://your-app.vercel.app/api/health            # proxy reaches Render
+curl -si https://your-app.vercel.app/api/auth/providers | grep -i set-cookie
+```
+
+Then sign up in the browser, reload, and confirm you are still signed in. That
+single step is what proves the cookie survived the proxy — it is the thing most
+likely to be wrong.
+
+### Two things to watch
+
+- **Render free spins down after ~15 minutes idle**, and the cold start is slow
+  enough that the first request may time out behind the proxy. Paid tier or a
+  keep-warm ping is the fix; it is the same idling problem you get with a free
+  Supabase, moved to the compute side.
+- **Long agent requests through the proxy are the untested part.**
+  `/api/agent/ask/stream` streams, and an agent run can take 20-60s. Vercel
+  imposes its own limits on proxied responses, and I have not verified streaming
+  survives that path. If the Ask box hangs while `curl` against Render directly
+  works, that is the cause — fall back to pointing the client straight at Render
+  (uncomment `window.MONSOON_API` in `index.html`) and accept the SameSite
+  change, or serve the frontend from Render too.
+
+### Fallback: Render only
+
+The backend already serves `web/`, so skipping Vercel is a valid deploy: one
+origin, no proxy, no CORS, nothing to configure. You lose Vercel's CDN. If the
+split gives you trouble, this is the simpler thing that definitely works.
+
 ## The three that will bite you
 
 Read these before the table.

@@ -1,0 +1,40 @@
+# Render blueprint for the Monsoon backend.
+#
+# The frontend is NOT served from here when you deploy the Vercel side - Vercel
+# serves web/ and proxies /api/* back to this service (see vercel.json). This
+# app will happily serve web/ too, which is what makes a Render-only deploy a
+# valid fallback.
+services:
+  - type: web
+    name: monsoon-api
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    # $PORT is assigned by Render; 0.0.0.0 because the default binds loopback
+    # and their router cannot reach that.
+    startCommand: uvicorn app.main:app --app-dir backend --host 0.0.0.0 --port $PORT
+    healthCheckPath: /api/health
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.13.11"
+
+      # Set in the dashboard, not here - these are secrets.
+      - key: GEMINI_API_KEY
+        sync: false
+      # Turso is REQUIRED on Render: the free plan has no persistent disk, so a
+      # SQLite file under DB_PATH is destroyed on every deploy. See DATABASE.md.
+      - key: TURSO_DATABASE_URL
+        sync: false
+      - key: TURSO_AUTH_TOKEN
+        sync: false
+
+      # Your PUBLIC origin - the Vercel domain, not this service's URL. The
+      # session cookie's Secure flag is derived from it, and it is the default
+      # CORS origin.
+      - key: APP_BASE_URL
+        sync: false
+
+      - key: AUTH_ENABLED
+        value: "true"
+      - key: SEC_USER_AGENT
+        sync: false

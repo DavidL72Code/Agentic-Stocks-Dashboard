@@ -25,7 +25,7 @@ const abbr = v => { if (v==null||isNaN(v)) return "—"; const a=Math.abs(v);
        :a>=1e6?(v/1e6).toFixed(1)+"M":a>=1e3?(v/1e3).toFixed(1)+"K":String(v); };
 const sgn = v => v>=0 ? "up" : "dn";
 const LOGO_V = 2;
-const logo = s => `/api/logo/${encodeURIComponent(s)}?v=${LOGO_V}`;
+const logo = s => url(`/api/logo/${encodeURIComponent(s)}?v=${LOGO_V}`);
 const IC = {
   edit:`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>`,
   del:`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6"/></svg>`,
@@ -43,8 +43,22 @@ const S = { route:"dashboard", cur:null, wl:[], q:{}, sparks:{}, pf:null,
             run:null, tabAgent:{}, pending:[], llm:false, brief:null, acct:null, accounts:[], kinds:[],
             basket:[], picked:new Set(), focus:null, compare:null };
 
+/* Where the API lives.
+
+   Same origin by default, which is the case both when FastAPI serves this file
+   itself and when Vercel proxies /api/* through to Render - the browser sees
+   one origin either way, so the session cookie stays same-site and SameSite=Lax
+   keeps protecting against cross-site POSTs.
+
+   Setting window.MONSOON_API (see index.html) points the client at a different
+   origin instead. That path needs the server on SameSite=None with
+   allow_credentials=True, which gives up the Lax CSRF defence - so it exists as
+   an escape hatch, not as the recommended setup. */
+const API = (globalThis.MONSOON_API || "").replace(/\/$/, "");
+const url = path => API + path;
+
 async function api(path, opts) {
-  const r = await fetch(path, opts);
+  const r = await fetch(url(path), {credentials: "include", ...opts});
   if (!r.ok) {
     let msg = "";
     try { const j = JSON.parse(await r.text()); msg = j.detail || j.error || ""; } catch {}
@@ -94,7 +108,7 @@ function toggleAcctMenu() {
   m.onclick = async e => {
     const a = e.target.dataset?.a; if (!a) return;
     closeAcctMenu();
-    if (a === "out") { await fetch("/api/auth/logout", {method:"POST"}); location.reload(); }
+    if (a === "out") { await fetch(url("/api/auth/logout"), {method:"POST", credentials:"include"}); location.reload(); }
     if (a === "pw") changePassword();
   };
   $("acct").appendChild(m);
@@ -1389,7 +1403,7 @@ async function streamAsk(question, tickers) {
   openAgent(true); busy(true); $("answer").innerHTML=""; renderRun({steps:[],findings:[]},true);
   const acc = {steps:[],findings:[]};
   try {
-    const r = await fetch("/api/agent/ask/stream",{method:"POST",
+    const r = await fetch(url("/api/agent/ask/stream"),{method:"POST",credentials:"include",
       headers:{"Content-Type":"application/json"},body:JSON.stringify({question})});
     if (!r.ok) throw new Error(await r.text());
     const rd = r.body.getReader(), dec = new TextDecoder(); let buf="";

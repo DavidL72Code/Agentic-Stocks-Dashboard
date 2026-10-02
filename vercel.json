@@ -1,0 +1,20 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "buildCommand": "sh scripts/build-web.sh",
+  "outputDirectory": "web",
+  "rewrites": [
+    { "source": "/static/:path*", "destination": "/:path*" },
+    { "source": "/api/:path*", "destination": "https://CHANGE-ME.onrender.com/api/:path*" },
+    { "source": "/build", "destination": "https://CHANGE-ME.onrender.com/build" }
+  ],
+  "headers": [
+    {
+      "source": "/(index.html)?",
+      "headers": [{ "key": "Cache-Control", "value": "no-store, must-revalidate" }]
+    },
+    {
+      "source": "/:file(app|charts).js",
+      "headers": [{ "key": "Cache-Control", "value": "public, max-age=31536000, immutable" }]
+    }
+  ]
+}

@@ -1113,6 +1113,11 @@ select.inp option{background:#141824;color:var(--foreground)}
     <div id="tbody"></div>
   </div>
 </div>
+<!-- Same origin by default. Uncomment and set this ONLY if the API is on a
+     different origin than this page, which also needs the server switched to
+     SameSite=None - see HOSTING.md. The Vercel setup proxies /api/* instead,
+     precisely so this stays unnecessary. -->
+<!-- <script>window.MONSOON_API = "https://monsoon-api.onrender.com";</script> -->
 <script type="module" src="/static/app.js?v=__BUILD__"></script>
 </body>
 </html>
