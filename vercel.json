@@ -4,8 +4,8 @@
   "outputDirectory": "web",
   "rewrites": [
     { "source": "/static/:path*", "destination": "/:path*" },
-    { "source": "/api/:path*", "destination": "https://CHANGE-ME.onrender.com/api/:path*" },
-    { "source": "/build", "destination": "https://CHANGE-ME.onrender.com/build" }
+    { "source": "/api/:path*", "destination": "https://agentic-stocks-dashboard.onrender.com/api/:path*" },
+    { "source": "/build", "destination": "https://agentic-stocks-dashboard.onrender.com/build" }
   ],
   "headers": [
     {
