@@ -17,8 +17,8 @@ sse-starlette==3.4.11
 uvicorn==0.54.0
 yfinance==1.7.0
 
-# optional: only needed to run on Turso instead of a local file
-# libsql-experimental>=0.0.55
+# needed on Render (no persistent disk); harmless locally, unused without TURSO_DATABASE_URL
+libsql-experimental>=0.0.55
 
 # optional: only needed to back the market-data cache with Redis
 # redis>=6.0

@@ -122,11 +122,12 @@ doing once you are off the free plan, where the size stops mattering.
 ```bash
 docker compose up --build          # app + redis, http://localhost:8077
 docker build -t monsoon .          # image only
-docker build --build-arg WITH_REDIS=true --build-arg WITH_TURSO=true -t monsoon .
+docker build --build-arg WITH_REDIS=true -t monsoon .
 ```
 
-The optional dependencies are build args rather than edits to
-`requirements.txt`, so the default image stays lean.
+Redis is a build arg rather than an edit to `requirements.txt`, so the default
+image stays lean. The Turso driver is always installed: Render needs it, and
+it does nothing until `TURSO_DATABASE_URL` is set.
 
 **`.dockerignore` is the load-bearing file here**, not boilerplate. A bare
 `COPY . .` without it bakes `.env` (your Gemini key, your Turso token) and
