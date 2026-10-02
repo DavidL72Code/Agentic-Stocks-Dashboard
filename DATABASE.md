@@ -103,6 +103,75 @@ against a local file, because verifying the hosted path needs a Turso account
 and a token, which only you can create. If step 4 fails it will fail loudly at
 startup on the first connect, not silently at runtime.
 
+## Caching (Redis, optional)
+
+Separate question from where the data lives. Market data — quotes, bars, EDGAR
+filings, logos — is cached so a 20-ticker watchlist costs one upstream request.
+By default that cache is an in-process dict: it works, but it dies on every
+restart and is not shared between workers. A dev-server reload cold-starts
+every quote and bar.
+
+Set `REDIS_URL` and it gains a second tier.
+
+```bash
+brew install redis && brew services start redis     # or: docker run -p 6379:6379 redis
+./.venv/bin/pip install redis
+```
+
+```
+REDIS_URL=redis://localhost:6379/0
+```
+
+`GET /api/health` then reports `cache.l2.backend = "redis"` with hit, miss,
+write and error counts, so "is Redis actually being used" is answerable without
+reading the config.
+
+**Two tiers, not a replacement.** The in-process dict stays as L1, so no call
+site changes and a hot read never pays a network hop. Redis is L2: read on an
+L1 miss, written on a fetch, and promoted into L1 on a hit. It all happens
+inside `cached()` in `backend/app/cache.py`, which is the single place TTL
+caching has ever happened.
+
+**What deliberately does NOT move to Redis:** sessions and the login throttle.
+They are already server-side and already revocable in SQLite — see
+[evals/AUTH.md](evals/AUTH.md). Putting them in Redis would buy a faster lookup
+on a table that answers in microseconds, and would make Redis a hard dependency
+for logging in. As scoped, a Redis outage costs cache misses and nothing else.
+
+**What it covers, and what it must not.** L2 caches whatever goes through
+`cached()`: bars, company info, analyst data, earnings calendars, EDGAR
+financials, news and logos. **Live prices are deliberately not cached at all** —
+`quote()` goes straight through the batch loader, which coalesces concurrent
+callers into one upstream request without ever storing the result. A TTL cache
+on prices would serve a stale number, and L2 would make it stale across
+restarts too. `evals/cache_probe.py` asserts this stays true.
+
+Three more details worth knowing before you rely on it:
+
+- **JSON, not pickle.** A pickle read from a shared store lets anything that
+  can write to the keyspace run code in this process. The cost is that values
+  JSON cannot represent are not cached in L2 — `attr(symbol,
+  "earnings_dates")` is one, being a dict keyed by pandas Timestamps. They
+  still cache in L1, and `/api/health` counts the skips under `not_json` so it
+  is visible rather than silent.
+- **There is a circuit breaker.** Without one, a dead Redis adds a connect
+  timeout to *every* cache miss — slower than having no cache. Three
+  consecutive failures and it stands down for 30s; `health` shows `paused:
+  true` and the last error.
+- **Keys look like `monsoon:v1:bars:<sha1>`.** Readable prefix so
+  `redis-cli --scan --pattern 'monsoon:v1:bars:*'` is useful, digest over the
+  whole key tuple so `("a","b:c")` cannot collide with `("a:b","c")` — which a
+  naive `":".join` allows, and which would serve one ticker's data for another.
+
+Free either way: Redis runs locally for nothing, and hosted free tiers
+(Upstash, Redis Cloud) are far larger than this needs — the cache is kilobytes.
+Verify current limits before relying on them.
+
+Tested by `evals/cache_probe.py`, which needs no server: round trips go through
+a real `redis-py` async client against `fakeredis`, and the breaker is tested
+against a genuinely closed port. Point `REDIS_TEST_URL` at a real Redis to run
+the round-trip block against that instead.
+
 ## Postgres
 
 If you end up wanting Postgres — several app servers, or an ops team that

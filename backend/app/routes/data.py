@@ -6,7 +6,7 @@ from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 
 from .. import store
-from ..cache import CACHE
+from ..cache import CACHE, cache_stats
 from fastapi.responses import Response
 
 from ..providers import edgar, logos, sentiment, yahoo
@@ -22,7 +22,7 @@ async def health():
     from .. import db
     return clean({"ok": True, "llm_configured": bool(api_key()), "model": MODEL,
                   "db": db.backend_name(),
-                  "tools": len(TOOLS), "cache": CACHE.stats(),
+                  "tools": len(TOOLS), "cache": cache_stats(),
                   "quote_batches": yahoo.QUOTE_LOADER.batches,
                   "quote_keys_served": yahoo.QUOTE_LOADER.keys_served})
 

@@ -19,3 +19,7 @@ yfinance==1.7.0
 
 # optional: only needed to run on Turso instead of a local file
 # libsql-experimental>=0.0.55
+
+# optional: only needed to back the market-data cache with Redis
+# redis>=6.0
+# fakeredis>=2.39      # dev only - lets evals/cache_probe.py run without a server

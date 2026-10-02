@@ -1,5 +1,5 @@
 from __future__ import annotations
-import logging, pathlib
+import logging, os, pathlib
 
 # Load .env before anything else imports - module-level config (model names,
 # base URL) is read at import time, so this has to happen first.
@@ -22,9 +22,30 @@ logging.basicConfig(level=logging.INFO,
 
 db.ensure_user(db.LOCAL_USER_ID)        # schema init + the implicit local user
 
+# ── CORS ────────────────────────────────────────────────────────────────
+# The UI is served from this same origin, so cross-origin access is not needed
+# for the app to work at all. It used to be allow_origins=["*"], which let any
+# website on the internet read every unauthenticated response (quotes, research,
+# the agent) from a visitor's browser. Not a session-theft hole - credentials
+# were off, so no cookie was ever attached - but it was a standing invitation
+# and it cost nothing to close.
+#
+# Set CORS_ORIGINS to a comma-separated list to serve the UI from elsewhere.
+# Credentials stay OFF: a cross-origin caller must never be able to ride the
+# session cookie, and "*" with credentials is rejected by browsers anyway.
+_base = os.environ.get("APP_BASE_URL", "http://localhost:8077").rstrip("/")
+CORS_ORIGINS = [o.strip().rstrip("/") for o
+                in os.environ.get("CORS_ORIGINS", "").split(",") if o.strip()] or [
+    _base,
+    "http://localhost:8077", "http://127.0.0.1:8077",
+]
+
 app = FastAPI(title="Agentic Fintech", version="0.1")
-app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"],
-                   allow_headers=["*"])
+app.add_middleware(CORSMiddleware,
+                   allow_origins=sorted(set(CORS_ORIGINS)),
+                   allow_credentials=False,
+                   allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
+                   allow_headers=["Content-Type"])
 app.add_middleware(auth.UserMiddleware)
 app.include_router(auth.router)
 app.include_router(auth.me_router)

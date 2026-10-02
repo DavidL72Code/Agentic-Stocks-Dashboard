@@ -47,6 +47,29 @@ def main(run_agent: bool) -> int:
     r = c.get("/build")
     chk("/build", "build_stamp", r.status_code == 200 and r.json().get("build"),
         r.json(), "the footer stamp proves which build you are looking at")
+    print("\n── CORS ──")
+    import backend.app.main as _M
+    evil = "https://evil.example"
+    r = c.get("/api/quotes?symbols=NVDA", headers={"Origin": evil})
+    acao = r.headers.get("access-control-allow-origin")
+    chk("/api/quotes", "cors_rejects_unknown_origin", acao not in ("*", evil),
+        f"allow-origin: {acao!r} for Origin {evil}",
+        "REGRESSION: allow_origins=['*'] let any site read every response")
+    own = sorted(_M.CORS_ORIGINS)[0]
+    r = c.get("/api/quotes?symbols=NVDA", headers={"Origin": own})
+    chk("/api/quotes", "cors_allows_own_origin",
+        r.headers.get("access-control-allow-origin") == own,
+        f"{own} -> {r.headers.get('access-control-allow-origin')!r}", "")
+    chk("/api/quotes", "cors_never_allows_credentials",
+        r.headers.get("access-control-allow-credentials") != "true",
+        r.headers.get("access-control-allow-credentials"),
+        "a cross-origin caller must never be able to ride the session cookie")
+    pre = c.options("/api/watchlist", headers={"Origin": evil,
+                                               "Access-Control-Request-Method": "POST"})
+    chk("/api/watchlist", "cors_preflight_denies_unknown_origin",
+        pre.headers.get("access-control-allow-origin") not in ("*", evil),
+        f"preflight -> {pre.headers.get('access-control-allow-origin')!r}", "")
+
     h = c.get("/api/health").json()
     chk("/api/health", "health", "llm_configured" in h and h.get("tools", 0) >= 40,
         f"llm={h.get('llm_configured')} model={h.get('model')} "

@@ -61,15 +61,28 @@ CREATE TABLE IF NOT EXISTS portfolios (
 );
 CREATE INDEX IF NOT EXISTS ix_portfolios_user ON portfolios(user_id);
 
+-- user_id is denormalised on purpose. This table holds share counts and cost
+-- basis, and it used to be scoped only TRANSITIVELY, through portfolio_id ->
+-- portfolios.user_id. That made isolation depend on every caller resolving the
+-- portfolio first: one query that forgot would read another account's rows.
+-- With the column here, every read filters on it directly, and an invariant
+-- check (see positions_scope_mismatches) proves the two never disagree.
+-- Deletes still cascade via portfolio_id; a second FK would be redundant and
+-- SQLite cannot add one with ALTER TABLE anyway.
 CREATE TABLE IF NOT EXISTS positions (
   id           INTEGER PRIMARY KEY AUTOINCREMENT,
   portfolio_id TEXT NOT NULL REFERENCES portfolios(id) ON DELETE CASCADE,
+  user_id      TEXT,
   ticker       TEXT NOT NULL,
   qty          REAL NOT NULL,
   basis        REAL NOT NULL,
   UNIQUE(portfolio_id, ticker)     -- same ticker in two ACCOUNTS stays two rows
 );
 CREATE INDEX IF NOT EXISTS ix_positions_pf ON positions(portfolio_id);
+-- ix_positions_user lives in POST_SCHEMA, not here. On a database that predates
+-- the column, CREATE TABLE IF NOT EXISTS is a no-op, so this whole script runs
+-- against the OLD positions table - indexing user_id here fails with "no such
+-- column" and the app will not start. POST_SCHEMA runs after ADD_COLUMNS.
 
 CREATE TABLE IF NOT EXISTS watchlist (
   user_id  TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -108,12 +121,29 @@ CREATE TABLE IF NOT EXISTS snapshots (
 ADD_COLUMNS = [
     ("users", "username",      "TEXT"),
     ("users", "password_hash", "TEXT"),
+    ("positions", "user_id",   "TEXT"),
 ]
 POST_SCHEMA = [
     # case-insensitive: "David" and "david" must not be two accounts
     "CREATE UNIQUE INDEX IF NOT EXISTS ux_users_username"
     " ON users(lower(username)) WHERE username IS NOT NULL",
+    "CREATE INDEX IF NOT EXISTS ix_positions_user ON positions(user_id)",
+    # backfill for databases that predate the column; idempotent, so it also
+    # repairs any row a future bug leaves unscoped
+    "UPDATE positions SET user_id = (SELECT f.user_id FROM portfolios f"
+    " WHERE f.id = positions.portfolio_id) WHERE user_id IS NULL",
 ]
+
+
+def positions_scope_mismatches(c=None) -> int:
+    """Rows whose own user_id disagrees with their portfolio's owner, or is
+    missing. The invariant that makes the denormalised column safe to trust;
+    it should always be 0."""
+    c = c or conn()
+    r = c.execute("SELECT COUNT(*) n FROM positions p JOIN portfolios f"
+                  " ON f.id = p.portfolio_id"
+                  " WHERE p.user_id IS NULL OR p.user_id <> f.user_id").fetchone()
+    return r["n"] if hasattr(r, "keys") else r[0]
 
 
 def _migrate(c) -> None:
@@ -325,8 +355,8 @@ def legacy_book_summary(uid: str = LOCAL_USER_ID) -> dict | None:
     if not pr or pr["seeded"]:
         return None
     pfs = c.execute("SELECT COUNT(*) n FROM portfolios WHERE user_id=?", (uid,)).fetchone()["n"]
-    pos = c.execute("SELECT COUNT(*) n FROM positions p JOIN portfolios f"
-                    " ON f.id=p.portfolio_id WHERE f.user_id=?", (uid,)).fetchone()["n"]
+    pos = c.execute("SELECT COUNT(*) n FROM positions WHERE user_id=?",
+                    (uid,)).fetchone()["n"]
     wl = c.execute("SELECT COUNT(*) n FROM watchlist WHERE user_id=?", (uid,)).fetchone()["n"]
     if not (pfs or wl):
         return None
@@ -351,6 +381,7 @@ def adopt_user_data(src_uid: str, dst_uid: str) -> bool:
         # not worth preserving, and it is also what collides on name.
         pr = c.execute("SELECT seeded FROM prefs WHERE user_id=?", (dst_uid,)).fetchone()
         if pr and pr["seeded"]:
+            c.execute("DELETE FROM positions WHERE user_id=?", (dst_uid,))
             c.execute("DELETE FROM portfolios WHERE user_id=?", (dst_uid,))
         c.execute("DELETE FROM prefs WHERE user_id=?", (dst_uid,))
 
@@ -376,7 +407,7 @@ def adopt_user_data(src_uid: str, dst_uid: str) -> bool:
                       " VALUES(?,?,?)", (dst_uid, r["ticker"], r["added_at"]))
         c.execute("DELETE FROM watchlist WHERE user_id=?", (src_uid,))
 
-        for t in ("portfolios", "prefs", "snapshots"):
+        for t in ("portfolios", "prefs", "snapshots", "positions"):
             c.execute(f"UPDATE {t} SET user_id=? WHERE user_id=?", (dst_uid, src_uid))
     return True
 
@@ -387,9 +418,9 @@ def delete_user(uid: str) -> None:
     c = conn()
     with c:
         c.execute("PRAGMA foreign_keys=ON")
-        for t in ("positions",):          # positions reach users only via portfolios
-            c.execute(f"DELETE FROM {t} WHERE portfolio_id IN"
-                      " (SELECT id FROM portfolios WHERE user_id=?)", (uid,))
+        # positions carry user_id now, so this is a direct delete rather than a
+        # subquery through portfolios
+        c.execute("DELETE FROM positions WHERE user_id=?", (uid,))
         c.execute("DELETE FROM users WHERE id=?", (uid,))
 
 
@@ -416,9 +447,13 @@ def read_doc(uid: str) -> dict:
     ensure_user(uid)
     pfs = []
     for p in c.execute("SELECT * FROM portfolios WHERE user_id=? ORDER BY created_at", (uid,)):
+        # both predicates, deliberately: portfolio_id is the relationship,
+        # user_id is the guard. A row that somehow belongs to someone else is
+        # not returned even if it hangs off this portfolio.
         pos = [dict(ticker=r["ticker"], qty=r["qty"], basis=r["basis"])
                for r in c.execute("SELECT ticker,qty,basis FROM positions"
-                                  " WHERE portfolio_id=? ORDER BY id", (p["id"],))]
+                                  " WHERE portfolio_id=? AND user_id=?"
+                                  " ORDER BY id", (p["id"], uid))]
         pfs.append({"id": p["id"], "name": p["name"], "kind": p["kind"], "positions": pos})
     wl = [r["ticker"] for r in c.execute(
         "SELECT ticker FROM watchlist WHERE user_id=? ORDER BY added_at", (uid,))]
@@ -457,17 +492,19 @@ def write_doc(uid: str, d: dict, touched: bool = True) -> None:
                       " ON CONFLICT(id) DO UPDATE SET name=excluded.name, kind=excluded.kind",
                       (p["id"], uid, p["name"], p.get("kind"), time.time()))
             tickers = {x["ticker"] for x in p.get("positions", [])}
-            for r in c.execute("SELECT ticker FROM positions WHERE portfolio_id=?",
-                               (p["id"],)).fetchall():
+            for r in c.execute("SELECT ticker FROM positions"
+                               " WHERE portfolio_id=? AND user_id=?",
+                               (p["id"], uid)).fetchall():
                 if r["ticker"] not in tickers:
                     c.execute("DELETE FROM positions WHERE portfolio_id=? AND ticker=?",
                               (p["id"], r["ticker"]))
             for x in p.get("positions", []):
-                c.execute("INSERT INTO positions(portfolio_id,ticker,qty,basis)"
-                          " VALUES(?,?,?,?)"
+                c.execute("INSERT INTO positions(portfolio_id,user_id,ticker,qty,basis)"
+                          " VALUES(?,?,?,?,?)"
                           " ON CONFLICT(portfolio_id,ticker)"
-                          " DO UPDATE SET qty=excluded.qty, basis=excluded.basis",
-                          (p["id"], x["ticker"], x["qty"], x["basis"]))
+                          " DO UPDATE SET qty=excluded.qty, basis=excluded.basis,"
+                          " user_id=excluded.user_id",
+                          (p["id"], uid, x["ticker"], x["qty"], x["basis"]))
 
         wl = d.get("watchlist", [])
         c.execute("DELETE FROM watchlist WHERE user_id=?", (uid,))

@@ -164,12 +164,65 @@ def main() -> int:
     print("\n── what the database itself enforces ──")
     cols = {r_["name"] if hasattr(r_, "keys") else r_[1]
             for r_ in db.conn().execute("PRAGMA table_info(positions)").fetchall()}
-    chk("positions_has_no_user_column", "user_id" not in cols, sorted(cols),
-        "positions is scoped TRANSITIVELY via portfolio_id - the weak link, and "
-        "the reason these checks exist")
+    chk("positions_carries_user_id", "user_id" in cols, sorted(cols),
+        "positions used to be scoped only TRANSITIVELY via portfolio_id, so "
+        "isolation depended on every caller resolving the portfolio first")
+    chk("positions_scope_invariant_holds", db.positions_scope_mismatches() == 0,
+        f"{db.positions_scope_mismatches()} rows disagree with their portfolio's owner",
+        "the denormalised column is only safe if it can never drift")
+    rows = db.conn().execute("SELECT user_id, COUNT(*) n FROM positions"
+                             " GROUP BY user_id").fetchall()
+    owners = {r_["user_id"]: r_["n"] for r_ in rows}
+    chk("every_position_row_is_owned", None not in owners, owners,
+        "a NULL owner would be invisible to a user_id filter")
+    a_uid = db.user_by_username("alice")["id"]
+    direct = db.conn().execute("SELECT ticker FROM positions WHERE user_id=?",
+                               (a_uid,)).fetchall()
+    chk("direct_user_scoped_query_works",
+        {r_["ticker"] for r_ in direct} and "XOM" not in {r_["ticker"] for r_ in direct},
+        f"alice's rows by user_id alone: {sorted(r_['ticker'] for r_ in direct)}",
+        "the whole point of the column: scoping without a join")
     fk = db.conn().execute("PRAGMA foreign_keys").fetchone()
     chk("foreign_keys_enforced", (fk["foreign_keys"] if hasattr(fk, "keys") else fk[0]) == 1,
         "ON", "cascade deletes rely on this being on")
+
+    print("\n── the backfill, on a database that predates the column ──")
+    import shutil, sqlite3, subprocess, tempfile
+    with tempfile.TemporaryDirectory() as tmp:
+        old = os.path.join(tmp, "old.db")
+        # build a pre-migration database by hand: positions WITHOUT user_id
+        k = sqlite3.connect(old)
+        k.executescript("""
+          CREATE TABLE users(id TEXT PRIMARY KEY, email TEXT, name TEXT,
+            provider TEXT, provider_id TEXT, created_at REAL NOT NULL);
+          CREATE TABLE portfolios(id TEXT PRIMARY KEY, user_id TEXT NOT NULL,
+            name TEXT NOT NULL, kind TEXT, created_at REAL NOT NULL);
+          CREATE TABLE positions(id INTEGER PRIMARY KEY AUTOINCREMENT,
+            portfolio_id TEXT NOT NULL, ticker TEXT NOT NULL,
+            qty REAL NOT NULL, basis REAL NOT NULL, UNIQUE(portfolio_id,ticker));
+          INSERT INTO users VALUES('u1',NULL,'One','local','u1',0),
+                                  ('u2',NULL,'Two','local','u2',0);
+          INSERT INTO portfolios VALUES('p1','u1','A',NULL,0),('p2','u2','B',NULL,0);
+          INSERT INTO positions(portfolio_id,ticker,qty,basis)
+            VALUES('p1','KO',1,1),('p1','PEP',2,2),('p2','XOM',3,3);
+        """)
+        k.commit()
+        k.close()
+        probe = ("import sys;sys.path.insert(0,'backend');from app import db;"
+                 "c=db.conn();"
+                 "print(sorted((r['user_id'],r['ticker']) for r in "
+                 "c.execute('SELECT user_id,ticker FROM positions')));"
+                 "print(db.positions_scope_mismatches())")
+        r = subprocess.run([sys.executable, "-c", probe],
+                           env={**os.environ, "DB_PATH": old},
+                           capture_output=True, text=True, cwd=os.getcwd())
+        lines = [x for x in r.stdout.strip().splitlines() if x]
+    want = "[('u1', 'KO'), ('u1', 'PEP'), ('u2', 'XOM')]"
+    chk("backfill_assigns_the_right_owner", lines and lines[0] == want,
+        lines[0] if lines else (r.stderr or "")[-110:],
+        "an existing install must come up with every row correctly owned")
+    chk("backfill_leaves_no_mismatch", len(lines) > 1 and lines[1] == "0",
+        lines[1] if len(lines) > 1 else "no output", "")
 
     n = sum(x["pass"] for x in R)
     print(f"\n{n}/{len(R)} checks passed")

@@ -474,6 +474,14 @@ def suite_sweep(agent: bool = False):
                              ("--agent",) if agent else ())
 
 
+def suite_cache():
+    """The optional Redis cache tier (evals/cache_probe.py). Needs no server:
+    round trips go through a real redis-py client against fakeredis, and the
+    circuit breaker is tested against a genuinely closed port."""
+    return _subprocess_suite("evals/cache_probe.py", "cache_probe_ran",
+                             "an optional tier must not change the default install")
+
+
 def suite_tenancy(agent: bool = False):
     """Can one account reach another's book? (evals/tenancy_probe.py), and can
     the AGENT be made to (evals/agent_tenancy_probe.py)."""

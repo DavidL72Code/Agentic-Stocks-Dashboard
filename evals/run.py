@@ -16,7 +16,7 @@ try:
 except ImportError:
     pass
 from evals.suites import (api, sign_in_for_evals, suite_auth, suite_claim, suite_login,  # noqa: E402
-                          suite_sweep, suite_tenancy,
+                          suite_sweep, suite_tenancy, suite_cache,
                           suite_data_plane, suite_regressions, suite_tools)
 from evals.rubric import score_all, judge  # noqa: E402
 
@@ -175,6 +175,7 @@ async def main():
     print("running login sweep...");  results["Sign-in"] = suite_login()
     print("running app sweep...");    results["App sweep"] = suite_sweep(args.agent)
     print("running tenancy...");      results["Tenancy"] = suite_tenancy(args.agent)
+    print("running cache...");        results["Cache"] = suite_cache()
     print("running data plane...");   results["Data plane"] = suite_data_plane()
     print("running tools...");        results["Tools"] = await suite_tools()
     print("running regressions...");  results["Regressions"] = await suite_regressions()
