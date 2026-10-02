@@ -2,6 +2,58 @@
 
 Agentic research terminal. Broker-style dashboard, multi-agent research engine.
 
+## Architecture
+
+**The problem.** A dashboard needs a live number in every tile. An LLM in that
+path would be slow, cost tokens per refresh, and can invent a figure. But the
+questions worth asking — "how is this performing", "does that peer's earnings
+move my stock" — need reasoning over many sources at once.
+
+**The design.** Split them. Nothing that renders a number touches a model;
+nothing that reasons touches the UI's hot path.
+
+```mermaid
+flowchart TD
+    UI([Browser]) --> R
+    UI --> RT
+
+    subgraph DP["DATA PLANE &mdash; no LLM, no tokens"]
+        R["/api/quotes &middot; /bars &middot; /financials<br/>/portfolio &middot; /brief &middot; /related"]
+        R --> T["42 tools &rarr; batch loader + TTL cache<br/>Yahoo &middot; SEC EDGAR &middot; CNN"]
+        R --> DB[("SQLite / Turso<br/>users &middot; portfolios &middot; positions &middot; sessions")]
+    end
+
+    subgraph AP["AGENT PLANE &mdash; LLM"]
+        RT["guard &rarr; router"] -->|"Send: 7 domains in parallel"| D["market &middot; fundamentals &middot; street &middot; events<br/>relations &middot; macro &middot; portfolio<br/><i>each: select &rarr; gather &rarr; synthesize</i>"]
+        D --> W["writer &rarr; grounding gate<br/><i>figure not in evidence &rarr; repair</i>"]
+    end
+
+    D -. the same 42 tools .-> T
+```
+
+**Multi-agent vs plain tool calling**
+
+| | What | Why |
+|---|---|---|
+| **Multi-agent** | `/api/agent/ask` — router fans out to 7 domain subgraphs in parallel, each `select → gather → synthesize` | Each domain sees only its own tool catalog and its own evidence, never another's. Measured against one-agent-per-tool on the same questions: **~1/4 the LLM calls and ~35% of the tokens** ([ABLATION.md](evals/ABLATION.md)). |
+| **Single-agent tool calling** | `/api/agent/analyze` — one domain subgraph, no router, no writer. 1–2 LLM calls. | The per-tab Analyze button already knows its domain, so routing would be waste. |
+| **No LLM at all** | every endpoint the UI renders from | Deterministic, cacheable, free. A 20-ticker watchlist is **one** HTTP request and zero tokens. |
+
+**Why it is built this way**
+
+- **Grounding is a gate, not a hope.** Every figure in an answer is checked
+  against the evidence that produced it; an unsupported one goes back for repair
+  before the answer ships.
+- **Relationships are measured in code, explained by the model.** Asked cold, an
+  LLM will assert that two AI names move together. The peer and event-study
+  tools compute correlation, beta and a baseline, and the model only narrates
+  what came back.
+- **Database: SQLite**, one file, no server ([DATABASE.md](DATABASE.md)). Every
+  row is scoped to a `user_id`, enforced in the application and tested by a
+  probe that has one account attack another's ([SECURITY.md](SECURITY.md)).
+  Set `TURSO_DATABASE_URL` to run the same schema hosted. Redis is an optional
+  second cache tier, off by default.
+
 ## Accounts
 
 Sign-in is username + password (argon2id). Google sign-in is scaffolded in
@@ -79,34 +131,8 @@ a SQLite database on every deploy, `APP_BASE_URL` is what decides whether your
 session cookie is marked `Secure`, and your host assigns the port. Full env
 table and the gotchas: [HOSTING.md](HOSTING.md).
 
-## Database
 
-A local SQLite file (`data/monsoon.db`), created on first run, ignored by git.
-No server, no setup. To host it instead — Turso's free tier is libSQL, speaks
-the same dialect, and **does not pause a database for inactivity** — see
-[DATABASE.md](DATABASE.md). The schema and every query stay the same; only
-where `conn()` points changes.
 
-## Two planes
-
-| | LLM? | What |
-|---|---|---|
-| **Data plane** | no | every tile, chart, tab, P&L number. `/api/quotes`, `/api/bars`, `/api/financials`, … |
-| **Agent plane** | yes | `/api/agent/ask`, `/api/agent/analyze` only |
-
-A 20-ticker watchlist costs **one** HTTP request and zero tokens.
-
-## Multi-agent structure
-
-```
-guard -> route -> Send(N domain subgraphs, parallel) -> writer
-                    each: select -> gather -> synthesize
-```
-
-7 domains (`market`, `fundamentals`, `street`, `events`, `relations`, `macro`,
-`portfolio`), 41 tools.
-Each domain agent sees only its own catalog and its own evidence — never
-another's. That isolation is the multi-agent part.
 
 ## Data sources
 
@@ -136,6 +162,6 @@ watched fail proves nothing. Reports land in `evals/REPORT.md`.
 | App sweep | every route end to end on a throwaway db — [evals/SWEEP.md](evals/SWEEP.md) |
 | Tenancy | one account attacking another's ids — [SECURITY.md](SECURITY.md) |
 | Auth + Sign-in | hashing, throttling, the whole login round trip — [evals/AUTH.md](evals/AUTH.md) |
-| Data plane / Tools | the 41 tools and the endpoints the UI reads |
+| Data plane / Tools | the 42 tools and the endpoints the UI reads |
 | Regressions | one case per bug found during the build, each saying which |
 | Agent | the golden set, routing and grounding (spends tokens) |
