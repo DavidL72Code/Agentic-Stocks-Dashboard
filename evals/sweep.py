@@ -47,6 +47,24 @@ def main(run_agent: bool) -> int:
     r = c.get("/build")
     chk("/build", "build_stamp", r.status_code == 200 and r.json().get("build"),
         r.json(), "the footer stamp proves which build you are looking at")
+    print("\n── no API response may be CDN-cached ──")
+    # Vercel caches rewrites to external origins BY DEFAULT and honours
+    # upstream cache-control. Nothing here sent any, so /api/me and
+    # /api/portfolio could have been cached at the edge and served to a
+    # different visitor - the cross-user leak the tenancy probe guards, one
+    # layer up where no application test would have seen it.
+    for ep in ("/api/me", "/api/portfolio", "/api/watchlist",
+               "/api/quotes?symbols=NVDA", "/api/health"):
+        h = c.get(ep).headers
+        cc = (h.get("cache-control") or "").lower()
+        chk(ep.split("?")[0], f"no_store{ep.split('?')[0].replace('/', '_')}",
+            "no-store" in cc and "private" in cc, cc or "MISSING",
+            "a per-user response cached by a CDN is served to the wrong person")
+    chk("/api/me", "varies_on_cookie",
+        "cookie" in (c.get("/api/me").headers.get("vary") or "").lower(),
+        c.get("/api/me").headers.get("vary"),
+        "the response depends on the session cookie; any cache must know that")
+
     print("\n── CORS ──")
     import backend.app.main as _M
     evil = "https://evil.example"

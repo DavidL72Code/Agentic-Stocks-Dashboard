@@ -57,8 +57,49 @@ const S = { route:"dashboard", cur:null, wl:[], q:{}, sparks:{}, pf:null,
 const API = (globalThis.MONSOON_API || "").replace(/\/$/, "");
 const url = path => API + path;
 
+/* A free Render service sleeps after 15 idle minutes and takes about a minute
+   to wake. Behind a proxy that first request fails rather than waits, so the
+   page would load and every call under it would error - looking broken when it
+   is only asleep. Retry the transient shapes (network error, 502/503/504) with
+   backoff, and say so on screen instead of failing silently. */
+const WAKE_MS = 90_000, WAKE_CODES = new Set([502, 503, 504]);
+let waking = false;
+
+function wakingBanner(on) {
+  if (on === waking) return;
+  waking = on;
+  let el = $("waking");
+  if (on && !el) {
+    el = document.createElement("div");
+    el.id = "waking";
+    el.className = "guestbar";
+    el.style.cssText = "position:fixed;left:50%;transform:translateX(-50%);" +
+      "top:14px;z-index:95;max-width:min(560px,92vw)";
+    el.innerHTML = `<span>Waking the server &mdash; it sleeps when idle and takes
+      about a minute. Nothing is wrong.</span>`;
+    document.body.appendChild(el);
+  } else if (!on && el) { el.remove(); }
+}
+
 async function api(path, opts) {
+  const started = Date.now();
+  let wait = 1500;
+  for (;;) {
+    try {
+      return await apiOnce(path, opts);
+    } catch (e) {
+      const transient = e.status === undefined || WAKE_CODES.has(e.status);
+      if (!transient || Date.now() - started > WAKE_MS) { wakingBanner(false); throw e; }
+      wakingBanner(true);
+      await new Promise(r => setTimeout(r, wait));
+      wait = Math.min(wait * 1.6, 8000);
+    }
+  }
+}
+
+async function apiOnce(path, opts) {
   const r = await fetch(url(path), {credentials: "include", ...opts});
+  if (r.ok) wakingBanner(false);
   if (!r.ok) {
     let msg = "";
     try { const j = JSON.parse(await r.text()); msg = j.detail || j.error || ""; } catch {}

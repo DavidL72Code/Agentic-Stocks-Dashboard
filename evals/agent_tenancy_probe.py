@@ -89,10 +89,15 @@ async def main(run_agent: bool) -> int:
                                    TOOLS["concentration"].fn("", account="all"))
         blob = json.dumps([getattr(r, "data", None) for r in res])
         others = [o for o, (otk, _, _) in BOOKS.items() if o != user and otk in blob]
+        # The detail used to hardcode "{tk} present", so it printed a
+        # pass-shaped message while the check failed on exactly that condition.
+        # A detail line that does not read the same predicate as the assertion
+        # is worse than no detail.
         chk(f"tools_see_only_{user}s_book",
             tk in blob and not others and LOCAL_MARK not in blob,
-            f"{tk} present, foreign {others or 'none'}, local-leak "
-            f"{'YES' if LOCAL_MARK in blob else 'no'}",
+            f"own {tk}: {'present' if tk in blob else 'MISSING (upstream data?)'}"
+            f", foreign {others or 'none'}"
+            f", local-leak {'YES' if LOCAL_MARK in blob else 'no'}",
             "parallel tool execution must inherit the caller's context")
 
     print("\n── concurrent requests must not cross over ──")

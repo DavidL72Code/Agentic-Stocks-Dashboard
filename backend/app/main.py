@@ -46,6 +46,25 @@ app.add_middleware(CORSMiddleware,
                    allow_credentials=False,
                    allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
                    allow_headers=["Content-Type"])
+
+@app.middleware("http")
+async def no_store_api(request, call_next):
+    """Never let a CDN or proxy cache an API response.
+
+    Not theoretical. Vercel caches rewrites to external origins by default and
+    honours upstream cache-control, and nothing here was sending any - so
+    /api/me and /api/portfolio could have been cached at the edge and served to
+    a different visitor. That is the cross-user leak the tenancy probe exists to
+    prevent, reintroduced one layer up where no application test would see it.
+    Cheap to state explicitly, and correct behind any proxy, not just Vercel.
+    """
+    resp = await call_next(request)
+    if request.url.path.startswith("/api/"):
+        resp.headers["Cache-Control"] = "no-store, private"
+        resp.headers["Vary"] = "Cookie"
+    return resp
+
+
 app.add_middleware(auth.UserMiddleware)
 app.include_router(auth.router)
 app.include_router(auth.me_router)

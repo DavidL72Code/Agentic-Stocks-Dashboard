@@ -9,6 +9,14 @@
   ],
   "headers": [
     {
+      "comment": "Vercel caches external rewrites by default and honours upstream cache-control. The backend sends no-store, but an API response must never be CDN-cached even if that ever regresses - /api/me and /api/portfolio are per-user.",
+      "source": "/api/:path*",
+      "headers": [
+        { "key": "x-vercel-enable-rewrite-caching", "value": "0" },
+        { "key": "Cache-Control", "value": "no-store, private" }
+      ]
+    },
+    {
       "source": "/(index.html)?",
       "headers": [{ "key": "Cache-Control", "value": "no-store, must-revalidate" }]
     },
