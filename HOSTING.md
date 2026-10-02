@@ -219,6 +219,30 @@ circuit breaker, a wrong scheme does not crash — it trips, stands down, and yo
 get no cache at all. The only symptom is `cache.l2.paused: true` in
 `/api/health`, so check that after wiring it up.
 
+### Render's own — simplest for this stack
+
+The backend is already on Render, so put the Redis there too: **Dashboard →
+New → Key Value** (older accounts call it Redis). Pick the same region as the
+web service, then copy the **Internal** connection string into the
+`monsoon-api` service's env as `REDIS_URL`.
+
+```
+REDIS_URL=redis://red-xxxxxxxxxxxx:6379
+```
+
+Internal is the one you want, for three reasons: it stays on Render's private
+network so there is no egress or extra latency, it needs **no TLS** — so the
+`rediss://` trap above cannot catch you — and it carries no password in the URL,
+because access is controlled by the network instead. The External string is
+`rediss://` with credentials and is only for reaching it from your laptop.
+
+Keep `REDIS_TIMEOUT` at the default for internal; it is the same datacentre.
+
+Free tier does not persist data, which is exactly right for a cache — losing it
+costs one refetch.
+
+### Elsewhere
+
 **Upstash** — create a database; the console shows a connection string under
 the Redis tab. It already starts `rediss://` and embeds the password:
 
@@ -240,9 +264,6 @@ REDIS_URL=rediss://default:<password>@redis-12345.c1.us-east-1-2.ec2.cloud.redis
 **Railway** — add a Redis service and it injects `REDIS_URL` into your app
 automatically; reference it rather than pasting a literal. Use the internal
 hostname if offered, so traffic stays on their network.
-
-**Render** — add a Redis instance and copy the *Internal* connection string.
-The external one leaves their network and costs latency.
 
 **Fly.io** — `fly redis create` prints the URL once, at creation. Save it then;
 it is not shown again.

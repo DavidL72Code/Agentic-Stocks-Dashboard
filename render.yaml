@@ -38,3 +38,19 @@ services:
         value: "true"
       - key: SEC_USER_AGENT
         sync: false
+
+      # Optional cache tier. Easiest route is the dashboard: New -> Key Value
+      # (older accounts say Redis), same region, then paste its INTERNAL
+      # connection string here as REDIS_URL. Internal needs no TLS and carries
+      # no password, so the rediss:// trap cannot catch you.
+      #
+      # Declaring it in this blueprint instead would wire it automatically,
+      # something like the block below - but Render renamed the type and I have
+      # not verified which name your account accepts, and a wrong blueprint
+      # fails the whole deploy. Use the dashboard unless you want to test it.
+      #
+      # - key: REDIS_URL
+      #   fromService:
+      #     type: redis          # or keyvalue, depending on the account
+      #     name: monsoon-cache
+      #     property: connectionString
