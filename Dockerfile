@@ -22,11 +22,10 @@ ENV PATH="/opt/venv/bin:$PATH"
 COPY requirements.txt .
 RUN pip install -r requirements.txt
 
-# Optional extras, on by build arg rather than by editing the file.
+# Optional extra, on by build arg rather than by editing the file. The Turso
+# driver is no longer one: it is in requirements.txt, since Render needs it.
 ARG WITH_REDIS=false
-ARG WITH_TURSO=false
-RUN if [ "$WITH_REDIS" = "true" ]; then pip install "redis>=6.0"; fi \
- && if [ "$WITH_TURSO" = "true" ]; then pip install "libsql-experimental>=0.0.55"; fi
+RUN if [ "$WITH_REDIS" = "true" ]; then pip install "redis>=6.0"; fi
 
 
 FROM python:3.13-slim

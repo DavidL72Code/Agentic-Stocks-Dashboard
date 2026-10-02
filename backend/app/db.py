@@ -216,8 +216,18 @@ class _Conn:
         return _Cursor(self._raw.execute(sql, params))
 
     def executescript(self, script):
-        for stmt in (x.strip() for x in script.split(";")):
-            if stmt and not stmt.upper().startswith("PRAGMA"):
+        # Not script.split(";"): a ";" inside a comment would cut a statement in
+        # half, and hosted Turso rejects a comment-only chunk as SQL_PARSE_ERROR.
+        # complete_statement() is SQLite's own tokenizer, so it skips comments.
+        buf = ""
+        for line in script.splitlines(keepends=True):
+            buf += line
+            if not sqlite3.complete_statement(buf):
+                continue
+            stmt = "\n".join(l for l in buf.splitlines()
+                             if not l.strip().startswith("--")).strip()
+            buf = ""
+            if stmt.rstrip(";").strip() and not stmt.upper().startswith("PRAGMA"):
                 self._raw.execute(stmt)
         self._raw.commit()
 

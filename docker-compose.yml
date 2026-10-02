@@ -17,7 +17,6 @@ services:
       context: .
       args:
         WITH_REDIS: "true"
-        WITH_TURSO: "false"
     ports:
       - "8077:8077"
     env_file:

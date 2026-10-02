@@ -44,8 +44,10 @@ turso db tokens create monsoon       # a long-lived auth token
 
 ### 3. Install the driver
 
+It is in `requirements.txt`, so a normal install already has it:
+
 ```bash
-./.venv/bin/pip install libsql-experimental
+./.venv/bin/pip install -r requirements.txt
 ```
 
 ### 4. Point the app at it
@@ -93,15 +95,21 @@ shim in `db.py` (`_Row`, `_Cursor`, `_Conn`) absorbs those three differences in
 one place instead of rewriting forty call sites. `PRAGMA journal_mode` is
 dropped on the remote path, where the journal is the server's business.
 
-**Verified end to end against the libSQL driver** — register, sign in, sign out
-and back in with state intact, watchlist, named accounts, positions, portfolio
-valuation, login throttle, password rotation. All nine tables are created by
-the same `SCHEMA` string the local path uses.
+**Verified against a hosted Turso database** (us-east-1, 2026-10-02): connect
+and schema creation in 2.35s; all eight tables match the local file column for
+column, plus all five `ix_` indexes; a user write/read, a session round trip and
+a delete all succeed.
 
-The one leg not verified here is the network itself: the run above used libSQL
-against a local file, because verifying the hosted path needs a Turso account
-and a token, which only you can create. If step 4 fails it will fail loudly at
-startup on the first connect, not silently at runtime.
+An earlier note here claimed end-to-end verification when the run had used
+libSQL against a local *file*. That missed a real bug: the shim split `SCHEMA`
+on every `;`, and one comment contains a `;`. That cut the `positions` table in
+half and left a comment-only chunk, which hosted Turso rejects with
+`SQL_PARSE_ERROR` on the first connect. `_Conn.executescript` now splits with
+`sqlite3.complete_statement`, SQLite's own tokenizer, which skips comments.
+
+Not yet re-run on the hosted path: the full flow listed above (register, sign
+in/out, watchlist, named accounts, valuation, login throttle, password
+rotation). If something fails it fails loudly on first connect, not silently.
 
 ## Caching (Redis, optional)
 
