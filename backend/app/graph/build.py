@@ -29,6 +29,11 @@ Rules:
 - Fundamentals update quarterly, so they cannot explain a single day's move.
 - `relations` is for questions about how one ticker affects ANOTHER (read-across,
   peers, correlation). If used, set "other" in args to the second ticker.
+- If the question asks how a stock is PERFORMING or DOING, or compares it to
+  another name, include `relations` alongside `market`. A return on its own is
+  not an answer: the peer cohort's return and a beta adjustment are what make it
+  mean anything, since a high-beta name outruns a low-beta one in any rising
+  market without doing anything well.
 - `macro` needs NO ticker. For a question about the market as a whole - "why is
   everything down", "what moved markets today", rates, the Fed, jobs, policy -
   emit a single macro task with "ticker": "MARKET".
@@ -99,6 +104,14 @@ reads well, return it close to unchanged.
 
 Reply with ONLY JSON: {"answer": "..."}"""
 
+
+# Questions that cannot be answered honestly without a peer comparison.
+# "how is it trading" is included; "what is the price" deliberately is not -
+# that is a lookup, not a judgement about performance.
+PERF_RE = re.compile(
+    r"\b(perform\w*|doing|compare[sd]?|comparison|versus|vs\.?|against|"
+    r"out ?perform\w*|under ?perform\w*|beat\w*|lag\w*|better|worse|"
+    r"relative|trailing|ahead of|behind)\b", re.I)
 
 TICKER_RE = re.compile(r"\b[A-Z]{1,5}\b")
 # Words that are written in caps but are not tickers. Short, because the real
@@ -191,6 +204,22 @@ async def route(state: ResearchState) -> dict:
         for miss in [x for x in sel if x not in covered]:
             tasks.append(Task(id=f"s{len(tasks)}", domain="market", ticker=miss,
                               question=state["question"], tools=[], args={}))
+
+    # A performance question ALWAYS gets the peer cohort. The route prompt asks
+    # for this, and a small model ignores it about half the time - so it is
+    # enforced here rather than hoped for. A bare return is not an answer to
+    # "how is it doing": the cohort's return and a beta adjustment are what make
+    # it mean anything, since a high-beta name outruns a low-beta one in any
+    # rising market without doing anything well.
+    if tasks and PERF_RE.search(state["question"]):
+        have = {(t["domain"], t["ticker"]) for t in tasks}
+        for sym in sorted({t["ticker"] for t in tasks if t["ticker"] != "MARKET"}):
+            if ("relations", sym) not in have:
+                tasks.append(Task(
+                    id=f"p{len(tasks)}", domain="relations", ticker=sym,
+                    question=f"How does {sym} compare with its peer cohort over the "
+                             f"last year, adjusted for beta and company size?",
+                    tools=[], args={}))
 
     degraded = ""
     if not tasks:   # fallback: pull a ticker out of the text, ask market only

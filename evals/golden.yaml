@@ -47,6 +47,13 @@ agent:
     must_be_grounded: true
     why: "calendar and estimates are events-domain"
 
+  - id: performance_pulls_peers
+    q: "How is NVDA performing?"
+    tickers: [NVDA]
+    expect_domains: [relations]
+    must_be_grounded: true
+    why: "a return is not comparable without the peer cohort and a beta adjustment"
+
   - id: explicit_selection
     q: "Which of these is priced most aggressively?"
     tickers: [NVDA, AMD, AVGO]
