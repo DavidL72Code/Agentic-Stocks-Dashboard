@@ -200,6 +200,8 @@ async def suite_tools():
 # ───────────────────────── regressions ─────────────────────────
 async def suite_regressions():
     sys.path.insert(0, "backend")
+    from app.tools import TOOLS as TOOLS_FOR_PERF
+    sys.path.insert(0, "backend")
     from app.routes.data import _ticker_signals, BIG_MOVE_PCT
     from app.tools import relations
     from app.providers import yahoo
@@ -321,6 +323,41 @@ async def suite_regressions():
     add("readability_ignores_names", good["score"] >= 5 and soup["score"] <= 2,
         f"good={good['score']}/5 soup={soup['score']}/5",
         "REGRESSION: '52-week' counted as a figure, penalising correct prose")
+
+    # performance must be comparable, not just reported
+    pp = await TOOLS_FOR_PERF["peer_performance"].fn("NVDA", period="1y")
+    d = getattr(pp, "data", {}) or {}
+    sub, coh = d.get("subject") or {}, d.get("cohort") or {}
+    add("peer_perf_has_cohort", (coh.get("peers_measured") or 0) >= 3,
+        f"{coh.get('peers_measured')} peers measured",
+        "a return with nothing to compare it to is not a performance answer")
+    add("peer_perf_beta_adjusts",
+        sub.get("beta_adjusted_excess_pct") is not None and sub.get("beta_vs_spy"),
+        f"beta {sub.get('beta_vs_spy')}, excess {sub.get('beta_adjusted_excess_pct')}%",
+        "a high-beta name beats a low-beta one in any rising market on its own, "
+        "so the raw gap overstates it")
+    add("peer_perf_carries_size",
+        all(r.get("market_cap") for r in (d.get("peers") or [])[:3]),
+        f"caps present for the top peers",
+        "'outperformed its peers' means something different at $5T than $200B")
+    # the adjustment must actually do arithmetic, not echo the raw return
+    if sub.get("beta_adjusted_excess_pct") is not None:
+        expect = round(sub["return_pct"] - sub["beta_vs_spy"] * d["market_return_pct"], 2)
+        add("peer_perf_excess_is_correct",
+            abs(sub["beta_adjusted_excess_pct"] - expect) < 0.05,
+            f"{sub['beta_adjusted_excess_pct']} vs recomputed {expect}",
+            "excess = return - beta * market return")
+
+    # the peer comparison must be GUARANTEED, not left to the router's mood
+    from app.graph.build import PERF_RE as _PERF
+    cases = [("How is NVDA performing?", True), ("How is NVDA doing?", True),
+             ("Compare NVDA and AMD", True), ("NVDA vs AMD", True),
+             ("What is the price of NVDA?", False),
+             ("When does NVDA report?", False), ("Why is the market down?", False)]
+    wrong = [q for q, want in cases if bool(_PERF.search(q)) != want]
+    add("perf_question_detected", not wrong, wrong or f"all {len(cases)} correct",
+        "the route prompt asks for relations on performance questions and a small "
+        "model ignores it, so the guarantee is enforced in code")
 
     # a failed router must SAY it fell back, not answer a different question
     import app.graph.build as _B

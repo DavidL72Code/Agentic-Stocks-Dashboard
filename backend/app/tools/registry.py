@@ -43,7 +43,12 @@ DOMAIN_DESC = {
     "fundamentals": "financial statements, valuation multiples, margins, growth, leverage, dividends",
     "street": "news, analyst ratings and changes, price targets, ownership, insiders, short interest",
     "events": "earnings dates and surprise history, ex-dividend dates, SEC filings",
-    "relations": "how this ticker relates to OTHER tickers: peers, correlation, read-across from one name's news to another",
+    "relations": ("how this ticker relates to OTHER tickers: peers, correlation, "
+                  "read-across from one name's news to another, and SIZE-ADJUSTED "
+                  "PEER PERFORMANCE. Include this for any question about how a stock "
+                  "is performing or doing: a return means little without the peer "
+                  "cohort's return and a beta adjustment, since a high-beta name "
+                  "beats a low-beta one in any rising market on its own."),
     "macro": ("the market backdrop: index levels, rates, volatility, Fed and policy news, "
               "geopolitics, and sector-level spillover. Use when the question is about WHY "
               "the market or a sector moved rather than one company."),

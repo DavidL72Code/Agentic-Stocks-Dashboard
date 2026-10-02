@@ -15,7 +15,7 @@ from __future__ import annotations
 from math import comb
 import numpy as np, pandas as pd
 from ..providers import yahoo
-from ._util import closes, empty, fail, ok
+from ._util import closes, empty, fail, ok, pct
 from .registry import tool
 
 # No fixed proxy list. Candidates are discovered from the issuer's OWN stated
@@ -229,6 +229,109 @@ async def sector_proxy(ticker: str, **_):
                  if res["kind"] == "etf" else
                  "no ETF correlated >=0.5, so the ticker's own discovered peer cohort "
                  "is used instead")}, source="derived")
+
+
+@tool("relations",
+      "PEER PERFORMANCE, SIZE-ADJUSTED: return over a window against each peer, "
+      "with market cap, beta and a beta-adjusted excess return. Use this for ANY "
+      "question about how a stock is performing - a raw return is not comparable "
+      "across names of different size and volatility", derived=True)
+async def peer_performance(ticker: str, period: str = "1y", **_):
+    """Why a raw return comparison is not a fair one.
+
+    Share price and splits are irrelevant here - a percentage return is already
+    split-adjusted, so a 10-for-1 split changes nothing. What does make two
+    returns incomparable is BETA: a name that moves 1.9x the market will beat a
+    1.1x name in any rising market without management doing anything right. So
+    alongside the raw return this reports beta and the beta-adjusted excess:
+
+        excess = stock_return - beta * market_return
+
+    which is what is left after the market move it was always going to get.
+    Market cap comes too, because "outperformed its peers" means something
+    different for a $5T company than a $200B one.
+    """
+    cohort = await yahoo.peers(ticker)
+    if not cohort:
+        return empty("peer_performance", ticker, "no peer cohort found")
+
+    sym = ticker.upper()
+    names = [sym] + [c.upper() for c in cohort]
+    series = {}
+    for s in names + ["SPY"]:
+        c = await closes(s, period)
+        if len(c) > 40:
+            series[s] = c
+    if sym not in series or "SPY" not in series:
+        return fail("peer_performance", ticker, f"insufficient history over {period}")
+
+    spy = series["SPY"]
+    mkt_ret = pct(float(spy.iloc[-1]), float(spy.iloc[0]))
+    spy_r = spy.pct_change().dropna()
+    caps = await yahoo.quotes(names)
+
+    def measure(s: str) -> dict | None:
+        c = series.get(s)
+        if c is None:
+            return None
+        ret = pct(float(c.iloc[-1]), float(c.iloc[0]))
+        r = c.pct_change().dropna()
+        j = r.to_frame("a").join(spy_r.to_frame("b"), how="inner").dropna()
+        beta = None
+        if len(j) > 40 and j["b"].var():
+            beta = round(float(j["a"].cov(j["b"]) / j["b"].var()), 2)
+        vol = round(float(r.std() * (252 ** 0.5) * 100), 1) if len(r) > 40 else None
+        row = {"ticker": s, "return_pct": ret, "beta_vs_spy": beta,
+               "volatility_pct": vol,
+               "market_cap": (caps.get(s) or {}).get("marketCap"),
+               "name": (caps.get(s) or {}).get("shortName")}
+        # what is left after the market move this beta was always going to give
+        if beta is not None:
+            row["beta_adjusted_excess_pct"] = round(ret - beta * mkt_ret, 2)
+        # return per unit of risk taken to get it
+        if vol:
+            row["return_per_vol"] = round(ret / vol, 2)
+        return row
+
+    me = measure(sym)
+    rows = [r for s in names[1:] if (r := measure(s))]
+    if not rows:
+        return empty("peer_performance", ticker, "no peer history to compare against")
+
+    def med(key):
+        vals = sorted(r[key] for r in rows if r.get(key) is not None)
+        if not vals:
+            return None
+        n = len(vals)
+        return round(vals[n // 2] if n % 2 else (vals[n // 2 - 1] + vals[n // 2]) / 2, 2)
+
+    coh = {"median_return_pct": med("return_pct"), "median_beta": med("beta_vs_spy"),
+           "median_excess_pct": med("beta_adjusted_excess_pct"),
+           "median_market_cap": med("market_cap"), "peers_measured": len(rows)}
+
+    out = {"ticker": sym, "period": period, "market_return_pct": mkt_ret,
+           "subject": me, "peers": sorted(rows, key=lambda r: -(r["return_pct"] or 0)),
+           "cohort": coh,
+           "note": ("a raw return is not comparable between names of different beta; "
+                    "beta_adjusted_excess_pct is the part not explained by the market "
+                    "move. Share price level and stock splits do not affect any of "
+                    "these figures - returns are split-adjusted.")}
+
+    # the honest one-line reading, computed not narrated
+    if me and coh["median_return_pct"] is not None:
+        gap = round(me["return_pct"] - coh["median_return_pct"], 2)
+        bits = [f"{sym} returned {me['return_pct']:+.1f}% over {period} vs a peer "
+                f"median of {coh['median_return_pct']:+.1f}%"]
+        if me.get("beta_vs_spy") and coh["median_beta"]:
+            bits.append(f"on a beta of {me['beta_vs_spy']} against the cohort's "
+                        f"{coh['median_beta']}")
+        if me.get("beta_adjusted_excess_pct") is not None \
+                and coh["median_excess_pct"] is not None:
+            adj = round(me["beta_adjusted_excess_pct"] - coh["median_excess_pct"], 2)
+            bits.append(f"which leaves {adj:+.1f}pts once the market move each beta "
+                        f"implies is removed (raw gap {gap:+.1f}pts)")
+        out["reading"] = "; ".join(bits)
+    return ok("peer_performance", ticker, out, source="derived")
 
 
 @tool("relations",
