@@ -1,0 +1,43 @@
+# ── secrets ──────────────────────────────────────────────
+# .env holds API keys. Never commit it; commit .env.example instead.
+.env
+.env.*
+!.env.example
+
+# ── your data ────────────────────────────────────────────
+# watchlist, portfolios, cost basis, snapshots — personal, not code
+data/
+*.sqlite
+*.db
+*.db-wal
+*.db-shm
+*.json.migrated
+
+# ── python ───────────────────────────────────────────────
+.venv/
+venv/
+env/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# ── node (web deps, if ever added) ───────────────────────
+node_modules/
+dist/
+build/
+.parcel-cache/
+
+# ── editors / OS ─────────────────────────────────────────
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+
+# ── logs & scratch ───────────────────────────────────────
+*.log
+.scratch/
+_archive/

@@ -1,0 +1,28 @@
+from __future__ import annotations
+import operator
+from typing import Annotated, Any, TypedDict
+from ..models import DomainFinding, RunStep
+
+
+def merge_findings(a: list, b: list) -> list:
+    return (a or []) + (b or [])
+
+
+class Task(TypedDict):
+    id: str
+    domain: str
+    ticker: str
+    question: str
+    tools: list[str]          # optional pre-named tools from the router
+    args: dict[str, Any]
+
+
+class ResearchState(TypedDict, total=False):
+    question: str
+    selection: list[str]      # tickers the user explicitly picked
+    tickers: list[str]
+    tasks: list[Task]
+    findings: Annotated[list[DomainFinding], merge_findings]
+    steps: Annotated[list[RunStep], merge_findings]
+    answer: str
+    refused: str
