@@ -314,6 +314,38 @@ async def suite_regressions():
         f"good={good['score']}/5 soup={soup['score']}/5",
         "REGRESSION: '52-week' counted as a figure, penalising correct prose")
 
+    # a failed router must SAY it fell back, not answer a different question
+    import app.graph.build as _B
+    import app.llm as _llm
+
+    async def _boom(*a, **k):
+        raise RuntimeError("429 rate limit")
+
+    orig = _llm.call
+    _llm.call = _boom
+    try:
+        run = await _B.ask("When does NVDA report next and what is expected?")
+    finally:
+        _llm.call = orig
+    add("degraded_route_is_declared", bool(run.degraded), (run.degraded or "")[:90],
+        "REGRESSION: a rate-limited router fell back to price-only and the "
+        "answer looked complete - silently answering a different question")
+    step = next((s_ for s_ in run.steps if s_.node == "route"), None)
+    add("degraded_route_shows_in_trace",
+        bool(step and "UNAVAILABLE" in (step.detail or "")), (step.detail if step else "")[:80],
+        "the run trace must show where it degraded")
+    add("degraded_route_keeps_the_ticker", run.tickers == ["NVDA"], str(run.tickers),
+        "REGRESSION: the fallback uppercased the question, so 'When does NVDA "
+        "report' matched WHEN - a real penny stock - and answered about that")
+
+    from app.graph.build import _fallback_ticker as _ft
+    cases = [("When does NVDA report next?", "NVDA"), ("How is AMD doing?", "AMD"),
+             ("What about the AI trade and US rates?", None),
+             ("Should I worry about my portfolio?", None)]
+    wrong = [(q, _ft(q)) for q, want in cases if _ft(q) != want]
+    add("fallback_ticker_extraction", not wrong, wrong or "all 4 correct",
+        "capitalised English words are not tickers; CAPS in the user's own text is the signal")
+
     # grounding checker: the false-positive classes
     def mk(ans, data):
         return grounding_check(AgentRun(question="t", answer=ans, findings=[
@@ -404,6 +436,30 @@ def suite_claim():
         f"still offered={d['still_offered']}, second claim {d['second']}",
         "a claimed book must not stay on offer to the next account")
     return out
+
+
+def _subprocess_suite(script: str, fallback_id: str, why: str, args=()):
+    """Run a probe script on a throwaway database and parse its @@ line."""
+    import os, subprocess, tempfile
+
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    with tempfile.TemporaryDirectory() as tmp:
+        env = {**os.environ, "DB_PATH": os.path.join(tmp, "t.db"),
+               "STORE_PATH": os.path.join(tmp, "none.json"), "AUTH_ENABLED": "true"}
+        r = subprocess.run([sys.executable, script, *args], env=env, cwd=root,
+                           capture_output=True, text=True, timeout=900)
+    line = next((l for l in r.stdout.splitlines() if l.startswith("@@")), None)
+    if not line:
+        return [{"id": fallback_id, "pass": False, "ms": 0,
+                 "detail": (r.stderr or r.stdout)[-140:], "why": why}]
+    return json.loads(line[2:])
+
+
+def suite_sweep(agent: bool = False):
+    """Every route, end to end, on a throwaway database (evals/sweep.py)."""
+    return _subprocess_suite("evals/sweep.py", "sweep_ran",
+                             "the whole-app sweep must run at all",
+                             ("--agent",) if agent else ())
 
 
 def suite_login():

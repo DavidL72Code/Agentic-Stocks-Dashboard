@@ -101,6 +101,10 @@ class AgentRun(BaseModel):
     steps: list[RunStep] = []
     grounded: bool | None = None
     ungrounded_numbers: list[float] = []
+    # non-empty when the run answered from a fallback because a step failed;
+    # the client shows it, so a degraded answer is never silently passed off
+    # as a full one
+    degraded: str = ""
 
     @property
     def total_tokens(self) -> int: return sum(s.tokens for s in self.steps)

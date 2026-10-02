@@ -1218,11 +1218,18 @@ function quietBox(quiet) {
 }
 function briefInner(b) {
   const p = b.portfolio || {};
+  // A guest has no book. "$— / −$0.00" reads as a broken number rather than an
+  // absent one, so the two book tiles are replaced by what is actually true.
+  const tiles = ME.guest
+    ? [["Book","Not signed in","your holdings would show here"],
+       ["Market","Covered","quotes, research and the agent work as a guest"],
+       ["Flagged",String(b.signals.length),"market-wide only"]]
+    : [["Book","$"+num(p.market_value),`${pct(p.pnl_pct)} all time`],
+       ["Today",(p.day_change>=0?"+":"−")+"$"+num(Math.abs(p.day_change||0)),pct(p.day_change_pct)],
+       ["Flagged",String(b.signals.length),
+        `${b.checked.length} tracked + ${b.adjacent_checked?.length||0} adjacent`]];
   return `${threadsHTML(b.narrative, b.error)}
-    ${tilesHTML([
-      ["Book","$"+num(p.market_value),`${pct(p.pnl_pct)} all time`],
-      ["Today",(p.day_change>=0?"+":"−")+"$"+num(Math.abs(p.day_change||0)),pct(p.day_change_pct)],
-      ["Flagged",String(b.signals.length),`${b.checked.length} tracked + ${b.adjacent_checked?.length||0} adjacent`]])}
+    ${tilesHTML(tiles)}
     <div class="section"><div class="section-h"><h3>Daily overview</h3>
       <span class="r">ranked by how unusual the move is, not how big</span></div>
       ${sigRows(b.signals)}</div>
@@ -1231,12 +1238,21 @@ function briefInner(b) {
     ${quietBox(b.quiet)}`;
 }
 
+let briefInFlight = null;
 async function loadBrief() {
   if (S.brief) return S.brief;
+  // Cache the PROMISE, not just the result. The dashboard and the brief sheet
+  // both ask for this on load, and a result-only cache is still null while the
+  // first request is in the air - so both fired, and the curator ran twice for
+  // one page view. That is double the tokens for identical output.
+  if (briefInFlight) return briefInFlight;
   // with a key the curator narrates it; without one we still get the scanner
-  S.brief = S.llm ? await api("/api/agent/brief", { method:"POST" }).catch(() => api("/api/brief"))
-                  : await api("/api/brief");
-  return S.brief;
+  briefInFlight = (S.llm
+    ? api("/api/agent/brief", { method:"POST" }).catch(() => api("/api/brief"))
+    : api("/api/brief"))
+    .then(b => { S.brief = b; return b; })
+    .finally(() => { briefInFlight = null; });
+  return briefInFlight;
 }
 
 /* the curator's threads - each one must cite headlines we actually fetched */
@@ -1354,10 +1370,14 @@ function renderAnswer(run) {
   if (!run?.answer) { el.innerHTML=""; return; }
   const warn = run.grounded===false
     ? `<div class="muted" style="color:var(--warn);margin-top:8px">Grounding: ${run.ungrounded_numbers.join(", ")} not in evidence</div>` : "";
+  // a run that fell back says so - an answer to a different question is worse
+  // than no answer, and worst of all when it looks complete
+  const degraded = run.degraded
+    ? `<div class="muted" style="color:var(--warn);margin-top:8px">${esc(run.degraded)}</div>` : "";
   el.innerHTML = `<div class="answer"><div class="top">
       <span class="sym">${esc((run.tickers||[]).join(" · "))}</span>
       ${run.grounded?`<span class="ok">✓ grounded</span>`:""}</div>
-    <p>${esc(run.answer)}</p>${warn}
+    <p>${esc(run.answer)}</p>${degraded}${warn}
     <div class="disclaim">${esc(run.disclaimer||DISCLAIMER)}</div>
     <button class="link" data-trace="1">Show work ${IC.arrow}</button></div>`;
   el.querySelectorAll("[data-trace]").forEach(b=>b.onclick=openTrace);

@@ -11,7 +11,7 @@ except ImportError:          # dotenv is optional; real env vars still work
     pass
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
 from . import auth, db
@@ -52,6 +52,8 @@ if WEB.exists():
 
     @app.get("/")
     async def index():
-        # never let a browser hold a stale shell while we are iterating
-        return FileResponse(str(WEB / "index.html"),
-                            headers={"Cache-Control": "no-store, must-revalidate"})
+        # The shell is read fresh and its asset query stamped at serve time. A
+        # hardcoded ?v= goes stale the moment anyone forgets to bump it, which
+        # is every time; this way the stamp cannot drift from the build.
+        html = (WEB / "index.html").read_text().replace("__BUILD__", BUILD)
+        return HTMLResponse(html, headers={"Cache-Control": "no-store, must-revalidate"})

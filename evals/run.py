@@ -6,7 +6,7 @@
 Writes evals/REPORT.md and prints a summary.
 """
 from __future__ import annotations
-import argparse, asyncio, json, pathlib, re, statistics, sys, time
+import argparse, os, asyncio, json, pathlib, re, statistics, sys, time
 
 _R = pathlib.Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(_R)); sys.path.insert(0, str(_R / "backend"))
@@ -15,7 +15,7 @@ try:
     load_dotenv(_R / ".env")
 except ImportError:
     pass
-from evals.suites import (api, sign_in_for_evals, suite_auth, suite_claim, suite_login,  # noqa: E402
+from evals.suites import (api, sign_in_for_evals, suite_auth, suite_claim, suite_login, suite_sweep,  # noqa: E402
                           suite_data_plane, suite_regressions, suite_tools)
 from evals.rubric import score_all, judge  # noqa: E402
 
@@ -46,17 +46,36 @@ def load_golden():
     return cases
 
 
+# Gemini's free tier is rate limited per minute, and each golden case makes
+# several LLM calls. Back to back, the later cases get throttled, the router
+# falls back, and the run looks like a ROUTING failure when it is a quota one.
+# Pace the cases, and retry once when the server says it degraded.
+GOLDEN_PACE_S = float(os.environ.get("GOLDEN_PACE_S", "6"))
+
+
 async def suite_agent():
     out = []
-    for c in load_golden():
+    for n, c in enumerate(load_golden()):
+        if n:
+            await asyncio.sleep(GOLDEN_PACE_S)
         t0 = time.time()
         body = {"question": c["q"]}
         if c.get("tickers"):
             body["tickers"] = c["tickers"]
         code, d = api("/api/agent/ask", "POST", body, timeout=300)
+        if code == 200 and d.get("degraded"):
+            await asyncio.sleep(GOLDEN_PACE_S * 3)      # let the quota window roll
+            code, d = api("/api/agent/ask", "POST", body, timeout=300)
         ms = int((time.time() - t0) * 1000)
         if code != 200:
             out.append({"id": c["id"], "pass": False, "detail": f"HTTP {code}",
+                        "ms": ms, "why": c.get("why", ""), "tokens": 0, "calls": 0})
+            continue
+        if d.get("degraded"):
+            # Report it as what it is. Scoring a throttled run as a routing
+            # mistake is how I spent an hour chasing the wrong bug.
+            out.append({"id": c["id"], "pass": False,
+                        "detail": f"DEGRADED (not a routing verdict): {d['degraded'][:90]}",
                         "ms": ms, "why": c.get("why", ""), "tokens": 0, "calls": 0})
             continue
 
@@ -153,6 +172,7 @@ async def main():
     print("running auth...");         results["Auth"] = suite_auth()
     print("running claim...");        results["Auth"] += suite_claim()
     print("running login sweep...");  results["Sign-in"] = suite_login()
+    print("running app sweep...");    results["App sweep"] = suite_sweep(args.agent)
     print("running data plane...");   results["Data plane"] = suite_data_plane()
     print("running tools...");        results["Tools"] = await suite_tools()
     print("running regressions...");  results["Regressions"] = await suite_regressions()

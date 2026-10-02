@@ -6,13 +6,25 @@ route and a session cookie, not a rewrite of every query.
 
 stdlib sqlite3 in a worker thread - no extra dependency, no server. WAL mode so
 reads do not block the writer.
+
+Set TURSO_DATABASE_URL (and TURSO_AUTH_TOKEN) to run the same schema and the
+same queries against Turso instead, which is libSQL - a fork of SQLite that
+speaks the same dialect over the network. Nothing below changes; only where
+conn() points. See README for the walkthrough.
 """
 from __future__ import annotations
 import asyncio, json, os, pathlib, sqlite3, threading, time, uuid
+from collections.abc import Mapping
 
 DB_PATH = pathlib.Path(os.environ.get("DB_PATH", "data/monsoon.db"))
+TURSO_URL = os.environ.get("TURSO_DATABASE_URL", "").strip()
+TURSO_TOKEN = os.environ.get("TURSO_AUTH_TOKEN", "").strip()
 LOCAL_USER_ID = "local"          # the implicit single user until auth is switched on
 _local = threading.local()
+
+
+def backend_name() -> str:
+    return "turso" if TURSO_URL else "sqlite"
 
 SCHEMA = """
 PRAGMA journal_mode=WAL;
@@ -104,9 +116,12 @@ POST_SCHEMA = [
 ]
 
 
-def _migrate(c: sqlite3.Connection) -> None:
+def _migrate(c) -> None:
     for table, col, decl in ADD_COLUMNS:
-        cols = {r["name"] for r in c.execute(f"PRAGMA table_info({table})")}
+        # libSQL rows are tuples, not sqlite3.Row; PRAGMA table_info puts the
+        # column name second either way
+        cols = {(r["name"] if hasattr(r, "keys") else r[1])
+                for r in c.execute(f"PRAGMA table_info({table})").fetchall()}
         if col not in cols:
             c.execute(f"ALTER TABLE {table} ADD COLUMN {col} {decl}")
     for stmt in POST_SCHEMA:
@@ -114,13 +129,105 @@ def _migrate(c: sqlite3.Connection) -> None:
     c.commit()
 
 
-def conn() -> sqlite3.Connection:
+# ── libSQL compatibility shim ────────────────────────────────────────────
+# The libsql driver is DB-API-ish but not sqlite3: its cursor is not iterable,
+# its rows are plain tuples rather than sqlite3.Row, and its connection is not
+# a context manager. Every query in this file is written against sqlite3's
+# conveniences, so the differences are absorbed here rather than smeared across
+# forty call sites.
+class _Row(Mapping):
+    __slots__ = ("_k", "_v")
+
+    def __init__(self, keys, values):
+        self._k, self._v = keys, values
+
+    def __getitem__(self, k):
+        return self._v[k] if isinstance(k, int) else self._v[self._k.index(k)]
+
+    def __iter__(self):
+        return iter(self._k)
+
+    def __len__(self):
+        return len(self._k)
+
+    def keys(self):
+        return list(self._k)
+
+
+class _Cursor:
+    def __init__(self, cur):
+        self._c = cur
+        self._keys = [d[0] for d in (cur.description or ())]
+
+    def _wrap(self, row):
+        return _Row(self._keys, row) if row is not None else None
+
+    def fetchall(self):
+        return [self._wrap(r) for r in self._c.fetchall()]
+
+    def fetchone(self):
+        return self._wrap(self._c.fetchone())
+
+    def __iter__(self):
+        return iter(self.fetchall())
+
+    @property
+    def rowcount(self):
+        return self._c.rowcount
+
+
+class _Conn:
+    """sqlite3-shaped wrapper over a libsql connection."""
+
+    def __init__(self, raw):
+        self._raw = raw
+
+    def execute(self, sql, params=()):
+        return _Cursor(self._raw.execute(sql, params))
+
+    def executescript(self, script):
+        for stmt in (x.strip() for x in script.split(";")):
+            if stmt and not stmt.upper().startswith("PRAGMA"):
+                self._raw.execute(stmt)
+        self._raw.commit()
+
+    def commit(self):
+        self._raw.commit()
+
+    def rollback(self):
+        self._raw.rollback()
+
+    # sqlite3 connections commit on a clean `with` block and roll back on error
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, *_):
+        self._raw.rollback() if exc_type else self._raw.commit()
+        return False
+
+
+def _connect_turso():
+    try:
+        import libsql_experimental as libsql
+    except ImportError:                      # pragma: no cover - deployment path
+        raise RuntimeError(
+            "TURSO_DATABASE_URL is set but libsql-experimental is not installed. "
+            "Run: pip install libsql-experimental") from None
+    c = _Conn(libsql.connect(database=TURSO_URL, auth_token=TURSO_TOKEN))
+    c.executescript(SCHEMA)                  # PRAGMAs are the server's business
+    return c
+
+
+def conn():
     c = getattr(_local, "c", None)
     if c is None:
-        DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-        c = sqlite3.connect(DB_PATH, timeout=15, check_same_thread=False)
-        c.row_factory = sqlite3.Row
-        c.executescript(SCHEMA)
+        if TURSO_URL:
+            c = _connect_turso()
+        else:
+            DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+            c = sqlite3.connect(DB_PATH, timeout=15, check_same_thread=False)
+            c.row_factory = sqlite3.Row
+            c.executescript(SCHEMA)
         _migrate(c)
         _local.c = c
     return c

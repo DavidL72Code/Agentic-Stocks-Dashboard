@@ -101,6 +101,25 @@ Reply with ONLY JSON: {"answer": "..."}"""
 
 
 TICKER_RE = re.compile(r"\b[A-Z]{1,5}\b")
+# Words that are written in caps but are not tickers. Short, because the real
+# filter is "already uppercase in the user's own text" - see _fallback_ticker.
+NOT_TICKERS = {"A", "I", "THE", "AND", "OR", "PE", "US", "AI", "CEO", "CFO", "IPO",
+               "IS", "IT", "DO", "ETF", "GDP", "CPI", "FED", "SEC", "EPS", "YTD",
+               "Q1", "Q2", "Q3", "Q4", "USD", "OK", "MY", "EV", "ROE", "FY"}
+
+
+def _fallback_ticker(question: str) -> str | None:
+    """Pull a ticker out of free text when the router gave us nothing.
+
+    Matches against the ORIGINAL casing, never an uppercased copy. Uppercasing
+    first turns every word into a candidate: "When does NVDA report?" matched
+    WHEN, which is a real listed symbol, so the fallback answered about a penny
+    stock with a straight face. People type tickers in caps; that is the signal.
+    """
+    for x in TICKER_RE.findall(question):
+        if x not in NOT_TICKERS:
+            return x
+    return None
 
 
 
@@ -128,6 +147,7 @@ async def route(state: ResearchState) -> dict:
         f"Use exactly these tickers and no others. If the question compares them, "
         f"include the `relations` domain and set args.other to the ticker being "
         f"compared against.]")
+    route_error = ""
     try:
         r = await llm.call(ROUTE_PROMPT, prompt)
         j = llm.parse_json(r.text) or {}
@@ -135,7 +155,12 @@ async def route(state: ResearchState) -> dict:
     except llm.NoAPIKey as e:
         return {"refused": str(e), "steps": [RunStep(node="route", detail="no api key")]}
     except Exception as e:
+        # A failed router used to fall through to the market-only fallback
+        # below and answer a DIFFERENT question in silence - "when does NVDA
+        # report?" came back as a price summary with nothing to say it had
+        # degraded. Rate limiting is the common cause and it is invisible.
         j, tok, ms = {}, 0, int((time.time() - t0) * 1000)
+        route_error = f"{type(e).__name__}: {e}"[:160]
 
     if j.get("refuse"):
         return {"refused": str(j["refuse"]),
@@ -167,11 +192,15 @@ async def route(state: ResearchState) -> dict:
             tasks.append(Task(id=f"s{len(tasks)}", domain="market", ticker=miss,
                               question=state["question"], tools=[], args={}))
 
+    degraded = ""
     if not tasks:   # fallback: pull a ticker out of the text, ask market only
-        m = [x for x in TICKER_RE.findall(state["question"].upper())
-             if x not in {"A", "I", "THE", "AND", "OR", "PE", "US", "AI", "CEO", "IS", "IT", "DO"}]
+        if route_error:
+            degraded = ("The router was unavailable, so this was answered from "
+                        "price data alone and may not address the question asked "
+                        f"({route_error}).")
+        m = _fallback_ticker(state["question"])
         if m:
-            tasks = [Task(id="t0", domain="market", ticker=m[0],
+            tasks = [Task(id="t0", domain="market", ticker=m,
                           question=state["question"], tools=[], args={})]
         else:
             # No ticker is not automatically a dead end: a market-wide question
@@ -202,8 +231,10 @@ async def route(state: ResearchState) -> dict:
 
     return {"tasks": tasks,
             "tickers": sorted({t["ticker"] for t in tasks}),
+            "degraded": degraded,
             "steps": [RunStep(node="route",
-                              detail=", ".join(f"{t['domain']}({t['ticker']})" for t in tasks)
+                              detail=("ROUTER UNAVAILABLE - fell back to " if degraded else "")
+                                     + ", ".join(f"{t['domain']}({t['ticker']})" for t in tasks)
                                      + (f" · dropped unresolved {', '.join(unknown)}" if unknown else ""),
                               tokens=tok, latency_ms=ms, llm=tok > 0)]}
 
@@ -432,5 +463,5 @@ async def ask(question: str) -> AgentRun:
     out = await GRAPH.ainvoke({"question": question, "findings": [], "steps": []})
     run = AgentRun(question=question, tickers=out.get("tickers", []),
                    findings=out.get("findings", []), answer=out.get("answer", ""),
-                   steps=out.get("steps", []))
+                   steps=out.get("steps", []), degraded=out.get("degraded", ""))
     return grounding_check(run)

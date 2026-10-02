@@ -66,6 +66,14 @@ export GEMINI_API_KEY=...
 Optional: `SEC_USER_AGENT="you <you@example.com>"` — the SEC returns 403 for any
 User-Agent without an email-shaped contact.
 
+## Database
+
+A local SQLite file (`data/monsoon.db`), created on first run, ignored by git.
+No server, no setup. To host it instead — Turso's free tier is libSQL, speaks
+the same dialect, and **does not pause a database for inactivity** — see
+[DATABASE.md](DATABASE.md). The schema and every query stay the same; only
+where `conn()` points changes.
+
 ## Two planes
 
 | | LLM? | What |
@@ -109,3 +117,11 @@ don't deploy it publicly as the backbone.
 The negative control matters more than the pass count: it sabotages real
 defences and asserts the matching case goes red. A green suite you have never
 watched fail proves nothing. Reports land in `evals/REPORT.md`.
+
+| Suite | What it covers |
+|---|---|
+| App sweep | every route end to end on a throwaway db — [evals/SWEEP.md](evals/SWEEP.md) |
+| Auth + Sign-in | hashing, throttling, the whole login round trip — [evals/AUTH.md](evals/AUTH.md) |
+| Data plane / Tools | the 41 tools and the endpoints the UI reads |
+| Regressions | one case per bug found during the build, each saying which |
+| Agent | the golden set, routing and grounding (spends tokens) |

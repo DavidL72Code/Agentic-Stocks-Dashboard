@@ -38,7 +38,7 @@ async def domains():
 def _run_json(out: dict, question: str) -> dict:
     run = AgentRun(question=question, tickers=out.get("tickers", []),
                    findings=out.get("findings", []), answer=out.get("answer", ""),
-                   steps=out.get("steps", []))
+                   steps=out.get("steps", []), degraded=out.get("degraded", ""))
     run = grounding_check(run)
     return {**json.loads(run.model_dump_json()),
             "llm_calls": run.llm_calls, "total_tokens": run.total_tokens,

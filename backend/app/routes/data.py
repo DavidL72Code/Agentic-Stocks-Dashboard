@@ -19,7 +19,9 @@ router = APIRouter(prefix="/api")
 @router.get("/health")
 async def health():
     from ..llm import MODEL, api_key
+    from .. import db
     return clean({"ok": True, "llm_configured": bool(api_key()), "model": MODEL,
+                  "db": db.backend_name(),
                   "tools": len(TOOLS), "cache": CACHE.stats(),
                   "quote_batches": yahoo.QUOTE_LOADER.batches,
                   "quote_keys_served": yahoo.QUOTE_LOADER.keys_served})

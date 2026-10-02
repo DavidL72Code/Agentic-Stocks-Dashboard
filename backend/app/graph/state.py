@@ -19,6 +19,7 @@ class Task(TypedDict):
 
 class ResearchState(TypedDict, total=False):
     question: str
+    degraded: str             # set when the router failed and we fell back
     selection: list[str]      # tickers the user explicitly picked
     tickers: list[str]
     tasks: list[Task]
