@@ -5,10 +5,10 @@
 # (pandas, numpy and yfinance included), so no compiler is needed - if that
 # ever changes, add build-essential to the build stage only.
 #
-# NOTE this image is not what render.yaml uses. Render runs the native Python
-# runtime there on purpose: the free plan spins down when idle, and a ~700MB
-# image makes that cold start worse. This exists for local parity (see
-# docker-compose.yml) and so moving host is a one-line change. See HOSTING.md.
+# NOTE this image is NOT what render.yaml uses - that runs Render's native
+# Python runtime, so nothing here affects the deploy or its startup time. This
+# exists for local parity (docker-compose.yml brings up app + redis in one
+# command) and so moving host later is a config change. See HOSTING.md.
 
 FROM python:3.13-slim AS build
 

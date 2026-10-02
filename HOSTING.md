@@ -82,10 +82,16 @@ split gives you trouble, this is the simpler thing that definitely works.
 [`Dockerfile`](Dockerfile), [`docker-compose.yml`](docker-compose.yml),
 [`.dockerignore`](.dockerignore).
 
-**`render.yaml` deliberately does not use the image.** Render runs the native
-Python runtime there, because the free plan spins down when idle and a ~700MB
-image (pandas, numpy, langgraph) makes that cold start worse. Containerising
-the backend would trade a problem you have for a problem you do not.
+**`render.yaml` does not use the image** — it runs Render's native Python
+runtime (`runtime: python` plus a pip `buildCommand`). So Docker is not in the
+deploy path and has no effect on startup either way.
+
+The reason to leave it that way is image size: the installed dependencies are
+**263 MB measured** (pandas 70, numpy 34, openai 23, lxml 20), so on a
+`python:3.13-slim` base an image lands somewhere near 400 MB. Whether that
+measurably worsens a cold start on Render's free plan **I have not measured** —
+they cache layers, so it may be slight. Treat it as a reason not to bother yet
+rather than a proven penalty.
 
 So what is it for:
 
