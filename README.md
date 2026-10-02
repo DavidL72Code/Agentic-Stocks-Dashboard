@@ -71,6 +71,14 @@ export GEMINI_API_KEY=...
 Optional: `SEC_USER_AGENT="you <you@example.com>"` — the SEC returns 403 for any
 User-Agent without an email-shaped contact.
 
+## Hosting
+
+Running it locally needs nothing but `.env.example`. Putting it on the internet
+changes three things that are easy to get wrong — an ephemeral filesystem eats
+a SQLite database on every deploy, `APP_BASE_URL` is what decides whether your
+session cookie is marked `Secure`, and your host assigns the port. Full env
+table and the gotchas: [HOSTING.md](HOSTING.md).
+
 ## Database
 
 A local SQLite file (`data/monsoon.db`), created on first run, ignored by git.

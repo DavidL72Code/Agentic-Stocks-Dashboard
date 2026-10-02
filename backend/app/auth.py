@@ -14,7 +14,7 @@ With AUTH_ENABLED=false the whole app runs as a single implicit local user,
 which is what the eval harness uses.
 """
 from __future__ import annotations
-import os, re, secrets, sqlite3, time, urllib.parse
+import logging, os, re, secrets, sqlite3, time, urllib.parse
 import httpx
 from fastapi import APIRouter, HTTPException, Request, Response
 from fastapi.responses import RedirectResponse
@@ -27,6 +27,18 @@ COOKIE = "monsoon_session"
 AUTH_ENABLED = os.environ.get("AUTH_ENABLED", "true").lower() not in ("0", "false", "no")
 BASE_URL = os.environ.get("APP_BASE_URL", "http://localhost:8077").rstrip("/")
 SESSION_DAYS = int(os.environ.get("SESSION_DAYS", "30"))
+
+# The session cookie's Secure flag is derived from APP_BASE_URL. That makes a
+# forgotten env var a security downgrade rather than a visible error: deploy
+# with the default and every cookie ships without Secure, so it will travel
+# over plain HTTP. Loud about it at startup, since nothing else would say so.
+_LOCAL = ("localhost", "127.0.0.1", "[::1]", "0.0.0.0")
+COOKIE_SECURE = BASE_URL.startswith("https")
+if AUTH_ENABLED and not COOKIE_SECURE and not any(h in BASE_URL for h in _LOCAL):
+    logging.getLogger("monsoon.auth").warning(
+        "APP_BASE_URL is %s - not https and not localhost, so session cookies "
+        "will be sent WITHOUT the Secure flag. Set APP_BASE_URL to your https "
+        "origin before serving real users.", BASE_URL)
 
 PROVIDERS = {
     "github": {
@@ -70,7 +82,7 @@ def _set_cookie(resp: Response, sid: str) -> None:
         max_age=SESSION_DAYS * 86400,
         httponly=True,                       # JS can never read it
         samesite="lax",                      # blocks cross-site POST replay
-        secure=BASE_URL.startswith("https"), # only over TLS in production
+        secure=COOKIE_SECURE,                # only over TLS in production
         path="/",
     )
 

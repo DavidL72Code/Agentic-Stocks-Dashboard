@@ -375,6 +375,27 @@ def main(run_agent: bool) -> int:
         all(not a["positions"] for a in c.get("/api/portfolios").json()["accounts"]),
         "", "")
 
+    head("config is documented")
+    # A setting nobody knows about is a setting that gets left at its default,
+    # and two of these have security consequences when that happens.
+    import pathlib as _pl, re as _re
+    root = _pl.Path(os.getcwd())
+    read_by_code = set()
+    for f in (root / "backend").rglob("*.py"):
+        read_by_code |= set(_re.findall(r'os\.environ(?:\.get\(|\[)"([A-Z_]+)"',
+                                        f.read_text()))
+    for doc in ("HOSTING.md", ".env.example"):
+        text = (root / doc).read_text()
+        gaps = sorted(v for v in read_by_code if v not in text)
+        chk("meta", f"env_documented_in_{doc.strip('.').replace('.', '_')}",
+            not gaps, gaps or f"all {len(read_by_code)} documented",
+            "an undocumented env var gets left at its default")
+    chk("meta", "cookie_secure_warns_when_insecure",
+        "WITHOUT the Secure flag" in (root / "backend/app/auth.py").read_text(),
+        "startup warns on a non-https APP_BASE_URL",
+        "the cookie's Secure flag is DERIVED from APP_BASE_URL, so a forgotten "
+        "env var is a silent downgrade rather than an error")
+
     head("coverage")
     import backend.app.main as M
     routes = {f"{m}:{r.path}" for r in M.app.routes

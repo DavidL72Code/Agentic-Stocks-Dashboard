@@ -66,6 +66,12 @@ REDIS_PREFIX = os.environ.get("REDIS_PREFIX", "monsoon:v1").strip(":")
 # degrade to a last-known value - which is what L1 does by retaining expired
 # entries rather than deleting them.
 STALE_FACTOR = float(os.environ.get("REDIS_STALE_FACTOR", "12"))
+# Socket budget, seconds. The default suits a Redis on the same machine. A
+# MANAGED Redis in another region can exceed 250ms on a single round trip, and
+# the circuit breaker below would then trip on latency rather than on failure -
+# you would get no L2 at all, visible only as "paused": true in /api/health.
+# Raise this to 1-2s for a hosted Redis. See HOSTING.md.
+REDIS_TIMEOUT = float(os.environ.get("REDIS_TIMEOUT", "0.25"))
 
 
 class RedisL2:
@@ -119,7 +125,8 @@ class RedisL2:
             import redis.asyncio as aioredis          # imported only when used
             self._client = aioredis.from_url(
                 self._url, decode_responses=True,
-                socket_timeout=0.25, socket_connect_timeout=0.25)
+                socket_timeout=REDIS_TIMEOUT,
+                socket_connect_timeout=REDIS_TIMEOUT)
         return self._client
 
     @staticmethod
