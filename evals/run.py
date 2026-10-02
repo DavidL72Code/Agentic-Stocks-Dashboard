@@ -15,7 +15,8 @@ try:
     load_dotenv(_R / ".env")
 except ImportError:
     pass
-from evals.suites import (api, sign_in_for_evals, suite_auth, suite_claim, suite_login, suite_sweep,  # noqa: E402
+from evals.suites import (api, sign_in_for_evals, suite_auth, suite_claim, suite_login,  # noqa: E402
+                          suite_sweep, suite_tenancy,
                           suite_data_plane, suite_regressions, suite_tools)
 from evals.rubric import score_all, judge  # noqa: E402
 
@@ -173,6 +174,7 @@ async def main():
     print("running claim...");        results["Auth"] += suite_claim()
     print("running login sweep...");  results["Sign-in"] = suite_login()
     print("running app sweep...");    results["App sweep"] = suite_sweep(args.agent)
+    print("running tenancy...");      results["Tenancy"] = suite_tenancy()
     print("running data plane...");   results["Data plane"] = suite_data_plane()
     print("running tools...");        results["Tools"] = await suite_tools()
     print("running regressions...");  results["Regressions"] = await suite_regressions()

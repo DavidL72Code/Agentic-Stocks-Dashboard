@@ -13,7 +13,12 @@ portfolios, because those belong to an account. Try to save something and the
 sign-in sheet appears, and whatever you were doing is replayed once you are in.
 
 Set `AUTH_ENABLED=false` to run the old single-implicit-user mode with no login
-at all. Design notes and what the 63 auth cases cover: [evals/AUTH.md](evals/AUTH.md).
+at all. Design notes and what the auth cases cover: [evals/AUTH.md](evals/AUTH.md).
+
+There is **no row-level security** — SQLite has no such feature. Isolation is
+enforced in the application and tested directly by a probe that has one account
+attack another's ids across every endpoint. The model, its weak link, and what
+real RLS would take: [SECURITY.md](SECURITY.md).
 
 ## What is real vs. seeded
 
@@ -121,6 +126,7 @@ watched fail proves nothing. Reports land in `evals/REPORT.md`.
 | Suite | What it covers |
 |---|---|
 | App sweep | every route end to end on a throwaway db — [evals/SWEEP.md](evals/SWEEP.md) |
+| Tenancy | one account attacking another's ids — [SECURITY.md](SECURITY.md) |
 | Auth + Sign-in | hashing, throttling, the whole login round trip — [evals/AUTH.md](evals/AUTH.md) |
 | Data plane / Tools | the 41 tools and the endpoints the UI reads |
 | Regressions | one case per bug found during the build, each saying which |

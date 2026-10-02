@@ -338,6 +338,10 @@ async def edit_portfolio(pid: str, a: Account):
 async def del_portfolio(pid: str):
     _require_account()
     d = store.load()
+    # an id that is not yours matches nothing, and used to return 200 - a no-op
+    # reported as success
+    if not store.account(pid, d):
+        raise HTTPException(404, "no such account")
     if len(d["portfolios"]) <= 1:
         raise HTTPException(400, "keep at least one account")
     d["portfolios"] = [p for p in d["portfolios"] if p["id"] != pid]
@@ -427,16 +431,29 @@ async def del_position(ticker: str, portfolio_id: str | None = None):
 
 @router.post("/reset")
 async def reset(keep_watchlist: bool = False, portfolio_id: str | None = None):
+    """Clear demo holdings from one account, or all of them.
+
+    Naming an account means THAT account. It used to clear the watchlist too,
+    unconditionally - so a per-account reset destroyed a global list that has
+    nothing to do with the account, and an id matching nothing still wiped it.
+    """
     _require_account()
-    """Clear demo holdings from one account, or all of them."""
     d = store.load()
+    whole_book = portfolio_id in (None, "", "all")
+    if not whole_book and not store.account(portfolio_id, d):
+        raise HTTPException(404, "no such account")
+    cleared = []
     for a in d["portfolios"]:
-        if portfolio_id in (None, "", "all") or a["id"] == portfolio_id:
+        if whole_book or a["id"] == portfolio_id:
+            if a["positions"]:
+                cleared.append(a["name"])
             a["positions"] = []
-    if not keep_watchlist:
+    # the watchlist is not part of any one account, so only a whole-book reset
+    # may touch it
+    if whole_book and not keep_watchlist:
         d["watchlist"] = []
     store.save(d)
-    return clean({"ok": True, "watchlist": d["watchlist"]})
+    return clean({"ok": True, "cleared": cleared, "watchlist": d["watchlist"]})
 
 
 @router.get("/watchlist")

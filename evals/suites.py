@@ -462,6 +462,12 @@ def suite_sweep(agent: bool = False):
                              ("--agent",) if agent else ())
 
 
+def suite_tenancy():
+    """Can one account reach another's book? (evals/tenancy_probe.py)"""
+    return _subprocess_suite("evals/tenancy_probe.py", "tenancy_probe_ran",
+                             "cross-account isolation must be tested, not assumed")
+
+
 def suite_login():
     """The end-to-end sign-in sweep (evals/login_probe.py), in a subprocess on
     a throwaway database so it can register, lock out and delete freely."""
