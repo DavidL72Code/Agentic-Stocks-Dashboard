@@ -15,7 +15,7 @@ from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
 from . import auth, db
-from .routes import agent, data, debug
+from .routes import agent, data
 
 logging.basicConfig(level=logging.INFO,
                     format="%(asctime)s %(levelname)-5s %(name)s %(message)s")
@@ -70,7 +70,6 @@ app.include_router(auth.router)
 app.include_router(auth.me_router)
 app.include_router(data.router)
 app.include_router(agent.router)
-app.include_router(debug.router)          # TEMPORARY Yahoo-on-Render probe
 
 BUILD = str(int(__import__("time").time()))
 WEB = pathlib.Path(__file__).resolve().parents[2] / "web"
