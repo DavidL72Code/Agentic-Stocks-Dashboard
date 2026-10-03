@@ -205,6 +205,8 @@ required for the full product.
 |---|---|---|
 | `CORS_ORIGINS` | `APP_BASE_URL` + localhost | Only needed if the frontend is served from a different origin than the API. |
 | `SESSION_DAYS` | `30` | Cookie lifetime and the session row's expiry. |
+| `FINNHUB_API_KEY` | unset | Recommended on Render. Yahoo refuses its crumb there, so P/E, market cap, margins and analyst ratings fall back to Finnhub's free tier. Prices work without it. |
+| `AGENT_FOLLOWUP` | `1` | `0` disables the agent's single follow-up round (a supervisor that may send up to two more specialists when a ticker moved 4%+ or the question asks why). |
 | `GEMINI_MODEL` | `gemini-2.5-flash` | Synthesis and the final write-up. |
 | `GEMINI_FAST_MODEL` | same as above | Tool selection and the guard. Cheap model is fine. |
 | `LLM_BASE_URL` | Gemini's OpenAI-compatible endpoint | Not a "switch providers" knob — the client is `ChatOpenAI`, which would otherwise default to `api.openai.com`. |

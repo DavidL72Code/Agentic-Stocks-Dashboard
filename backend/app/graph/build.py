@@ -1,6 +1,6 @@
 """Top-level graph: guard -> route -> Send(domain subgraphs) -> writer."""
 from __future__ import annotations
-import json, re, time
+import json, os, re, time
 from langgraph.graph import END, START, StateGraph
 from langgraph.types import Send
 
@@ -281,6 +281,78 @@ def _collect(sub_out: dict) -> dict:
     return {"findings": [f] if f else [], "steps": sub_out.get("steps", [])}
 
 
+# ---------------- one bounded follow-up round ------------------------------------
+# The first wave is parallel and blind: no specialist sees another's finding. When
+# that finding raises a question only ANOTHER specialist can answer ("fell 8% -
+# why?"), a supervisor may send at most two follow-ups, once. The trigger is code,
+# not a model call, so a question that does not need it costs nothing extra.
+FOLLOWUP_ON = os.environ.get("AGENT_FOLLOWUP", "1") != "0"
+BIG_MOVE_PCT = 4.0
+WHY_RE = re.compile(r"\b(why|what happened|explain|cause|driv)", re.I)
+SUPERVISOR_PROMPT = """You supervise stock-research specialists. The first wave has
+reported. Decide whether ONE follow-up round would answer something the first
+wave raised but could not explain (e.g. a big move with no cause found).
+
+Available specialists you have NOT used yet for that ticker: {free}
+Each covers: {desc}
+
+Reply with ONLY JSON: {{"followups": [{{"domain": "...", "ticker": "...",
+"question": "the specific thing to find out"}}]}}
+At most 2 followups. Return {{"followups": []}} if the findings already answer
+the question - that is the common case."""
+
+
+def _trigger(state: ResearchState) -> str:
+    for f in state.get("findings") or []:
+        for e in f.evidence:
+            if e.tool == "quote" and abs(e.data.get("change_pct") or 0) >= BIG_MOVE_PCT:
+                return f"{e.ticker} moved {e.data['change_pct']:+.1f}%"
+    if WHY_RE.search(state.get("question", "")):
+        return "question asks why"
+    return ""
+
+
+async def review(state: ResearchState) -> dict:
+    rnd = state.get("round", 0)
+    if rnd >= 1 or not FOLLOWUP_ON or state.get("refused"):
+        return {"round": rnd + 1, "followups": []}
+    why = _trigger(state)
+    if not why:
+        return {"round": 1, "followups": [],
+                "steps": [RunStep(node="review", detail="no trigger - single round")]}
+    findings = state.get("findings") or []
+    used = {(f.domain, f.ticker) for f in findings}
+    tickers = sorted({f.ticker for f in findings})
+    free = {t: [d for d in SUBGRAPHS if d != "portfolio" and (d, t) not in used] for t in tickers}
+    t0 = time.time()
+    try:
+        r = await llm.call(
+            SUPERVISOR_PROMPT.format(free=json.dumps(free),
+                                     desc=json.dumps({d: DOMAIN_DESC.get(d, "") for d in SUBGRAPHS})),
+            f"Question: {state['question']}\nTrigger: {why}\n\nFirst-wave findings:\n"
+            + "\n".join(f"- {f.domain}({f.ticker}): {f.narrative}" for f in findings))
+        asks = (llm.parse_json(r.text) or {}).get("followups") or []
+        tok, ms = r.tokens, r.latency_ms
+    except Exception as e:
+        return {"round": 1, "followups": [],
+                "steps": [RunStep(node="review", detail=f"supervisor failed: {type(e).__name__}")]}
+    tasks = [Task(id=f"f{i}", domain=a["domain"], ticker=a["ticker"], question=a.get("question") or state["question"],
+                  tools=[], args={})
+             for i, a in enumerate(asks[:2])
+             if a.get("domain") in free.get(a.get("ticker"), [])]
+    return {"round": 1, "followups": tasks, "steps": [RunStep(
+        node="review", detail=f"{why} -> " + (", ".join(f"{t['domain']}({t['ticker']})" for t in tasks) or "no follow-up needed"),
+        tokens=tok, latency_ms=int(ms), llm=True)]}
+
+
+def follow_up(state: ResearchState):
+    if state.get("round", 0) == 1 and state.get("followups"):
+        return [Send(t["domain"], {"domain": t["domain"], "ticker": t["ticker"],
+                                   "question": t["question"], "tools": [], "args": {}})
+                for t in state["followups"]]
+    return "writer"
+
+
 def make_domain_node(name: str):
     async def node(s: dict) -> dict:
         out = await SUBGRAPHS[name].ainvoke(s)
@@ -409,6 +481,7 @@ def build():
     g.add_node("route", route)
     for d in SUBGRAPHS:
         g.add_node(d, make_domain_node(d))
+    g.add_node("review", review)
     g.add_node("writer", writer)
     g.add_edge(START, "guard")
     g.add_conditional_edges("guard",
@@ -416,7 +489,8 @@ def build():
                             {"writer": "writer", "route": "route"})
     g.add_conditional_edges("route", fan_out, list(SUBGRAPHS) + ["writer"])
     for d in SUBGRAPHS:
-        g.add_edge(d, "writer")
+        g.add_edge(d, "review")
+    g.add_conditional_edges("review", follow_up, list(SUBGRAPHS) + ["writer"])
     g.add_edge("writer", END)
     return g.compile()
 

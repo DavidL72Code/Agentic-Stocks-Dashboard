@@ -26,4 +26,6 @@ class ResearchState(TypedDict, total=False):
     findings: Annotated[list[DomainFinding], merge_findings]
     steps: Annotated[list[RunStep], merge_findings]
     answer: str
+    round: int                # 0 = first wave; review bumps it to cap follow-ups at one
+    followups: list[Task]
     refused: str
