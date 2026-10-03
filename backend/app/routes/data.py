@@ -1048,8 +1048,11 @@ async def compare(symbols: str = Query(..., min_length=1), period: str = "6mo"):
             "price": q.get("regularMarketPrice"),
             "change_pct": q.get("regularMarketChangePercent"),
             "period_pct": perf.get(s),
-            "market_cap": q.get("marketCap"), "pe": q.get("trailingPE"),
-            "forward_pe": q.get("forwardPE"), "price_to_book": q.get("priceToBook"),
+            # the v7 quote carries these; its chart fallback does not, so use info's
+            "market_cap": q.get("marketCap") or i.get("marketCap"),
+            "pe": q.get("trailingPE") or i.get("trailingPE"),
+            "forward_pe": q.get("forwardPE") or i.get("forwardPE"),
+            "price_to_book": q.get("priceToBook") or i.get("priceToBook"),
             "net_margin": i.get("profitMargins"), "operating_margin": i.get("operatingMargins"),
             "gross_margin": i.get("grossMargins"), "roe": i.get("returnOnEquity"),
             "revenue_growth": i.get("revenueGrowth"), "earnings_growth": i.get("earningsGrowth"),

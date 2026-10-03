@@ -6,12 +6,13 @@ vs 3 requests per ticker for .info. yf.download does NOT batch - it only
 parallelises - so it is not used here.
 """
 from __future__ import annotations
-import asyncio, logging, math
+import asyncio, logging, math, time
 from typing import Any
 import pandas as pd, yfinance as yf
 from yfinance.data import YfData
 
 from ..cache import BatchLoader, cached
+from . import finnhub
 
 log = logging.getLogger("provider.yahoo")
 _data = YfData()
@@ -37,12 +38,67 @@ def _warm_session() -> None:
         _warm = True
 
 
+CHART_URL = "https://query2.finance.yahoo.com/v8/finance/chart/{}"
+
+
+def _market_state(meta: dict) -> str:
+    now = time.time()
+    for name, state in (("regular", "REGULAR"), ("pre", "PRE"), ("post", "POST")):
+        p = (meta.get("currentTradingPeriod") or {}).get(name) or {}
+        if p.get("start", 0) <= now < p.get("end", 0):
+            return state
+    return "CLOSED"
+
+
+def _chart_quote(session, symbol: str) -> dict | None:
+    """A v7-shaped quote rebuilt from the v8 chart's meta block. The chart
+    endpoint needs no crumb, so it still answers where Yahoo refuses the crumb
+    (Render: getcrumb returns 429 on the first request - an IP block, not a rate
+    limit). No marketCap / P/E here; those come from info() instead."""
+    try:
+        r = session.get(CHART_URL.format(symbol), params={"range": "1d", "interval": "1d"},
+                        timeout=10)
+        m = r.json()["chart"]["result"][0]["meta"]
+    except Exception:
+        return None
+    px, prev = m.get("regularMarketPrice"), m.get("chartPreviousClose")
+    if px is None:
+        return None
+    return {"symbol": symbol, "shortName": m.get("shortName"), "longName": m.get("longName"),
+            "regularMarketPrice": px,
+            "regularMarketChange": round(px - prev, 4) if prev else None,
+            "regularMarketChangePercent": m.get("regularMarketChangePercent")
+                or (round((px / prev - 1) * 100, 4) if prev else None),
+            "regularMarketVolume": m.get("regularMarketVolume"),
+            "fiftyTwoWeekHigh": m.get("fiftyTwoWeekHigh"),
+            "fiftyTwoWeekLow": m.get("fiftyTwoWeekLow"),
+            "marketState": _market_state(m), "currency": m.get("currency"),
+            "exchange": m.get("exchangeName"), "_source": "yahoo-chart"}
+
+
+def _chart_quotes(symbols: list[str]) -> dict[str, dict]:
+    from concurrent.futures import ThreadPoolExecutor
+    from curl_cffi import requests as cr
+    s = cr.Session(impersonate="chrome")
+    with ThreadPoolExecutor(max_workers=8) as ex:
+        rows = ex.map(lambda sym: _chart_quote(s, sym), symbols)
+    return {r["symbol"]: r for r in rows if r}
+
+
 def _quotes_blocking(symbols: list[str]) -> dict[str, dict]:
     _warm_session()
-    js = _data.get_raw_json(QUOTE_URL,
-                            params={"symbols": ",".join(symbols), "fields": QUOTE_FIELDS})
-    rows = js.get("quoteResponse", {}).get("result", []) or []
-    return {r["symbol"]: r for r in rows if r.get("symbol")}
+    try:
+        js = _data.get_raw_json(QUOTE_URL,
+                                params={"symbols": ",".join(symbols), "fields": QUOTE_FIELDS})
+        rows = js.get("quoteResponse", {}).get("result", []) or []
+        out = {r["symbol"]: r for r in rows if r.get("symbol")}
+    except Exception as e:
+        log.warning("v7 quote failed (%s); falling back to chart meta", e)
+        out = {}
+    missing = [s for s in symbols if s not in out]
+    if missing:
+        out.update(_chart_quotes(missing))
+    return out
 
 
 async def _quotes_batch(symbols: list[str]) -> dict[str, dict]:
@@ -126,6 +182,14 @@ async def attr(symbol: str, name: str, ttl: float = 86400) -> Any:
     """Cached access to any yfinance Ticker attribute (info, news, calendar, ...)."""
     val, stale = await cached(("attr", symbol.upper(), name), ttl,
                               lambda: asyncio.to_thread(_attr_blocking, symbol.upper(), name))
+    # Crumb-gated attrs come back near-empty where Yahoo blocks the crumb (Render
+    # gets {"trailingPegRatio": None}). Fill from Finnhub when it is configured;
+    # Yahoo's own values win wherever it did return them.
+    if name == "info" and len(val or {}) < 5 and finnhub.enabled():
+        fh = await finnhub.info(symbol)
+        val = {**fh, **{k: v for k, v in (val or {}).items() if v is not None}}
+    elif name == "recommendations" and not val and finnhub.enabled():
+        val = await finnhub.recommendations(symbol)
     return val
 
 
