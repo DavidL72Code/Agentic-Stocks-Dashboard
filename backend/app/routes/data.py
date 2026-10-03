@@ -195,19 +195,11 @@ async def analysts(symbol: str):
              for k, lab in (("strongBuy", "Strong buy"), ("buy", "Buy"), ("hold", "Hold"),
                             ("sell", "Sell"), ("strongSell", "Strong sell"))]
             if cur else [])
-    # Yahoo and Finnhub poll different analyst panels, so their means differ
-    # (NVDA: 1.30 from 59 vs 1.72 from 69). Say which one this is.
-    fh = i.get("_source") == "finnhub"
-    consensus = {k: i.get(k) for k in
-                 ("recommendationKey", "recommendationMean", "numberOfAnalystOpinions")
-                 if i.get(k) is not None}
-    if consensus:
-        consensus["source"] = "Finnhub" if fh else "Yahoo"
     return clean({
         "symbol": symbol.upper(),
-        "consensus": consensus,
-        "distribution_source": (("Finnhub" if (cur or {}).get("source") == "finnhub"
-                                 else "Yahoo") if cur else None),
+        "consensus": {k: i.get(k) for k in
+                      ("recommendationKey", "recommendationMean", "numberOfAnalystOpinions")
+                      if i.get(k) is not None},
         "targets": {k: i.get(k) for k in
                     ("targetLowPrice", "targetMeanPrice", "targetHighPrice", "currentPrice")
                     if i.get(k) is not None},

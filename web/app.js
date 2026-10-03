@@ -576,16 +576,12 @@ const TABS = {
     if (total) { const COL=["#199e70","#57b98f","#8d95a4","#e0916b","#e66767"];
       S.pending.push(()=>CH.consensus($("consmount"), dist.map((b,i)=>({...b,color:COL[i]})))); }
     return tilesHTML([
-      // e.g. "Buy" / "1.72 · 69 analysts (Finnhub)" - panels differ by source, so name it
-      ["Consensus", esc(c.recommendationKey||"—").replace(/_/g," "),
-        [c.recommendationMean!=null ? num(c.recommendationMean) : "",
-         c.numberOfAnalystOpinions ? c.numberOfAnalystOpinions+" analysts" : ""]
-          .filter(Boolean).join(" · ") + (c.source ? ` (${esc(c.source)})` : "")],
+      ["Consensus", esc(c.recommendationKey||"—").replace(/_/g," "), c.numberOfAnalystOpinions?c.numberOfAnalystOpinions+" analysts":""],
       ["Low target", num(g.targetLowPrice), ""],
       ["Mean target", num(g.targetMeanPrice), up!=null?pct(up)+" vs last":""],
       ["High target", num(g.targetHighPrice), ""]])
       + (total ? `<div class="section"><div class="panel"><div class="panel-h"><h4>Consensus distribution</h4>
-          <span class="r">${total} analysts · ${a.distribution_source ? esc(a.distribution_source)+" counts" : "reported counts"}</span></div>
+          <span class="r">${total} analysts · reported counts</span></div>
           <div class="panel-b"><div id="consmount"></div></div></div></div>` : "")
       + `<div class="section"><div class="panel"><div class="panel-h"><h4>Rating changes</h4></div>
         <div class="panel-b">${a.changes.length ? a.changes.map(r=>`<div class="lrow">

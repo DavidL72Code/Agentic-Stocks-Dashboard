@@ -30,11 +30,9 @@ async def news(ticker: str, limit: int = 8, **_):
 async def analyst_ratings(ticker: str, **_):
     i = await yahoo.info(ticker)
     d = {k: i[k] for k in ("recommendationKey", "recommendationMean", "numberOfAnalystOpinions") if i.get(k) is not None}
-    if d:   # different panels give different means - the agent should cite which
-        d["panel"] = "Finnhub" if i.get("_source") == "finnhub" else "Yahoo"
     if not d:
         return fail("analyst_ratings", ticker, "no coverage data")
-    return ok("analyst_ratings", ticker, d, source=d["panel"].lower())
+    return ok("analyst_ratings", ticker, d, source=i.get("_source", "yahoo"))
 
 
 @tool("street", "analyst price targets: low / mean / high vs current price")
