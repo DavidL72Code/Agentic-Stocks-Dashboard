@@ -1,0 +1,8 @@
+# Vercel serves only the static frontend; the Python backend runs on Render.
+# Without this, Vercel sees requirements.txt, installs it on Python 3.14, and
+# fails building libsql-experimental (no 3.14 wheel). Allowlist, not denylist,
+# so a new top-level Python file cannot trigger that again.
+/*
+!/web
+!/scripts
+!/vercel.json
