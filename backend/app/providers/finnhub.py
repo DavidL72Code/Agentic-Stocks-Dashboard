@@ -13,8 +13,9 @@ YAHOO'S shape and units, so callers of yahoo.info() never know the difference:
 Not on the free tier: price targets, forward P/E, short interest. Those stay
 empty rather than being estimated.
 
-Off unless FINNHUB_API_KEY is set. Free tier: 60 calls/min; one info() costs 3
-calls, cached for a day.
+Off unless FINNHUB_API_KEY is set. Free tier: 60 calls/min. A new ticker costs
+3 calls in all (profile2, metric, recommendation - the last shared by info()
+and recommendations()), then nothing until the cache expires.
 """
 from __future__ import annotations
 import asyncio, logging, os
@@ -59,12 +60,22 @@ def _consensus(rec: dict) -> dict:
             "numberOfAnalystOpinions": n}
 
 
+async def _rec_rows(symbol: str) -> list:
+    """/stock/recommendation, fetched once and shared: info() needs it for the
+    consensus mean and recommendations() for the breakdown chart."""
+    async def load():
+        async with httpx.AsyncClient(timeout=15) as c:
+            return await _get(c, "/stock/recommendation", symbol=symbol)
+    val, _ = await cached(("finnhub", "rec_rows", symbol), 43200, load)
+    return val or []
+
+
 async def _load_info(symbol: str) -> dict:
     async with httpx.AsyncClient(timeout=15) as c:
         prof, met, rec = await asyncio.gather(
             _get(c, "/stock/profile2", symbol=symbol),
             _get(c, "/stock/metric", symbol=symbol, metric="all"),
-            _get(c, "/stock/recommendation", symbol=symbol),
+            _rec_rows(symbol),
             return_exceptions=True)
     for name, v in (("profile2", prof), ("metric", met), ("recommendation", rec)):
         if isinstance(v, Exception):
@@ -114,8 +125,7 @@ async def info(symbol: str) -> dict:
 
 
 async def _load_recs(symbol: str) -> dict:
-    async with httpx.AsyncClient(timeout=15) as c:
-        rows = await _get(c, "/stock/recommendation", symbol=symbol)
+    rows = await _rec_rows(symbol)
     # Yahoo's .recommendations: one row per month back, "0m" = current
     return {str(i): {"period": f"-{i}m" if i else "0m", "source": "finnhub",
                      **{k: r.get(k) for k in ("strongBuy", "buy", "hold", "sell", "strongSell")}}
