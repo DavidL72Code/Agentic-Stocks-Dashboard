@@ -54,8 +54,14 @@ QUOTE_LOADER = BatchLoader(_quotes_batch, window=0.02, max_batch=100)
 
 
 async def quote(symbol: str) -> dict | None:
-    """Per-ticker semantics, batched transport."""
-    return await QUOTE_LOADER.load(symbol.upper())
+    """Per-ticker semantics, batched transport. A failed batch returns None, as
+    quotes() already does: callers treat a missing quote as optional, and a
+    Yahoo outage must not turn /overview and /news into 500s."""
+    try:
+        return await QUOTE_LOADER.load(symbol.upper())
+    except Exception as e:
+        log.warning("quote %s failed: %s", symbol, e)
+        return None
 
 
 async def quotes(symbols: list[str]) -> dict[str, dict]:
