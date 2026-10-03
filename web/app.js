@@ -37,7 +37,8 @@ const IC = {
 
 const DISCLAIMER = "Informational only, not financial advice. Monsoon summarises public data and cannot account for your circumstances.";
 const LAST_TICKER = "monsoon.lastTicker";
-const lastTicker = () => { try { return localStorage.getItem(LAST_TICKER) || "NVDA"; } catch { return "NVDA"; } };
+// null = never saved, so default to NVDA; "" = you closed every ticker, so stay empty
+const lastTicker = () => { try { return localStorage.getItem(LAST_TICKER) ?? "NVDA"; } catch { return "NVDA"; } };
 const S = { route:"dashboard", cur:null, wl:[], q:{}, sparks:{}, pf:null,
             tf:"1M", tab:"overview", show:{MA:true,Vol:true},
             run:null, tabAgent:{}, pending:[], llm:false, brief:null, acct:null, accounts:[], kinds:[],
@@ -672,7 +673,7 @@ async function viewResearch(symbols) {
   if (rl) rl.setAttribute("href", "#/t/" + symbols.join(","));
 
   crumbs([{label:"Research", href:"#/dashboard"},
-          {label: symbols.length > 1 ? `${symbols.length} tickers` : symbols[0]}]);
+          {label: symbols.length > 1 ? `${symbols.length} tickers` : symbols[0] || "Empty"}]);
 
   const v = $("views");
   v.innerHTML = `<div class="page">
@@ -691,12 +692,18 @@ async function viewResearch(symbols) {
     <div id="composer"></div>
     <div id="panels" class="panelgrid">
       ${symbols.map(()=>`<div class="skel" style="height:188px"></div>`).join("")}</div>
-    ${symbols.length > 1 ? `<div class="section" id="overlaywrap"></div>` : ""}
+    ${symbols.length > 1 ? `<div class="section" id="overlaywrap">
+      <button class="btn btn-sm" id="showOverlay">Compare performance</button></div>` : ""}
     <div class="section" id="detailwrap"></div>
   </div>`;
 
   wireLookup(true);
   $("analyzeSel").onclick = openComposer;
+
+  if (!symbols.length) {
+    $("panels").outerHTML = `<div class="empty">No tickers open. Add one with the search above.</div>`;
+    S.compare = null; syncSel(); afterRender(v); return;
+  }
 
   let cmp;
   try { cmp = await api(`/api/compare?symbols=${symbols.join(",")}&period=6mo`); }
@@ -746,14 +753,21 @@ async function viewResearch(symbols) {
   });
   $$("[data-close]").forEach(b => b.onclick = e => { e.stopPropagation();
     const left = S.basket.filter(x => x !== b.dataset.close);
-    location.hash = left.length ? "#/t/" + left.join(",") : "#/dashboard"; });
+    location.hash = "#/t/" + left.join(","); });
+  // click anywhere on a card to show its detail; the checkbox and close stay separate
+  $$(".tpanel").forEach(p => p.onclick = e => {
+    if (e.target.closest(".tick, [data-close], [data-focus]")) return;
+    p.querySelector("[data-focus]").click(); });
   $$("[data-focus]").forEach(b => b.onclick = async () => {
+    if (S.cur === b.dataset.focus) return;
     S.focus = S.cur = b.dataset.focus;
     $$(".tpanel").forEach(x => x.classList.toggle("focus", x.dataset.panel === S.cur));
     $$("[data-focus]").forEach(x => x.textContent = x.dataset.focus===S.cur ? "Showing below" : "Open detail");
     await renderDetail(); $("detailwrap").scrollIntoView({behavior:"smooth", block:"start"}); });
 
-  if (symbols.length > 1) renderOverlay(cmp, symbols);
+  // relative performance is opt-in: most of the time you want one ticker's detail
+  const so = $("showOverlay");
+  if (so) so.onclick = () => renderOverlay(cmp, symbols);
   await renderDetail();
   syncSel();
   afterRender(v);
@@ -1522,9 +1536,9 @@ async function route() {
   const [head, arg] = h.split("/");
   $$(".navitem").forEach(n => n.classList.toggle("on",
     n.dataset.route === (head==="t" ? "ticker" : head)));
-  if (head === "t" && arg) {
+  if (head === "t") {
     S.route = "ticker";
-    const syms = [...new Set(decodeURIComponent(arg).toUpperCase()
+    const syms = [...new Set(decodeURIComponent(arg || "").toUpperCase()
       .split(",").map(x=>x.trim()).filter(Boolean))].slice(0, 8);
     await viewResearch(syms);
   }
