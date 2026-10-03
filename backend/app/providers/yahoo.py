@@ -6,7 +6,7 @@ vs 3 requests per ticker for .info. yf.download does NOT batch - it only
 parallelises - so it is not used here.
 """
 from __future__ import annotations
-import asyncio, logging, math, time
+import asyncio, logging, math, threading, time
 from typing import Any
 import pandas as pd, yfinance as yf
 from yfinance.data import YfData
@@ -38,7 +38,44 @@ def _warm_session() -> None:
         _warm = True
 
 
-CHART_URL = "https://query2.finance.yahoo.com/v8/finance/chart/{}"
+# ---------------- crumb breaker -------------------------------------------------
+# Some hosts (Render) get 429 from getcrumb on the very first request - an IP
+# block, not a rate limit. Every crumb-gated call then fails, but only after a
+# round trip. Check once an hour and skip those calls while blocked, so a new
+# ticker does not pay for three requests that cannot succeed.
+CRUMB_ATTRS = {"info", "recommendations", "upgrades_downgrades"}
+_crumb = {"checked": 0.0, "ok": True}
+_crumb_lock = threading.Lock()
+
+
+def _block_crumb(reason: str) -> None:
+    if _crumb["ok"]:
+        log.warning("Yahoo crumb blocked (%s); skipping crumb-gated calls for 1h", reason)
+    _crumb.update(checked=time.time(), ok=False)
+
+
+def crumb_ok() -> bool:
+    with _crumb_lock:
+        if time.time() - _crumb["checked"] < 3600:
+            return _crumb["ok"]
+        from curl_cffi import requests as cr
+        try:
+            s = cr.Session(impersonate="chrome")
+            s.get("https://fc.yahoo.com", timeout=10)
+            r = s.get("https://query1.finance.yahoo.com/v1/test/getcrumb", timeout=10)
+            ok = r.status_code == 200 and 0 < len(r.text.strip()) < 64
+        except Exception as e:      # a network blip is not evidence of a block
+            log.warning("crumb check failed: %s", e)
+            _crumb.update(checked=time.time() - 3300, ok=True)   # retry in 5 min
+            return True
+        if ok:
+            _crumb.update(checked=time.time(), ok=True)
+        else:
+            _block_crumb(f"getcrumb -> {r.status_code}")
+        return ok
+
+
+CHART_URL ="https://query2.finance.yahoo.com/v8/finance/chart/{}"
 
 
 def _market_state(meta: dict) -> str:
@@ -86,15 +123,18 @@ def _chart_quotes(symbols: list[str]) -> dict[str, dict]:
 
 
 def _quotes_blocking(symbols: list[str]) -> dict[str, dict]:
-    _warm_session()
-    try:
-        js = _data.get_raw_json(QUOTE_URL,
-                                params={"symbols": ",".join(symbols), "fields": QUOTE_FIELDS})
-        rows = js.get("quoteResponse", {}).get("result", []) or []
-        out = {r["symbol"]: r for r in rows if r.get("symbol")}
-    except Exception as e:
-        log.warning("v7 quote failed (%s); falling back to chart meta", e)
-        out = {}
+    out: dict[str, dict] = {}
+    if crumb_ok():
+        _warm_session()
+        try:
+            js = _data.get_raw_json(QUOTE_URL,
+                                    params={"symbols": ",".join(symbols), "fields": QUOTE_FIELDS})
+            rows = js.get("quoteResponse", {}).get("result", []) or []
+            out = {r["symbol"]: r for r in rows if r.get("symbol")}
+        except Exception as e:
+            log.warning("v7 quote failed (%s); falling back to chart meta", e)
+            if any(c in str(e) for c in ("401", "429", "Crumb")):
+                _block_crumb(f"v7 quote: {e}")
     missing = [s for s in symbols if s not in out]
     if missing:
         out.update(_chart_quotes(missing))
@@ -170,6 +210,8 @@ def clean(o: Any) -> Any:
 
 
 def _attr_blocking(symbol: str, attr: str) -> Any:
+    if attr in CRUMB_ATTRS and not crumb_ok():
+        return {}               # would 401 anyway; Finnhub fills info/recommendations
     obj = getattr(yf.Ticker(symbol), attr)
     if isinstance(obj, pd.DataFrame):
         return clean(obj.to_dict("index")) if not obj.empty else {}
