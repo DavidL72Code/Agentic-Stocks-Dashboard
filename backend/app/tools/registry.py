@@ -41,8 +41,11 @@ def catalog(domain: str) -> str:
 DOMAIN_DESC = {
     "market": "price action, technicals, volume, 52-week range, relative strength",
     "fundamentals": "financial statements, valuation multiples, margins, growth, leverage, dividends",
-    "street": "news, analyst ratings and changes, price targets, ownership, insiders, short interest",
-    "events": "earnings dates and surprise history, ex-dividend dates, SEC filings",
+    "street": ("news (this week's, and headlines from past big-move days over a window - "
+               "the usual answer to WHY a stock moved), analyst ratings and changes, price "
+               "targets, ownership, insiders, short interest"),
+    "events": ("earnings dates and surprise history, ex-dividend dates, SEC filings "
+               "(8-Ks with their reason: results, executive change, deal, restructuring)"),
     "relations": ("how this ticker relates to OTHER tickers: peers, correlation, "
                   "read-across from one name's news to another, and SIZE-ADJUSTED "
                   "PEER PERFORMANCE. Include this for any question about how a stock "

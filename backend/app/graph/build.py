@@ -38,6 +38,10 @@ Rules:
   everything down", "what moved markets today", rates, the Fed, jobs, policy -
   emit a single macro task with "ticker": "MARKET".
 - Write each sub-question standalone - the specialist never sees the original.
+- If the question names a time window ("over six months", "this year", "since
+  March"), set "period" in EVERY task's args to the closest of: 1mo, 3mo, 6mo,
+  ytd, 1y, 2y, 5y. Tools default to other windows, so leaving it out silently
+  answers a different question.
 
 Reply with ONLY JSON:
 {{"tickers": ["AAPL"],
@@ -114,6 +118,30 @@ PERF_RE = re.compile(
     r"relative|trailing|ahead of|behind)\b", re.I)
 
 TICKER_RE = re.compile(r"\b[A-Z]{1,5}\b")
+
+# The window the user asked about, read from their words. Backs up the router,
+# which sometimes leaves args.period out - tools then fall back to their own
+# defaults (1y, 3mo) and the answer drifts to a window nobody asked for.
+_NUMW = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "nine": 9,
+         "twelve": 12, "a": 1}
+_WIN = re.compile(r"\b(\d+|one|two|three|four|five|six|nine|twelve|a)[\s-]*(day|week|month|year)s?\b", re.I)
+
+
+def question_period(q: str) -> str | None:
+    t = q.lower()
+    if re.search(r"\b(ytd|year[\s-]to[\s-]date|this year|so far this year)\b", t):
+        return "ytd"
+    if re.search(r"\b(this|last|past) quarter\b", t):
+        return "3mo"
+    m = _WIN.search(t)
+    if not m:
+        return None
+    n = int(m.group(1)) if m.group(1).isdigit() else _NUMW[m.group(1).lower()]
+    months = {"day": n / 30, "week": n / 4.3, "month": n, "year": n * 12}[m.group(2).lower()]
+    for cap, p in ((1.5, "1mo"), (4.5, "3mo"), (9, "6mo"), (18, "1y"), (36, "2y")):
+        if months <= cap:
+            return p
+    return "5y"
 # Words that are written in caps but are not tickers. Short, because the real
 # filter is "already uppercase in the user's own text" - see _fallback_ticker.
 NOT_TICKERS = {"A", "I", "THE", "AND", "OR", "PE", "US", "AI", "CEO", "CFO", "IPO",
@@ -268,12 +296,18 @@ async def route(state: ResearchState) -> dict:
                               tokens=tok, latency_ms=ms, llm=tok > 0)]}
 
 
+def _with_period(args: dict, state) -> dict:
+    p = question_period(state.get("question", ""))
+    return {**({"period": p} if p else {}), **(args or {})}
+
+
 def fan_out(state: ResearchState):
     if state.get("refused"):
         return "writer"
     return [Send(t["domain"], {"domain": t["domain"], "ticker": t["ticker"],
                                "question": t["question"], "tools": t.get("tools") or [],
-                               "args": t.get("args") or {}}) for t in state["tasks"]]
+                               "args": _with_period(t.get("args"), state)})
+            for t in state["tasks"]]
 
 
 def _collect(sub_out: dict) -> dict:
@@ -286,7 +320,10 @@ def _collect(sub_out: dict) -> dict:
 # that finding raises a question only ANOTHER specialist can answer ("fell 8% -
 # why?"), a supervisor may send at most two follow-ups, once. The trigger is code,
 # not a model call, so a question that does not need it costs nothing extra.
-FOLLOWUP_ON = os.environ.get("AGENT_FOLLOWUP", "1") != "0"
+# off | trigger (code gate, then a supervisor call) | writer (the writer decides,
+# inside the call it already makes - no extra call when nothing is missing)
+FOLLOWUP_MODE = {"0": "off", "1": "writer"}.get(os.environ.get("AGENT_FOLLOWUP", "writer"),
+                                                 os.environ.get("AGENT_FOLLOWUP", "writer"))
 BIG_MOVE_PCT = 4.0
 WHY_RE = re.compile(r"\b(why|what happened|explain|cause|driv)", re.I)
 SUPERVISOR_PROMPT = """You supervise stock-research specialists. The first wave has
@@ -314,7 +351,9 @@ def _trigger(state: ResearchState) -> str:
 
 async def review(state: ResearchState) -> dict:
     rnd = state.get("round", 0)
-    if rnd >= 1 or not FOLLOWUP_ON or state.get("refused"):
+    if FOLLOWUP_MODE != "trigger":
+        return {"followups": []}          # writer mode clears its request once served
+    if rnd >= 1 or state.get("refused"):
         return {"round": rnd + 1, "followups": []}
     why = _trigger(state)
     if not why:
@@ -345,10 +384,61 @@ async def review(state: ResearchState) -> dict:
         tokens=tok, latency_ms=int(ms), llm=True)]}
 
 
+def _free_domains(findings) -> dict:
+    used = {(f.domain, f.ticker) for f in findings}
+    return {t: [d for d in SUBGRAPHS if d != "portfolio" and (d, t) not in used]
+            for t in sorted({f.ticker for f in findings})}
+
+
+WRITER_FOLLOWUP = """
+
+BEFORE WRITING, check: would a reader finish your answer still asking the
+obvious follow-up question? Typical gaps: the stock moved sharply but nothing
+here says WHY (news, ratings or filings were never checked); a "why" question
+answered only with numbers that describe, not explain. Describing a move is
+not explaining it. The cause of a price move - today's or one months ago - is
+almost always news, a rating change, an earnings result or a filing: for that
+gap ask for BOTH `street` (news, incl. headlines on past big-move days, and
+rating changes) AND `events` (earnings results, 8-K filings with their reasons).
+If there is such a gap AND a specialist below could fill it,
+ask for up to 2 of them instead of writing - you get one chance, and you will
+write the final answer with their findings added. If no specialist could
+help, write the answer and name what is missing. Specialists not yet used, per ticker: {free}
+They cover: {desc}{hint}
+Reply with ONLY JSON, filling the keys IN THIS ORDER:
+{{"gap": "the obvious unanswered follow-up, or none",
+  "followups": [{{"domain": "...", "ticker": "...", "question": "what to find out"}}],
+  "answer": "..."}}
+Leave "followups" as [] when there is no gap a listed specialist could fill.
+If you do request followups, "answer" may be empty - it will be rewritten."""
+
+
+def _writer_clause(state: ResearchState) -> tuple[str, dict]:
+    if FOLLOWUP_MODE != "writer" or state.get("round", 0) >= 1:
+        return "", {}
+    free = _free_domains(state.get("findings") or [])
+    if not any(free.values()):
+        return "", {}
+    why = _trigger(state)
+    return WRITER_FOLLOWUP.format(
+        free=json.dumps(free), desc=json.dumps({d: DOMAIN_DESC.get(d, "") for d in SUBGRAPHS}),
+        hint=f"\nNote: {why}." if why else ""), free
+
+
+def _requested(j: dict, free: dict, state: ResearchState) -> list:
+    return [Task(id=f"w{i}", domain=a["domain"], ticker=a["ticker"],
+                 question=a.get("question") or state["question"], tools=[], args={})
+            for i, a in enumerate((j.get("followups") or [])[:2])
+            if isinstance(a, dict) and a.get("domain") in free.get(a.get("ticker"), [])]
+
+
 def follow_up(state: ResearchState):
+    if FOLLOWUP_MODE != "trigger":
+        return "writer"
     if state.get("round", 0) == 1 and state.get("followups"):
         return [Send(t["domain"], {"domain": t["domain"], "ticker": t["ticker"],
-                                   "question": t["question"], "tools": [], "args": {}})
+                                   "question": t["question"], "tools": [],
+                                   "args": _with_period({}, state)})
                 for t in state["followups"]]
     return "writer"
 
@@ -358,6 +448,22 @@ def make_domain_node(name: str):
         out = await SUBGRAPHS[name].ainvoke(s)
         return _collect(out)
     return node
+
+
+def _ask_more(asks: list, r) -> dict:
+    return {"followups": asks, "round": 1, "steps": [RunStep(
+        node="writer.decide", detail="needs more -> " + ", ".join(
+            f"{t['domain']}({t['ticker']})" for t in asks),
+        tokens=r.tokens, latency_ms=r.latency_ms, llm=True)]}
+
+
+def after_writer(state: ResearchState):
+    if FOLLOWUP_MODE == "writer" and state.get("followups") and not state.get("answer"):
+        return [Send(t["domain"], {"domain": t["domain"], "ticker": t["ticker"],
+                                   "question": t["question"], "tools": [],
+                                   "args": _with_period({}, state)})
+                for t in state["followups"]]
+    return END
 
 
 async def writer(state: ResearchState) -> dict:
@@ -373,11 +479,15 @@ async def writer(state: ResearchState) -> dict:
         # but meant single-domain answers never got the writing pass that
         # multi-domain ones did. Readability measured worst exactly there.
         f = findings[0]
+        clause, free = _writer_clause(state)
         try:
-            r = await llm.call(POLISH_PROMPT,
+            r = await llm.call(POLISH_PROMPT + clause,
                                f"Question: {state['question']}\n\n"
                                f"Specialist ({f.domain}) wrote:\n{f.narrative}")
             j = llm.parse_json(r.text) or {}
+            asks = _requested(j, free, state) if clause else []
+            if asks:
+                return _ask_more(asks, r)
             polished = str(j.get("answer") or "").strip()
             # an editor that rewrites it into something unrecognisable has
             # overstepped; fall back to the specialist's own words
@@ -398,11 +508,15 @@ async def writer(state: ResearchState) -> dict:
     payload = [{"domain": f.domain, "ticker": f.ticker, "finding": f.narrative,
                 "evidence": {e.tool: present(e.data) for e in f.evidence}}
                for f in findings]
+    clause, free = _writer_clause(state)
     try:
-        r = await llm.call(WRITER_PROMPT,
+        r = await llm.call(WRITER_PROMPT + clause,
                            f"Question: {state['question']}\n\n"
                            + json.dumps(payload, default=str)[:16000])
         j = llm.parse_json(r.text) or {}
+        asks = _requested(j, free, state) if clause else []
+        if asks:
+            return _ask_more(asks, r)
         ans = str(j.get("answer") or r.text).strip()
         step = RunStep(node="writer", detail=f"{len(findings)} findings",
                        tokens=r.tokens, latency_ms=r.latency_ms, llm=True)
@@ -491,7 +605,7 @@ def build():
     for d in SUBGRAPHS:
         g.add_edge(d, "review")
     g.add_conditional_edges("review", follow_up, list(SUBGRAPHS) + ["writer"])
-    g.add_edge("writer", END)
+    g.add_conditional_edges("writer", after_writer, list(SUBGRAPHS) + [END])
     return g.compile()
 
 

@@ -117,12 +117,18 @@ async def drawdown(ticker: str, period: str = "1y", **_):
     }, source="derived")
 
 
-@tool("market", "performance vs SPY over 1m and 3m (relative strength)", derived=True)
-async def relative_strength(ticker: str, **_):
+@tool("market", "performance vs SPY over 1m and 3m, plus any requested window (relative strength)", derived=True)
+async def relative_strength(ticker: str, period: str | None = None, **_):
     s = await closes(ticker, "1y"); spy = await closes("SPY", "1y")
     if len(s) < 65 or len(spy) < 65:
         return fail("relative_strength", ticker, "insufficient history")
     out = {}
+    if period and period not in ("1mo", "3mo"):
+        ws, wm = await closes(ticker, period), await closes("SPY", period)
+        if len(ws) > 5 and len(wm) > 5:
+            t, m = pct(float(ws.iloc[-1]), float(ws.iloc[0])), pct(float(wm.iloc[-1]), float(wm.iloc[0]))
+            out.update({f"{period}_stock_pct": t, f"{period}_spy_pct": m,
+                        f"{period}_excess_pct": round(t - m, 2)})
     for label, n in (("1m", 21), ("3m", 63)):
         t = pct(float(s.iloc[-1]), float(s.iloc[-n]))
         m = pct(float(spy.iloc[-1]), float(spy.iloc[-n]))

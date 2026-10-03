@@ -124,6 +124,19 @@ async def info(symbol: str) -> dict:
     return val or {}
 
 
+async def company_news(symbol: str, frm: str, to: str) -> list[dict]:
+    """Dated headlines. Each call returns at most ~250 items, NEWEST first, and the
+    free tier keeps about a year - so ask for narrow windows (a day or two), not
+    a whole period. Past news does not change, so cache it for a week."""
+    if not enabled():
+        return []
+    async def load():
+        async with httpx.AsyncClient(timeout=15) as c:
+            return await _get(c, "/company-news", symbol=symbol, **{"from": frm, "to": to})
+    val, _ = await cached(("finnhub", "news", symbol.upper(), frm, to), 7 * 86400, load)
+    return val if isinstance(val, list) else []
+
+
 async def _load_recs(symbol: str) -> dict:
     rows = await _rec_rows(symbol)
     # Yahoo's .recommendations: one row per month back, "0m" = current

@@ -89,15 +89,34 @@ async def concept(ticker: str, metric: str, limit: int = 8) -> list[dict]:
     return val[-limit:]
 
 
-async def filings(ticker: str, limit: int = 8) -> list[dict]:
+# Why an 8-K was filed. EDGAR lists the item numbers; these are the ones that
+# can move a stock. Without them an 8-K is just "a filing happened".
+ITEMS_8K = {"1.01": "material agreement", "1.02": "agreement terminated",
+            "2.01": "acquisition or disposal completed", "2.02": "quarterly results",
+            "2.03": "new debt obligation", "2.05": "restructuring / exit costs",
+            "2.06": "impairment", "3.01": "delisting notice", "3.02": "unregistered share sale",
+            "4.01": "auditor change", "4.02": "prior financials unreliable",
+            "5.01": "change in control", "5.02": "executive or director change",
+            "5.07": "shareholder vote", "7.01": "Reg FD disclosure", "8.01": "other material event"}
+
+
+async def filings(ticker: str, limit: int = 8, since: str | None = None) -> list[dict]:
     cik = await cik_for(ticker)
     if cik is None:
         return []
     async def load() -> list[dict]:
         js = await _get(SUBMISSIONS.format(cik=cik))
         r = js.get("filings", {}).get("recent", {})
-        return [{"date": d, "form": f, "doc": p}
-                for d, f, p in zip(r.get("filingDate", []), r.get("form", []),
-                                   r.get("primaryDocument", []))][:40]
-    val, _ = await cached(("edgar", ticker.upper(), "filings"), 86400, load)
+        out = []
+        for d, f, p, it in zip(r.get("filingDate", []), r.get("form", []),
+                               r.get("primaryDocument", []), r.get("items", [""] * 10**4)):
+            row = {"date": d, "form": f, "doc": p}
+            reasons = [ITEMS_8K[x.strip()] for x in (it or "").split(",") if x.strip() in ITEMS_8K]
+            if reasons:
+                row["reasons"] = reasons
+            out.append(row)
+        return out          # EDGAR "recent" is up to ~1000 rows; Form 4s crowd it
+    val, _ = await cached(("edgar", ticker.upper(), "filings2"), 86400, load)
+    if since:
+        val = [x for x in val if x["date"] >= since]
     return val[:limit]

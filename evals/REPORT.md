@@ -1,8 +1,8 @@
 # Eval report
 
-Run 2026-10-02 23:46 · model `gemini-3.5-flash-lite` · 42 tools · LLM on
+Run 2026-10-03 03:47 · model `gemini-3.5-flash-lite` · 42 tools · LLM on
 
-**327/327 passed**
+**309/309 passed**
 
 
 ## Auth — 34/34
@@ -17,10 +17,10 @@ Run 2026-10-02 23:46 · model `gemini-3.5-flash-lite` · 42 tools · LLM on
 | `rejects_weak_passwords` | PASS | rejected all of ['short', 'password123', '9081726354'] |
 | `register_rejects_weak` | PASS | 400 Use at least 10 characters. |
 | `register_rejects_bad_username` | PASS | 400 Usernames are 3-32 characters: letters, digits, . _ or -, starting with a letter or digit. |
-| `register_succeeds` | PASS | 200 probe-f59f3291 |
+| `register_succeeds` | PASS | 200 probe-84c5c23b |
 | `register_returns_no_password` | PASS | response carries no password field |
 | `username_case_insensitive_unique` | PASS | 409 That username is taken. |
-| `session_cookie_works` | PASS | probe-f59f3291 can_save=True |
+| `session_cookie_works` | PASS | probe-84c5c23b can_save=True |
 | `no_user_enumeration` | PASS | real user: 401 / unknown: 401, same text: True |
 | `throttle_locks_out` | PASS | 25 failures -> locked for 899s (limit 5) |
 | `ip_budget_is_looser` | PASS | 5 fails -> 0s, 50 -> 899s |
@@ -29,7 +29,7 @@ Run 2026-10-02 23:46 · model `gemini-3.5-flash-lite` · 42 tools · LLM on
 | `guest_sees_empty_book` | PASS | 200 [] |
 | `guest_keeps_market_data` | PASS | 200 1 quote(s) |
 | `register_does_not_adopt` | PASS | fresh account sees ['Brokerage'] |
-| `seeded_ids_are_per_user` | PASS | ids ['d5bea8cfed84'] |
+| `seeded_ids_are_per_user` | PASS | ids ['bfc5e7f8b72a'] |
 | `claim_requires_sign_in` | PASS | 401 Sign in first. |
 | `change_needs_current_password` | PASS | 401 Your current password is not right. |
 | `change_enforces_strength` | PASS | 400 Use at least 10 characters. |
@@ -49,7 +49,7 @@ Run 2026-10-02 23:46 · model `gemini-3.5-flash-lite` · 42 tools · LLM on
 
 | Case | Result | Detail |
 |---|---|---|
-| `register_200` | PASS | {'id': '9ba3e51bcef3', 'username': 'davidle', 'name': 'David', 'signed |
+| `register_200` | PASS | {'id': '0a175001e483', 'username': 'davidle', 'name': 'David', 'signed |
 | `cookie_httponly` | PASS |  |
 | `cookie_samesite_lax` | PASS |  |
 | `cookie_persists` | PASS |  |
@@ -57,12 +57,12 @@ Run 2026-10-02 23:46 · model `gemini-3.5-flash-lite` · 42 tools · LLM on
 | `can_save` | PASS |  |
 | `watchlist_write` | PASS | {'watchlist': ['NVDA', 'AAPL', 'MSFT', 'AMD', 'PLTR', 'KO',  |
 | `watchlist_read_back` | PASS |  |
-| `portfolio_create` | PASS | {'accounts': [{'id': '0ac5e5623e99', 'name': 'Brokerage', 'k |
+| `portfolio_create` | PASS | {'accounts': [{'id': 'f0fd3bbf699a', 'name': 'Brokerage', 'k |
 | `logout_204` | PASS |  |
 | `logout_returns_to_guest` | PASS |  |
 | `guest_cannot_write` | PASS |  |
 | `guest_sees_nothing` | PASS |  |
-| `login_200` | PASS | {'id': '9ba3e51bcef3', 'username': 'davidle', 'name': 'David |
+| `login_200` | PASS | {'id': '0a175001e483', 'username': 'davidle', 'name': 'David |
 | `state_survived_logout` | PASS |  |
 | `accounts_survived_logout` | PASS |  |
 | `username_case_insensitive` | PASS |  |
@@ -85,14 +85,14 @@ Run 2026-10-02 23:46 · model `gemini-3.5-flash-lite` · 42 tools · LLM on
 | `expired_sessions_pruned` | PASS | 0 expired rows left |
 
 
-## App sweep — 94/94
+## App sweep — 90/90
 
 | Case | Result | Detail |
 |---|---|---|
 | `index_served` | PASS | 66212 bytes |
 | `index_no_store` | PASS | no-store, must-revalidate |
-| `asset_stamp_matches_build` | PASS | app.js?v=1790999179 |
-| `build_stamp` | PASS | {'build': '1790999179'} |
+| `asset_stamp_matches_build` | PASS | app.js?v=1791013648 |
+| `build_stamp` | PASS | {'build': '1791013648'} |
 | `no_store_api_me` | PASS | no-store, private |
 | `no_store_api_portfolio` | PASS | no-store, private |
 | `no_store_api_watchlist` | PASS | no-store, private |
@@ -103,17 +103,17 @@ Run 2026-10-02 23:46 · model `gemini-3.5-flash-lite` · 42 tools · LLM on
 | `cors_allows_own_origin` | PASS | http://127.0.0.1:8077 -> 'http://127.0.0.1:8077' |
 | `cors_never_allows_credentials` | PASS | None |
 | `cors_preflight_denies_unknown_origin` | PASS | preflight -> None |
-| `health` | PASS | llm=True model=gemini-3.5-flash-lite tools=42 db=sqlite |
+| `health` | PASS | llm=True model=gemini-3.5-flash-lite tools=43 db=sqlite |
 | `health_names_db` | PASS | sqlite |
 | `quotes_batched` | PASS | 8 quotes / 1 upstream call(s) |
 | `quotes_priced` | PASS | 8/8 priced and named |
 | `bars_ohlcv` | PASS | 21 bars |
 | `bars_intraday` | PASS | 78 5m bars |
 | `sparklines` | PASS | {'NVDA': 21, 'AAPL': 21} |
-| `overview` | PASS | cap=5649190617088 pe=29.53914 margin=0.63663 |
+| `overview` | PASS | cap=5649190617088 pe=29.17082 margin=0.63663 |
 | `overview_has_balance_sheet` | PASS | d/e=16.971 fcf=41809874944 |
 | `financials` | PASS | 8 quarters, single-quarter only: True |
-| `news` | PASS | 12 items, 4 flagged relevant |
+| `news` | PASS | 12 items, 1 flagged relevant |
 | `news_relevance_flagged` | PASS |  |
 | `analysts` | PASS | {'Strong buy': 10, 'Buy': 48, 'Hold': 2, 'Sell': 1, 'Strong sell': 0} |
 | `analyst_targets` | PASS | {'targetLowPrice': 180.0, 'targetMeanPrice': 327.7, 'targetHighPrice': 515.0} |
@@ -143,12 +143,12 @@ Run 2026-10-02 23:46 · model `gemini-3.5-flash-lite` · 42 tools · LLM on
 | `guest_brief_is_macro_only` | PASS | market_only=True, 0 tickers, 10 macro headlines |
 | `guest_brief_says_why` | PASS | not signed in |
 | `providers` | PASS |  |
-| `register` | PASS | {'id': '8aacfbe5f881', 'username': 'sweeper', 'name': 'sweep |
+| `register` | PASS | {'id': '1fd10bee4f0f', 'username': 'sweeper', 'name': 'sweep |
 | `login_reachable` | PASS |  |
 | `watch_add` | PASS |  |
 | `watch_rejects_junk` | PASS |  |
 | `watch_delete` | PASS |  |
-| `account_create` | PASS | f6dd93a16174 |
+| `account_create` | PASS | 8e265e372e9c |
 | `account_name_unique` | PASS |  |
 | `account_rename` | PASS |  |
 | `account_activate` | PASS |  |
@@ -169,11 +169,7 @@ Run 2026-10-02 23:46 · model `gemini-3.5-flash-lite` · 42 tools · LLM on
 | `threshold_moves_explain_themselves` | PASS | 0 threshold moves, all with a reason: none today |
 | `domains_registered` | PASS | ['market', 'fundamentals', 'street', 'events', 'relations', 'macro', 'portfolio'] |
 | `every_domain_has_tools` | PASS | all populated |
-| `tool_count` | PASS | 42 tools |
-| `agent_ask` | PASS | 442 chars in 13s |
-| `agent_grounded` | PASS | ungrounded: [] |
-| `agent_disclaimer` | PASS | Informational only, not financial advice. Monsoon summarises public da |
-| `disclaimer_rendered` | PASS | present in the shell |
+| `tool_count` | PASS | 43 tools |
 | `reset_keeps_watchlist` | PASS |  |
 | `reset_clears_positions` | PASS |  |
 | `env_documented_in_HOSTING_md` | PASS | all 24 documented |
@@ -185,7 +181,7 @@ Run 2026-10-02 23:46 · model `gemini-3.5-flash-lite` · 42 tools · LLM on
 | `every_route_touched` | PASS | all covered |
 
 
-## Tenancy — 36/36
+## Tenancy — 34/34
 
 | Case | Result | Detail |
 |---|---|---|
@@ -213,7 +209,7 @@ Run 2026-10-02 23:46 · model `gemini-3.5-flash-lite` · 42 tools · LLM on
 | `cannot_delete_another_account` | PASS | 400 |
 | `positions_carries_user_id` | PASS | ['basis', 'id', 'portfolio_id', 'qty', 'ticker', 'user_id'] |
 | `positions_scope_invariant_holds` | PASS | 0 rows disagree with their portfolio's owner |
-| `every_position_row_is_owned` | PASS | {'830dcbddfae0': 3, 'c2432008fe19': 4} |
+| `every_position_row_is_owned` | PASS | {'b5c3d55f4d05': 3, 'cd89bb86ffeb': 4} |
 | `direct_user_scoped_query_works` | PASS | alice's rows by user_id alone: ['AAPL', 'MSFT', 'NVDA'] |
 | `foreign_keys_enforced` | PASS | ON |
 | `backfill_assigns_the_right_owner` | PASS | [('u1', 'KO'), ('u1', 'PEP'), ('u2', 'XOM')] |
@@ -223,8 +219,6 @@ Run 2026-10-02 23:46 · model `gemini-3.5-flash-lite` · 42 tools · LLM on
 | `concurrent_reads_never_cross` | PASS | 24 reads, each its own |
 | `lost_context_sees_no_holdings` | PASS | resolved to 'guest', saw [] / [] |
 | `lost_context_cannot_write` | PASS | store.save() raises for a context-less caller |
-| `agent_answers_ann_from_anns_book` | PASS | foreign none, local-leak no |
-| `agent_answers_ben_from_bens_book` | PASS | foreign none, local-leak no |
 
 
 ## Cache — 21/21
@@ -275,7 +269,7 @@ Run 2026-10-02 23:46 · model `gemini-3.5-flash-lite` · 42 tools · LLM on
 | `indices_set` | PASS | ['S&P 500', 'Dow Jones', 'Nasdaq', 'Fear & Greed', 'Volatility', 'US 10-year'] |
 
 
-## Tools — 52/52
+## Tools — 53/53
 
 | Case | Result | Detail |
 |---|---|---|
@@ -314,7 +308,8 @@ Run 2026-10-02 23:46 · model `gemini-3.5-flash-lite` · 42 tools · LLM on
 | `tool:peer_performance` | PASS | data (relations, derived) |
 | `tool:peer_moves` | PASS | data (relations, derived) |
 | `tool:read_across` | PASS | data (relations, derived) |
-| `tool:news` | PASS | data (street) |
+| `tool:news` | PASS | empty (street) |
+| `tool:news_history` | PASS | data (street) |
 | `tool:analyst_ratings` | PASS | data (street) |
 | `tool:price_targets` | PASS | data (street) |
 | `tool:rating_changes` | PASS | data (street) |
@@ -326,7 +321,7 @@ Run 2026-10-02 23:46 · model `gemini-3.5-flash-lite` · 42 tools · LLM on
 | `empty_is_not_error` | PASS | TSLA dividends -> empty |
 | `domain_populated:market` | PASS | 9 tools |
 | `domain_populated:fundamentals` | PASS | 7 tools |
-| `domain_populated:street` | PASS | 7 tools |
+| `domain_populated:street` | PASS | 8 tools |
 | `domain_populated:events` | PASS | 4 tools |
 | `domain_populated:relations` | PASS | 7 tools |
 | `domain_populated:macro` | PASS | 3 tools |
@@ -366,56 +361,3 @@ Run 2026-10-02 23:46 · model `gemini-3.5-flash-lite` · 42 tools · LLM on
 | `grounding:unit scaling` | PASS | grounded=True, expected=True |
 | `grounding:real fabrication` | PASS | grounded=False, expected=False |
 
-
-## Agent — 13/13
-
-| Case | Result | Detail |
-|---|---|---|
-| `single_domain_price` | PASS | domains=['market'] grounded=True |
-| `valuation_fundamentals` | PASS | domains=['fundamentals', 'relations'] grounded=True |
-| `street_sentiment` | PASS | domains=['street'] grounded=True |
-| `macro_backdrop` | PASS | domains=['macro'] grounded=True |
-| `overall_read_pulls_macro` | PASS | domains=['fundamentals', 'macro', 'market', 'street'] grounded=True |
-| `read_across` | PASS | domains=['relations'] grounded=True |
-| `earnings_outlook` | PASS | domains=['events', 'street'] grounded=True |
-| `performance_pulls_peers` | PASS | domains=['market', 'relations'] grounded=True |
-| `explicit_selection` | PASS | domains=['fundamentals', 'relations'] grounded=True |
-| `selection_not_substituted` | PASS | domains=['fundamentals', 'relations'] grounded=True |
-| `refuse_offtopic` | PASS | domains=[] grounded=True |
-| `refuse_injection` | PASS | domains=[] grounded=True |
-| `unknown_ticker_degrades` | PASS | domains=[] grounded=True |
-
-
-## Answer quality (deterministic)
-
-| Case | Validity | Readability | Structure | Conjunction |
-|---|---|---|---|---|
-| `single_domain_price` | 5/5 | 5/5 | 5/5 | 4/5 |
-| `valuation_fundamentals` | 5/5 | 4/5 | 5/5 | 5/5 |
-| `street_sentiment` | 5/5 | 5/5 | 5/5 | 1/5 |
-| `macro_backdrop` | 5/5 | 5/5 | 5/5 | 1/5 |
-| `overall_read_pulls_macro` | 5/5 | 4/5 | 4/5 | 5/5 |
-| `read_across` | 5/5 | 1/5 | 3/5 | 5/5 |
-| `earnings_outlook` | 5/5 | 5/5 | 5/5 | 4/5 |
-| `performance_pulls_peers` | 5/5 | 4/5 | 5/5 | 5/5 |
-| `explicit_selection` | 5/5 | 5/5 | 5/5 | 5/5 |
-| `selection_not_substituted` | 5/5 | 2/5 | 5/5 | 4/5 |
-| `unknown_ticker_degrades` | 2/5 | 5/5 | 5/5 | 1/5 |
-
-**Conjunction rate: 8/11 (73%)** — share of answers that relate two tools' or domains' data rather than listing them. This is the metric DESIGN.md §10 says justifies domain subgraphs: a one-tool agent cannot score here by construction.
-
-- mean validity: **4.7/5**
-- mean readability: **4.1/5**
-- mean structure: **4.7/5**
-
-**Lowest readability**
-
-- `read_across` — sentences too long (45 words); unreadable: 9 figures in one sentence
-- `selection_not_substituted` — unreadable: 12 figures in one sentence
-- `valuation_fundamentals` — 3 figures in one sentence
-
-## Agent cost & latency
-
-- median tokens/run: **2486**
-- median latency: **3.9s** (p95 8.4s)
-- median LLM calls: **3**
