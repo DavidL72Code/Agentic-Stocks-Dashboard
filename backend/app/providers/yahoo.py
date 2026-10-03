@@ -12,7 +12,7 @@ import pandas as pd, yfinance as yf
 from yfinance.data import YfData
 
 from ..cache import BatchLoader, cached
-from . import finnhub
+from . import finnhub, nasdaq
 
 log = logging.getLogger("provider.yahoo")
 _data = YfData()
@@ -230,6 +230,15 @@ async def attr(symbol: str, name: str, ttl: float = 86400) -> Any:
     if name == "info" and len(val or {}) < 5 and finnhub.enabled():
         fh = await finnhub.info(symbol)
         val = {**fh, **{k: v for k, v in (val or {}).items() if v is not None}}
+    # Price targets: Yahoo's need the crumb and Finnhub's need a paid plan
+    if name == "info" and not (val or {}).get("targetMeanPrice"):
+        tg = await nasdaq.targets(symbol)
+        if tg:
+            val = {**(val or {}), **tg}
+            if val.get("currentPrice") is None:     # for "upside vs last"
+                q = await quote(symbol)
+                if q and q.get("regularMarketPrice") is not None:
+                    val["currentPrice"] = q["regularMarketPrice"]
     elif name == "recommendations" and not val and finnhub.enabled():
         val = await finnhub.recommendations(symbol)
     return val

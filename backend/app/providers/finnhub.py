@@ -127,7 +127,7 @@ async def info(symbol: str) -> dict:
 async def _load_recs(symbol: str) -> dict:
     rows = await _rec_rows(symbol)
     # Yahoo's .recommendations: one row per month back, "0m" = current
-    return {str(i): {"period": f"-{i}m" if i else "0m", "source": "finnhub",
+    return {str(i): {"period": f"-{i}m" if i else "0m",
                      **{k: r.get(k) for k in ("strongBuy", "buy", "hold", "sell", "strongSell")}}
             for i, r in enumerate(rows or [])}
 
