@@ -117,7 +117,7 @@ async def _load_recs(symbol: str) -> dict:
     async with httpx.AsyncClient(timeout=15) as c:
         rows = await _get(c, "/stock/recommendation", symbol=symbol)
     # Yahoo's .recommendations: one row per month back, "0m" = current
-    return {str(i): {"period": f"-{i}m" if i else "0m",
+    return {str(i): {"period": f"-{i}m" if i else "0m", "source": "finnhub",
                      **{k: r.get(k) for k in ("strongBuy", "buy", "hold", "sell", "strongSell")}}
             for i, r in enumerate(rows or [])}
 
