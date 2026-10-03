@@ -44,6 +44,12 @@ def _probe() -> dict:
     step("5_v8_chart", "https://query2.finance.yahoo.com/v8/finance/chart/NVDA",
          params={"range": "5d", "interval": "1d"})
 
+    # Nasdaq's site API: candidate source for price targets (no key, no daily cap)
+    nh = {"Accept": "application/json", "Origin": "https://www.nasdaq.com",
+          "Referer": "https://www.nasdaq.com/"}
+    step("8_nasdaq_targetprice", "https://api.nasdaq.com/api/analyst/NVDA/targetprice", headers=nh)
+    step("9_nasdaq_ratings", "https://api.nasdaq.com/api/analyst/NVDA/ratings", headers=nh)
+
     # the app's real code paths, exceptions included
     try:
         out["6_app_quotes"] = {"rows": len(yahoo._quotes_blocking(["NVDA"]))}
