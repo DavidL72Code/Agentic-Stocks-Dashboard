@@ -5,8 +5,9 @@ let animate = null, stagger = null;
 try { const m = await import("https://cdn.jsdelivr.net/npm/motion@11.18.2/+esm");
       animate = m.animate; stagger = m.stagger; }
 catch (e) { console.warn("motion unavailable", e); }
+const REDUCED = (() => { try { return matchMedia("(prefers-reduced-motion: reduce)").matches; } catch { return false; } })();
 const mo = (el, kf, op) => { try {
-    if (!animate || !el || (el.length === 0)) return null;
+    if (REDUCED || !animate || !el || (el.length === 0)) return null;
     const a = animate(el, kf, op);
     a?.finished?.then(() => { for (const n of (el.length != null ? el : [el]))
       n?.style?.removeProperty?.("transform"); }).catch(()=>{});
@@ -23,7 +24,13 @@ const pct = v => v==null||isNaN(v) ? "—" : (v>=0?"+":"") + Number(v).toFixed(2
 const abbr = v => { if (v==null||isNaN(v)) return "—"; const a=Math.abs(v);
   return a>=1e12?(v/1e12).toFixed(2)+"T":a>=1e9?(v/1e9).toFixed(1)+"B"
        :a>=1e6?(v/1e6).toFixed(1)+"M":a>=1e3?(v/1e3).toFixed(1)+"K":String(v); };
-const sgn = v => v>=0 ? "up" : "dn";
+const sgn = v => v==null||isNaN(v) ? "" : v>=0 ? "up" : "dn";
+const usd = v => v==null||isNaN(v) ? "—" : "$" + abbr(v);
+const usdp = (v, d=2) => v==null||isNaN(v) ? "—" : "$" + num(v, d);
+/* a symbol is letters, digits and . ^ = - ; anything else in a URL is not one,
+   and it goes into markup, so it is rejected here rather than escaped later */
+const SYM_RE = /^[A-Z0-9][A-Z0-9.^=-]{0,11}$/;
+const cleanSyms = list => [...new Set(list.map(x => x.trim().toUpperCase()).filter(x => SYM_RE.test(x)))];
 const LOGO_V = 2;
 const logo = s => url(`/api/logo/${encodeURIComponent(s)}?v=${LOGO_V}`);
 const IC = {
@@ -32,13 +39,15 @@ const IC = {
   x:`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg>`,
   arrow:`<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>`,
   refresh:`<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.6-6.4"/><path d="M21 3v6h-6"/></svg>`,
+  spark:`<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M10.5 3.2l1.75 4.8 4.8 1.75-4.8 1.75-1.75 4.8-1.75-4.8L4 9.75l4.75-1.75z"/><path d="M17.8 14.4l.85 2.3 2.3.85-2.3.85-.85 2.3-.85-2.3-2.3-.85 2.3-.85z"/></svg>`,
   chev:`<svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>`,
 };
 
 const DISCLAIMER = "Informational only, not financial advice. Monsoon summarises public data and cannot account for your circumstances.";
 const LAST_TICKER = "monsoon.lastTicker";
 // null = never saved, so default to NVDA; "" = you closed every ticker, so stay empty
-const lastTicker = () => { try { return localStorage.getItem(LAST_TICKER) ?? "NVDA"; } catch { return "NVDA"; } };
+const lastTicker = () => { try { const v = localStorage.getItem(LAST_TICKER);
+  return v == null ? "NVDA" : cleanSyms(v.split(",")).join(","); } catch { return "NVDA"; } };
 const S = { route:"dashboard", cur:null, wl:[], q:{}, sparks:{}, pf:null,
             tf:"1M", tab:"overview", show:{MA:true,Vol:true},
             run:null, tabAgent:{}, pending:[], llm:false, brief:null, acct:null, accounts:[], kinds:[],
@@ -85,11 +94,14 @@ function wakingBanner(on) {
 async function api(path, opts) {
   const started = Date.now();
   let wait = 1500;
+  // A POST that times out at the proxy may already have run on the server:
+  // retrying "add 10 NVDA" would average the lot in twice. Only reads retry.
+  const idempotent = !opts?.method || /^(GET|HEAD)$/i.test(opts.method) || opts.retry;
   for (;;) {
     try {
       return await apiOnce(path, opts);
     } catch (e) {
-      const transient = e.status === undefined || WAKE_CODES.has(e.status);
+      const transient = idempotent && (e.status === undefined || WAKE_CODES.has(e.status)) && !e.parse;
       if (!transient || Date.now() - started > WAKE_MS) { wakingBanner(false); throw e; }
       wakingBanner(true);
       await new Promise(r => setTimeout(r, wait));
@@ -108,7 +120,8 @@ async function apiOnce(path, opts) {
     e.status = r.status;
     throw e;
   }
-  return r.json();
+  try { return await r.json(); }
+  catch { const e = new Error("The server sent something that wasn't JSON."); e.status = r.status; e.parse = true; throw e; }
 }
 const jpost = (path, body) => api(path, {method:"POST",
   headers:{"Content-Type":"application/json"}, body: JSON.stringify(body)});
@@ -247,9 +260,11 @@ function prefetchFrames(sym) {
     return getBars(sym, p, i).catch(()=>{});
   }), Promise.resolve());
 }
+let chartRO = null;
 function buildChart() {
   const el = $("chart");
   if (!el || !window.LightweightCharts) return;
+  try { chartRO?.disconnect(); chart?.remove(); } catch {}
   chart = LightweightCharts.createChart(el, {
     width: el.clientWidth||800, height: el.clientHeight||340,
     layout:{background:{color:"transparent"},textColor:"#8d95a6",fontSize:10,
@@ -269,19 +284,21 @@ function buildChart() {
   vs.priceScale().applyOptions({scaleMargins:{top:.84,bottom:0}});
   maA = chart.addLineSeries({color:CH.C.s3,lineWidth:2,priceLineVisible:false,lastValueVisible:false,crosshairMarkerVisible:false});
   maB = chart.addLineSeries({color:CH.C.s2,lineWidth:2,priceLineVisible:false,lastValueVisible:false,crosshairMarkerVisible:false});
-  new ResizeObserver(()=>{ if(!el.clientWidth) return;
+  const mine = chart;
+  chartRO = new ResizeObserver(()=>{ if(!el.clientWidth || chart !== mine) return;
     chart.applyOptions({width:el.clientWidth,height:el.clientHeight});
-    chart.timeScale().fitContent(); }).observe(el);
+    chart.timeScale().fitContent(); });
+  chartRO.observe(el);
 }
 const sma = (b,n) => b.length<n ? [] : b.map((x,i)=> i<n-1 ? null
   : ({time:x.t, value:+(b.slice(i-n+1,i+1).reduce((a,y)=>a+y.c,0)/n).toFixed(2)})).filter(Boolean);
 async function drawChart() {
   if (!chart || !S.cur) return;
   const [period,interval] = TF[S.tf];
-  const want = S.cur;
+  const want = S.cur, wantTf = S.tf;
   let bars; try { bars = await getBars(S.cur, period, interval); }
   catch { return; }
-  if (S.cur !== want) return;                 // a later click already won
+  if (S.cur !== want || S.tf !== wantTf) return;   // a later click already won
   if (!bars?.length) return;
   cs.setData(bars.map(b=>({time:b.t,open:b.o,high:b.h,low:b.l,close:b.c})));
   vs.setData(S.show.Vol ? bars.map(b=>({time:b.t,value:b.v,
@@ -297,20 +314,32 @@ function quoteRow(sym) { return S.q[sym] || {}; }
 /* the agent panel is global - scope the question to whatever view you are on */
 function askScope() {
   if (S.route === "ticker") {
+    // what you are looking at is CONTEXT, not a constraint: "how does it
+    // compare with AMD?" on the NVDA page must still be allowed to fetch AMD
     const picks = [...(S.picked || [])];
-    const who = picks.length ? picks.join(", ") : (S.cur || "");
-    return { ph: `Ask about ${who}…`, pre: q => q, tickers: picks };
+    const ctx = S.cur ? [S.cur, ...picks.filter(t => t !== S.cur)] : picks;
+    return { ph: `Ask about ${S.cur || "a ticker"}…`, pre: q => q, context: ctx,
+             label: ctx.length ? `Looking at ${ctx.slice(0,3).join(", ")}${ctx.length>3?"…":""}` : "" };
   }
-  if (S.route === "brief")
-    return { ph: "Ask about today's brief…",
-             pre: q => `About today's brief across ${(S.brief?.checked||[]).join(", ")}: ${q}` };
+  if (S.route === "brief") {
+    const chk = S.brief?.checked || [];
+    return { ph: "Ask about today's brief…", label: "Today's brief",
+             pre: q => chk.length ? `About today's brief across ${chk.join(", ")}: ${q}` : q };
+  }
   if (S.route === "portfolio")
-    return { ph: "Ask about your portfolio…",
-             pre: q => `About MY PORTFOLIO "${S.pf?.portfolio_name||""}" (holdings: ${(S.pf?.positions||[]).map(p=>`${p.qty} ${p.ticker} @ ${p.basis}${p.account?" in "+p.account:""}`).join(", ") || "none"}): ${q}` };
-  return { ph: "Ask about your watchlist…",
+    return { ph: "Ask about your portfolio…", label: ME.guest ? "" : "Your portfolio",
+             pre: q => ME.guest ? q : `About MY PORTFOLIO "${S.pf?.portfolio_name||""}" (holdings: ${(S.pf?.positions||[]).map(p=>`${p.qty} ${p.ticker} @ ${p.basis}${p.account?" in "+p.account:""}`).join(", ") || "none"}): ${q}` };
+  if (!S.wl.length) return { ph: "Ask about any stock or the market…", pre: q => q };
+  return { ph: "Ask about your watchlist or any stock…", label: "Your watchlist",
            pre: q => `About my watchlist (${S.wl.join(", ")}): ${q}` };
 }
-function syncAsk() { const a = $("ask"); if (a) a.placeholder = askScope().ph; }
+function syncAsk() {
+  const a = $("ask"); if (!a) return;
+  const sc = askScope();
+  a.placeholder = sc.ph;
+  const l = $("askscope"); if (l) { l.textContent = sc.label || ""; l.classList.toggle("on", !!sc.label); }
+  if (!T.turns.length) renderThread(false);         // suggestions follow the view
+}
 
 function crumbs(parts) {
   $("crumbs").innerHTML = parts.map((p,i)=>
@@ -328,7 +357,7 @@ function pfSummary() {
     <span class="badge ${sgn(d.day_change)}">${d.day_change>=0?"+":"−"}$${num(Math.abs(d.day_change||0))} today</span>`;
 }
 const tilesHTML = rows => `<div class="grid">${rows.map(([k,v,s])=>
-  `<div class="tile"><div class="k">${k}</div><div class="v mono">${v}</div><div class="s">${s||""}</div></div>`).join("")}</div>`;
+  `<div class="tile"><div class="k">${esc(k)}</div><div class="v mono" title="${esc(String(v).replace(/<[^>]*>/g,""))}">${v}</div><div class="s">${s||""}</div></div>`).join("")}</div>`;
 
 function afterRender(root) {
   const ah = $("askhere");
@@ -351,11 +380,12 @@ function signalStrip(b) {
   const sigs = (b.signals||[]).slice(0,4);
   return `<div class="panel">
     <div class="panel-h"><h4>Daily overview</h4>
-      <span class="r">${sigs.length} flagged · ${b.checked.length} tracked${
-        b.adjacent_checked?.length?` + ${b.adjacent_checked.length} adjacent`:""}</span>
+      <span class="r">${!b.checked.length ? "market-wide · " + sigs.length + " flagged"
+        : `${sigs.length} flagged · ${b.checked.length} tracked${
+        b.adjacent_checked?.length?` + ${b.adjacent_checked.length} adjacent`:""}`}</span>
       <a class="btn btn-sm btn-ghost" href="#/brief">Full brief</a></div>
     <div class="panel-b" style="display:grid;gap:8px">
-      ${sigs.length ? sigs.map(g=>`<div class="sigline" data-go="${g.ticker}">
+      ${sigs.length ? sigs.map(g=>`<div class="sigline" data-go="${esc(g.ticker)}" tabindex="0">
           <span class="sigicon ${g.kind}">${SIG_ICON[g.kind]||"•"}</span>
           <div><div class="h">${esc(g.headline)}${g.held?` <span class="badge brand">held</span>`:""}</div>
             <div class="d">${esc(g.detail)}</div></div>
@@ -373,29 +403,43 @@ function wlRows(rows) {
     if (av==null) return 1; if (cv==null) return -1;
     return typeof av==="string" ? av.localeCompare(cv)*wlSort.dir : (av-cv)*wlSort.dir;
   });
-  return sorted.map(r=>`<tr data-go="${r.sym}">
+  return sorted.map(r=>`<tr data-go="${esc(r.sym)}" data-sym="${esc(r.sym)}" tabindex="0">
     <td><div class="wname"><img src="${logo(r.sym)}" alt="" loading="lazy">
       <div><div class="s">${r.sym}</div><div class="n">${esc(r.name||"")}</div></div></div></td>
-    <td class="mono" style="font-weight:600">${num(r.price)}</td>
-    <td class="mono ${sgn(r.change_pct)}" style="font-weight:600">${pct(r.change_pct)}</td>
+    <td class="mono px" style="font-weight:600">${num(r.price)}</td>
+    <td class="mono chg ${sgn(r.change_pct)}" style="font-weight:600">${pct(r.change_pct)}</td>
     <td><div class="wspark" data-spark="${r.sym}" style="margin-left:auto"></div></td>
-    <td class="mono">${abbr(r.market_cap)}</td>
+    <td class="mono">${usd(r.market_cap)}</td>
     <td class="mono">${num(r.pe,1)}</td>
     <td>${r.held?`<span class="badge brand">held</span>`:""}</td></tr>`).join("");
 }
 
-async function viewDashboard() {
+/* what a guest (or an empty watchlist) sees instead of a table of headers */
+const POPULAR = ["NVDA","AAPL","MSFT","AMZN","GOOGL","META","AVGO","TSLA"];
+
+async function viewDashboard(nav) {
   crumbs([{label:"Dashboard"}]);
   const v = $("views");
   const pf = S.pf;
   const held = new Set((pf?.positions||[]).map(p=>p.ticker));
-  const rows = S.wl.map(x => ({ sym:x, held:held.has(x), ...quoteRow(x) }))
+  const demo = !S.wl.length;
+  const list = demo ? POPULAR : S.wl;
+  if (demo && POPULAR.some(x => !S.q[x])) {
+    try {
+      const [d, sp] = await Promise.all([api(`/api/quotes?symbols=${POPULAR.join(",")}`),
+                                        api(`/api/sparklines?symbols=${POPULAR.join(",")}`)]);
+      d.quotes.forEach(q => S.q[q.symbol] = q); Object.assign(S.sparks, sp.sparklines);
+    } catch {}
+    if (nav !== undefined && nav !== NAV.seq) return;
+  }
+  const rows = list.map(x => ({ sym:x, held:held.has(x), ...quoteRow(x) }))
                    .filter(r => r.price != null);
 
   v.innerHTML = `<div class="page">
     <div class="page-head">
       <div><div class="ttl">Dashboard</div>
-        <div class="sub">The broad market and your ${rows.length} tracked tickers</div></div>
+        <div class="sub">${demo ? "The broad market and the names most people are watching"
+                                 : `The broad market and your ${rows.length} tracked tickers`}</div></div>
       <div class="acts">
         <input id="addinput" class="inp" style="width:170px" placeholder="Add ticker…">
         <button class="btn btn-sm btn-brand" id="askhere">Ask ${IC.arrow}</button></div>
@@ -413,14 +457,16 @@ async function viewDashboard() {
     <div class="section" id="sigwrap">${signalStrip(S.brief)}</div>
 
     <div class="section"><div class="panel">
-      <div class="panel-h"><h4>Watchlist</h4>
-        <span class="r">live · ${rows.length} tickers in 1 request</span></div>
-      <table class="wtable"><thead><tr>
+      <div class="panel-h"><h4>${demo ? "Most watched" : "Watchlist"}</h4>
+        <span class="r">${demo ? (ME.guest ? "sign in to keep your own list" : "add a ticker above to start your own")
+                               : `live · ${rows.length} tickers in 1 request`}</span></div>
+      <table class="wtable wl"><thead><tr>
         ${[["sym","Symbol"],["price","Last"],["change_pct","Change"],[null,"30-day"],
            ["market_cap","Mkt cap"],["pe","P/E"],[null,""]]
           .map(([k,label])=>`<th ${k?`data-sort="${k}" class="sortable${wlSort.key===k?" on":""}"`:""}>${label}${
             k&&wlSort.key===k?`<span class="caret">${wlSort.dir<0?"▾":"▴"}</span>`:""}</th>`).join("")}
-      </tr></thead><tbody id="wlbody">${wlRows(rows)}</tbody></table>
+      </tr></thead><tbody id="wlbody">${wlRows(rows) || `<tr><td colspan="7"><div class="empty">
+        Prices are unavailable right now.</div></td></tr>`}</tbody></table>
     </div></div></div>`;
 
   wireAdd();
@@ -429,8 +475,9 @@ async function viewDashboard() {
   const paintSparks = () => $$("[data-spark]").forEach(el => {
     const val = S.sparks[el.dataset.spark] || [];
     if (val.length>1) CH.sparkline(el, val, val.at(-1)>=val[0]); });
-  const wireRows = () => $$("#wlbody [data-go], .sigline[data-go]")
-    .forEach(el => el.onclick = () => location.hash = "#/t/"+el.dataset.go);
+  const wireRows = () => $$("#wlbody [data-go], .sigline[data-go]").forEach(el => {
+    el.onclick = () => location.hash = "#/t/"+el.dataset.go;
+    el.onkeydown = e => { if (e.key === "Enter") el.click(); }; });
   paintSparks(); wireRows();
 
   $$("[data-sort]").forEach(th => th.onclick = () => {
@@ -449,7 +496,8 @@ async function viewDashboard() {
   loadBrief().then(b => { const w = $("sigwrap"); if (!w) return;
     w.innerHTML = signalStrip(b); wireRows();
     mo(w.querySelectorAll(".sigline"), {opacity:[0,1],y:[6,0]},
-       {duration:.32,delay:stag(.04),easing:[.22,1,.36,1]}); }).catch(()=>{});
+       {duration:.32,delay:stag(.04),easing:[.22,1,.36,1]}); })
+    .catch(() => { const w = $("sigwrap"); if (w) w.innerHTML = ""; });
 }
 
 
@@ -495,10 +543,10 @@ const TAB_DOMAIN = { overview:"fundamentals", financials:"fundamentals",
 function agentSlot(domain) {
   const f = S.tabAgent[S.cur + ":" + domain];
   if (!f) return "";
-  return `<div class="agentbox"><div class="ah"><span class="dot"></span>${esc(f.domain)} agent · ${f.tools_used.length} tools</div>
-    <p>${esc(f.narrative)}</p>
+  return `<div class="agentbox"><div class="ah"><span class="dot"></span>${esc(DOMAIN_LABEL[f.domain]||f.domain)} specialist · ${f.tools_used.length} tools</div>
+    ${paras(f.narrative)}
     <div class="disclaim">${esc(DISCLAIMER)}</div>
-    <button class="link" data-trace="1">Show work ${IC.arrow}</button></div>`;
+    <button class="link" data-trace="${esc(domain)}">Show work ${IC.arrow}</button></div>`;
 }
 
 const TABS = {
@@ -506,13 +554,16 @@ const TABS = {
     const o = await api(`/api/overview/${t}`);
     const p = x => x==null ? "—" : num(x*100,1)+"%";
     return tilesHTML([
-      ["Market cap",abbr(o.market_cap),""],["P/E",num(o.pe,1),"trailing"],
+      ["Market cap",usd(o.market_cap),""],["P/E",num(o.pe,1),"trailing"],
       ["Fwd P/E",num(o.forward_pe,1),""],["P/B",num(o.price_to_book,1),""],
       ["Net margin",p(o.net_margin),"TTM"],["Op margin",p(o.operating_margin),"TTM"],
-      ["ROE",p(o.roe),"TTM"],["Debt/Equity",num(o.debt_to_equity,1),""]])
+      // Yahoo reports debt/equity in percent (16.97 = 0.17x); shown as the ratio
+      ["ROE",p(o.roe),"TTM"],["Debt/Equity",o.debt_to_equity==null?"—":num(o.debt_to_equity/100,2)+"×",
+        o.cash!=null&&o.debt!=null?(o.cash>=o.debt?`net cash ${usd(o.cash-o.debt)}`:`net debt ${usd(o.debt-o.cash)}`):""]])
       + `<div class="section"><div class="panel"><div class="panel-h"><h4>Profile</h4>
           <span class="r">${esc(o.sector||"")}${o.industry?" · "+esc(o.industry):""}</span></div>
-          <div class="panel-b"><div class="prose">${esc((o.summary||"No profile available.").slice(0,620))}…</div></div>
+          <div class="panel-b"><div class="prose">${o.summary ? esc(o.summary.length > 620 ? o.summary.slice(0,620).replace(/\s+\S*$/,"") + "…" : o.summary)
+                                  : "No profile available."}</div></div>
         </div></div>` + agentSlot("fundamentals");
   },
   financials: async t => {
@@ -530,7 +581,7 @@ const TABS = {
         <div class="panel-b">${tilesHTML([
           ["Date", esc(u.date), u.days_away!=null?`${u.days_away} days away`:""],
           ["EPS expected", num(u.eps_estimate), u.eps_low!=null?`range ${num(u.eps_low)}–${num(u.eps_high)}`:""],
-          ["Revenue expected", abbr(u.revenue_estimate), u.revenue_low!=null?`range ${abbr(u.revenue_low)}–${abbr(u.revenue_high)}`:""],
+          ["Revenue expected", usd(u.revenue_estimate), u.revenue_low!=null?`range ${usd(u.revenue_low)}–${usd(u.revenue_high)}`:""],
           ["Track record", `${f.beats}/${f.reports}`, "beats on EPS"]])}</div></div>` : "";
     const trackHTML = tr.length ? `
       <div class="section"><div class="panel">
@@ -551,8 +602,8 @@ const TABS = {
         <div class="panel-b"><table>
         <thead><tr><th>Quarter</th><th>Revenue</th><th>Gross</th><th>Operating</th><th>Net</th><th>Op margin</th><th>Form</th></tr></thead>
         <tbody>${qs.slice().reverse().map(q=>`<tr><td>${q.end}</td>
-          <td class="mono">${abbr(q.revenue)}</td><td class="mono">${abbr(q.gross_profit)}</td>
-          <td class="mono">${abbr(q.operating_income)}</td><td class="mono">${abbr(q.net_income)}</td>
+          <td class="mono">${usd(q.revenue)}</td><td class="mono">${usd(q.gross_profit)}</td>
+          <td class="mono">${usd(q.operating_income)}</td><td class="mono">${usd(q.net_income)}</td>
           <td class="mono">${q.operating_margin!=null?q.operating_margin+"%":"—"}</td>
           <td><span class="badge">${esc(q.form||"")}</span></td></tr>`).join("")}</tbody>
         </table></div></div></div>` + trackHTML + agentSlot("fundamentals");
@@ -563,9 +614,9 @@ const TABS = {
     return `<div class="panel"><div class="panel-h"><h4>Headlines</h4>
         <span class="r">${n.relevant} of ${n.total} name the issuer</span></div>
       <div class="panel-b">${n.items.map(i=>`<div class="newsrow"><div>
-        <div class="h">${i.url?`<a href="${esc(i.url)}" target="_blank" rel="noopener">${esc(i.title)}</a>`:esc(i.title)}</div>
+        <div class="h">${/^https?:\/\//i.test(i.url||"")?`<a href="${esc(i.url)}" target="_blank" rel="noopener">${esc(i.title)}</a>`:esc(i.title)}</div>
         <div class="m">${esc(i.publisher||"")}${i.published?" · "+esc(String(i.published).slice(0,10)):""}</div></div>
-        <span class="badge ${i.mentions_issuer?"brand":"ghost"}">${i.mentions_issuer?t:"unrelated"}</span></div>`).join("")}
+        <span class="badge ${i.mentions_issuer?"brand":"ghost"}">${i.mentions_issuer?esc(t):"unrelated"}</span></div>`).join("")}
         <div class="muted" style="margin-top:14px">${esc(n.note)}</div></div></div>`
       + agentSlot("street");
   },
@@ -576,10 +627,11 @@ const TABS = {
     if (total) { const COL=["#199e70","#57b98f","#8d95a4","#e0916b","#e66767"];
       S.pending.push(()=>CH.consensus($("consmount"), dist.map((b,i)=>({...b,color:COL[i]})))); }
     return tilesHTML([
-      ["Consensus", esc(c.recommendationKey||"—").replace(/_/g," "), c.numberOfAnalystOpinions?c.numberOfAnalystOpinions+" analysts":""],
-      ["Low target", num(g.targetLowPrice), ""],
-      ["Mean target", num(g.targetMeanPrice), up!=null?pct(up)+" vs last":""],
-      ["High target", num(g.targetHighPrice), ""]])
+      ["Consensus", esc(c.recommendationKey||"—").replace(/_/g," ").replace(/^\w/, m => m.toUpperCase()),
+        c.numberOfAnalystOpinions?c.numberOfAnalystOpinions+" analysts":""],
+      ["Low target", usdp(g.targetLowPrice), ""],
+      ["Mean target", usdp(g.targetMeanPrice), up!=null?pct(up)+" vs last price":""],
+      ["High target", usdp(g.targetHighPrice), ""]])
       + (total ? `<div class="section"><div class="panel"><div class="panel-h"><h4>Consensus distribution</h4>
           <span class="r">${total} analysts · reported counts</span></div>
           <div class="panel-b"><div id="consmount"></div></div></div></div>` : "")
@@ -663,7 +715,7 @@ const TABS = {
    Analyze, and say what you want done with that selection. */
 const PANEL_COLORS = ["#3987e5","#d95926","#199e70","#c98500","#d55181","#9085e9"];
 
-async function viewResearch(symbols) {
+async function viewResearch(symbols, nav) {
   S.basket = symbols;
   S.cur = S.focus && symbols.includes(S.focus) ? S.focus : symbols[0];
   S.picked = new Set((S.picked && [...S.picked].filter(t => symbols.includes(t))) || []);
@@ -706,22 +758,23 @@ async function viewResearch(symbols) {
   }
 
   let cmp;
-  try { cmp = await api(`/api/compare?symbols=${symbols.join(",")}&period=6mo`); }
-  catch (e) { $("panels").innerHTML = `<div class="empty">Couldn't load: ${esc(e.message)}</div>`; return; }
+  try { cmp = await api(`/api/compare?symbols=${symbols.map(encodeURIComponent).join(",")}&period=6mo`); }
+  catch (e) { if (nav === NAV.seq && $("panels")) $("panels").innerHTML = `<div class="empty">Couldn't load: ${esc(e.message)}</div>`; return; }
+  if (nav !== undefined && nav !== NAV.seq) return;            // you have already moved on
   S.compare = cmp;
   const by = Object.fromEntries(cmp.rows.map(r => [r.symbol, r]));
 
   $("panels").innerHTML = symbols.map((t, i) => {
     const r = by[t] || {};
     const col = PANEL_COLORS[i % PANEL_COLORS.length];
-    return `<div class="tpanel ${S.picked.has(t)?"picked":""} ${t===S.cur?"focus":""}" data-panel="${t}">
+    return `<div class="tpanel ${S.picked.has(t)?"picked":""} ${t===S.cur?"focus":""}" data-panel="${esc(t)}">
       <div class="tp-head">
-        <label class="tick"><input type="checkbox" data-pick="${t}" ${S.picked.has(t)?"checked":""}>
+        <label class="tick"><input type="checkbox" data-pick="${esc(t)}" aria-label="Include ${esc(t)} in analysis" ${S.picked.has(t)?"checked":""}>
           <span class="box" style="--c:${col}"></span></label>
         <img src="${logo(t)}" alt="" loading="lazy">
-        <div class="tp-id"><div class="s">${t}</div>
+        <div class="tp-id"><div class="s">${esc(t)}</div>
           <div class="n">${esc(r.name||"")}</div></div>
-        <button class="tp-x" data-close="${t}" title="Close">${IC.x}</button>
+        <button class="tp-x" data-close="${esc(t)}" title="Close ${esc(t)}" aria-label="Close ${esc(t)}">${IC.x}</button>
       </div>
       <div class="tp-px">
         <span class="mono lv">${r.price!=null?"$"+num(r.price):"—"}</span>
@@ -730,12 +783,12 @@ async function viewResearch(symbols) {
       </div>
       <div class="tp-spark" data-tspark="${t}" data-col="${col}"></div>
       <div class="tp-stats">
-        ${[["P/E",num(r.pe,1)],["Mkt cap",abbr(r.market_cap)],
+        ${[["P/E",num(r.pe,1)],["Mkt cap",usd(r.market_cap)],
            ["Net mgn", r.net_margin!=null?num(r.net_margin*100,1)+"%":"—"],
            ["Rev gr", r.revenue_growth!=null?pct(r.revenue_growth*100):"—"]]
           .map(([k,val])=>`<div><span class="k">${k}</span><span class="v mono">${val}</span></div>`).join("")}
       </div>
-      <button class="tp-open" data-focus="${t}">${t===S.cur?"Showing below":"Open detail"}</button>
+      <button class="tp-open" data-focus="${esc(t)}">${t===S.cur?"Showing below":"Open detail"}</button>
     </div>`;
   }).join("");
 
@@ -809,26 +862,29 @@ async function renderDetail() {
         <div class="seg" id="tfseg" style="margin-left:auto">
           ${Object.keys(TF).map(k=>`<button data-tf="${k}" class="${k===S.tf?"on":""}">${k}</button>`).join("")}
         </div>
-        <button class="btn btn-sm ${S.show.MA?"on":""}" id="tgMA">MA</button>
-        <button class="btn btn-sm ${S.show.Vol?"on":""}" id="tgVol">Vol</button>
+        <button class="btn btn-sm ${S.show.MA?"on":""}" id="tgMA" aria-pressed="${S.show.MA}" title="Moving averages">MA</button>
+        <button class="btn btn-sm ${S.show.Vol?"on":""}" id="tgVol" aria-pressed="${S.show.Vol}" title="Volume">Vol</button>
       </div>
       <div class="panel-b tight"><div id="chart"></div></div>
     </div>
     <div class="section">
-      <div class="section-h"><div class="seg tabseg">
-        ${Object.keys(TABS).map(k=>`<button class="${k===S.tab?"on":""}" data-tab="${k}">${k[0].toUpperCase()+k.slice(1)}</button>`).join("")}
-      </div></div>
+      <div class="section-h"><div class="seg tabseg" role="tablist">
+        ${Object.keys(TABS).map(k=>`<button role="tab" aria-selected="${k===S.tab}" class="${k===S.tab?"on":""}" data-tab="${k}">${k[0].toUpperCase()+k.slice(1)}</button>`).join("")}
+      </div><span id="explainslot"></span></div>
       <div id="tabbody"></div>
     </div>`;
+  try { chartRO?.disconnect(); chart?.remove(); } catch {}
   chart = null;
   buildChart(); drawChart(); prefetchFrames(S.cur);
   $("tfseg").onclick = e => { const b = e.target.closest("[data-tf]"); if(!b) return;
     $$("#tfseg button").forEach(x=>x.classList.remove("on")); b.classList.add("on");
     S.tf = b.dataset.tf; drawChart(); };
   ["MA","Vol"].forEach(k => { const b=$("tg"+k);
-    b.onclick = () => { S.show[k]=!S.show[k]; b.classList.toggle("on",S.show[k]); drawChart(); }; });
+    b.onclick = () => { S.show[k]=!S.show[k]; b.classList.toggle("on",S.show[k]);
+      b.setAttribute("aria-pressed", String(S.show[k])); drawChart(); }; });
   $$(".tabseg button").forEach(b => b.onclick = () => {
     $$(".tabseg button").forEach(x=>x.classList.remove("on")); b.classList.add("on");
+    $$(".tabseg button").forEach(x=>x.setAttribute("aria-selected", String(x===b)));
     S.tab = b.dataset.tab; renderTab(); });
   await renderTab();
 }
@@ -864,7 +920,7 @@ function openComposer() {
   const run = () => {
     const q = ta.value.trim(); if (!q) { ta.focus(); return; }
     el.innerHTML = "";
-    streamAsk(q, picks);
+    streamAsk(q, { tickers: picks });
   };
   $("cm_go").onclick = run;
   ta.onkeydown = e => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) run(); };
@@ -873,12 +929,26 @@ function openComposer() {
 async function renderTab() {
   const el = $("tabbody"); if (!el) return;
   el.innerHTML = `<div class="grid">${"<div class='skel' style='height:86px'></div>".repeat(4)}</div>`;
+  const want = { tab: S.tab, cur: S.cur };
   S.pending = [];
   let html;
   try { html = await TABS[S.tab](S.cur); }
   catch (e) { html = `<div class="empty">Couldn't load: ${esc(e.message)}</div>`; }
+  // a slower earlier tab must not paint over the one you clicked since
+  if (want.tab !== S.tab || want.cur !== S.cur || !el.isConnected) return;
   el.innerHTML = html;
-  el.querySelectorAll("[data-trace]").forEach(b => b.onclick = openTrace);
+  const dom = TAB_DOMAIN[S.tab], have = S.tabAgent[S.cur + ":" + dom];
+  const slot = $("explainslot");
+  if (slot) {
+    slot.innerHTML = S.llm && !have ? `<button class="btn btn-sm btn-ghost explain" id="explain"
+        title="One ${esc(DOMAIN_LABEL[dom]||dom)} specialist reads this tab's data">${IC.spark} Explain ${esc(S.tab)}</button>` : "";
+    if ($("explain")) $("explain").onclick = runAnalyze;
+  }
+  el.querySelectorAll("[data-trace]").forEach(b => b.onclick = () => {
+    const f = S.tabAgent[S.cur + ":" + b.dataset.trace]; if (!f) return;
+    openTrace({ question: `${DOMAIN_LABEL[f.domain]||f.domain} · ${f.ticker}`, findings: [f],
+                steps: f.steps || [], llm_calls: (f.steps||[]).filter(s=>s.llm).length,
+                total_tokens: (f.steps||[]).reduce((a,s)=>a+(s.tokens||0),0) }); });
   el.querySelectorAll("[data-go]").forEach(g => g.onclick = () => location.hash = "#/t/"+g.dataset.go);
   const es = $("esbtn");
   if (es) es.onclick = async () => {
@@ -935,7 +1005,9 @@ function wireLookup(addMode) {
     const q = box.value.trim();
     if (!q) return close();
     timer = setTimeout(async () => {
-      try { items = (await api(`/api/search?q=${encodeURIComponent(q)}`)).results; active = -1; paint(); }
+      try { const res = (await api(`/api/search?q=${encodeURIComponent(q)}`)).results;
+            if (box.value.trim() !== q) return;
+            items = res; active = -1; paint(); }
       catch { close(); }
     }, 180);
   };
@@ -962,7 +1034,7 @@ function wireLookup(addMode) {
 /* ═══════════════ VIEW: portfolio ═══════════════ */
 /* Accounts are real: the same ticker in a 401(k) and a Roth has different cost
    bases and different tax treatment, so they are never merged into one lot. */
-async function viewPortfolio() {
+async function viewPortfolio(nav) {
   crumbs([{label:"Portfolio"}]);
   const v = $("views");
   if (ME.guest) {
@@ -983,12 +1055,22 @@ async function viewPortfolio() {
     $("pfsignin").onclick = () => openAuth("register");
     return;
   }
-  const list = await api("/api/portfolios");
+  if (!v.querySelector(".hero")) v.innerHTML = `<div class="page"><div class="page-head"><div>
+      <div class="ttl">Portfolio</div><div class="sub">Loading…</div></div></div>
+      <div class="skel" style="height:150px"></div></div>`;
+  let list;
+  try { list = await api("/api/portfolios"); }
+  catch (e) { if (nav === undefined || nav === NAV.seq)
+    v.innerHTML = `<div class="page"><div class="empty">Couldn't load your portfolio: ${esc(e.message)}</div></div>`; return; }
+  if (nav !== undefined && nav !== NAV.seq) return;
   S.accounts = list.accounts;
   S.kinds = list.kinds;
   const pid = S.acct ?? list.active ?? (list.accounts[0]?.id);
   S.acct = pid;
-  const d = S.pf = await api(`/api/portfolio?portfolio_id=${encodeURIComponent(pid)}`);
+  const d = await api(`/api/portfolio?portfolio_id=${encodeURIComponent(pid)}`).catch(() => null);
+  if (nav !== undefined && nav !== NAV.seq) return;
+  if (!d) { v.innerHTML = `<div class="page"><div class="empty">Couldn't load this account.</div></div>`; return; }
+  S.pf = d;
   const combined = d.is_combined;
   const tot = d.market_value || 1;
 
@@ -1060,8 +1142,8 @@ async function viewPortfolio() {
           ${p.pnl>=0?"+":"−"}$${num(Math.abs(p.pnl))}
           <span class="sub-pct">${pct(p.pnl_pct)}</span></td>
         <td><div class="rowacts">
-          <button class="btn btn-sm" data-edit="${p.ticker}" data-acc="${esc(p.account_id||pid)}">${IC.edit}</button>
-          <button class="btn btn-sm" data-del="${p.ticker}" data-acc="${esc(p.account_id||pid)}">${IC.del}</button>
+          <button class="btn btn-sm" data-edit="${esc(p.ticker)}" data-acc="${esc(p.account_id||pid)}" aria-label="Edit ${esc(p.ticker)}" title="Edit">${IC.edit}</button>
+          <button class="btn btn-sm" data-del="${esc(p.ticker)}" data-acc="${esc(p.account_id||pid)}" aria-label="Delete ${esc(p.ticker)}" title="Delete">${IC.del}</button>
         </div></td></tr>`).join("") || `<tr><td colspan="${combined?10:9}">
           <div class="empty">Nothing in ${esc(d.portfolio_name)} yet. Use <b>+ Add holding</b>.</div></td></tr>`}
       </tbody></table></div></div>
@@ -1100,6 +1182,8 @@ async function viewPortfolio() {
     await refreshAll(); viewPortfolio(); };
   if ($("keeppf")) $("keeppf").onclick = () => document.querySelector(".seedbar")?.remove();
   $$("[data-del]").forEach(b => b.onclick = async e => { e.stopPropagation();
+    const pos = d.positions.find(x => x.ticker === b.dataset.del);
+    if (!confirm(`Remove ${b.dataset.del} (${pos?.qty ?? "?"} shares) from ${pos?.account || d.portfolio_name}?`)) return;
     await api(`/api/positions/${b.dataset.del}?portfolio_id=${encodeURIComponent(b.dataset.acc)}`,
               {method:"DELETE"});
     viewPortfolio(); });
@@ -1242,7 +1326,7 @@ function whyHTML(w) {
 
 function sigRows(signals) {
   if (!signals.length) return `<div class="empty">Nothing unusual across your tickers today.</div>`;
-  return signals.map(g => `<div class="sigrow" data-go="${g.ticker}">
+  return signals.map(g => `<div class="sigrow" data-go="${esc(g.ticker)}">
       <img src="${logo(g.ticker)}" alt="" loading="lazy">
       <div><div class="h">${esc(g.headline)}${g.held?` <span class="badge brand" style="margin-left:6px">held</span>`:""}</div>
         <div class="d">${esc(g.detail)}</div></div>
@@ -1253,8 +1337,8 @@ function sinceRows(since, day) {
   if (!since?.length) return "";
   return `<div class="section"><div class="section-h"><h3>Since you were last here</h3>
       <span class="r">${day?esc(day):""}</span></div>
-    ${since.map(r=>`<div class="lrow" data-go="${r.ticker}" style="cursor:pointer">
-      <span class="d mono">${r.ticker}</span>
+    ${since.map(r=>`<div class="lrow" data-go="${esc(r.ticker)}" style="cursor:pointer">
+      <span class="d mono">${esc(r.ticker)}</span>
       <span class="mono">$${num(r.from)} → $${num(r.to)}</span>
       <span class="badge ${sgn(r.pct)}">${pct(r.pct)}</span></div>`).join("")}</div>`;
 }
@@ -1346,7 +1430,7 @@ function threadsHTML(n, err) {
       </div></div>`).join("")}</div>`;
 }
 
-async function viewBrief() {
+async function viewBrief(nav) {
   crumbs([{label:"Daily brief"}]);
   const v = $("views");
   v.innerHTML = `<div class="page"><div class="page-head">
@@ -1355,13 +1439,14 @@ async function viewBrief() {
     </div><div id="briefview"><div class="skel" style="height:200px"></div></div></div>`;
   try {
     const b = await loadBrief();
-    $("bsub").textContent = b.llm_calls
-      ? `${b.date} · curated from ${b.checked.length} tickers plus market, rates and sector feeds`
+    if ((nav !== undefined && nav !== NAV.seq) || !$("bsub")) return;
+    $("bsub").textContent = (b.llm_calls || b.error)
+      ? `${b.date} · curated from ${b.checked.length ? b.checked.length + " tickers plus " : ""}market, rates and sector feeds`
       : `${b.date} · set GEMINI_API_KEY to add the written summary`;
     $("briefview").innerHTML = briefInner(b);
     $$("#briefview [data-go]").forEach(el => el.onclick = () => location.hash = "#/t/"+el.dataset.go);
   } catch (e) {
-    $("briefview").innerHTML = `<div class="empty">Couldn't build the brief: ${esc(e.message)}</div>`;
+    if ($("briefview")) $("briefview").innerHTML = `<div class="empty">Couldn't build the brief: ${esc(e.message)}</div>`;
   }
   afterRender(v);
 }
@@ -1370,11 +1455,11 @@ async function viewBrief() {
 const BRIEF_KEY = "monsoon.brief.seen";
 async function maybeShowBrief() {
   let b; try { b = await loadBrief(); } catch { return; }
-  const seen = localStorage.getItem(BRIEF_KEY);
+  let seen = null; try { seen = localStorage.getItem(BRIEF_KEY); } catch {}
   $("navdot").classList.toggle("on", seen !== b.date && b.signals.length > 0);
   if (seen === b.date) return;
   if (!b.signals.length && !b.since_last?.length && !b.narrative?.threads?.length) {  // nothing to say
-    localStorage.setItem(BRIEF_KEY, b.date); return;
+    try { localStorage.setItem(BRIEF_KEY, b.date); } catch {} return;
   }
   $("briefdate").textContent = `${b.date} · ${b.signals.length} flagged · ${b.checked.length} tracked`
     + (b.adjacent_checked?.length ? ` + ${b.adjacent_checked.length} adjacent` : "");
@@ -1390,133 +1475,307 @@ async function maybeShowBrief() {
 }
 function closeBrief() {
   const b = S.brief;
-  if (b) localStorage.setItem(BRIEF_KEY, b.date);
+  if (b) try { localStorage.setItem(BRIEF_KEY, b.date); } catch {}
   $("navdot").classList.remove("on");
   $("briefsheet").classList.remove("on");
 }
 
-/* ═══════════════ agent panel ═══════════════ */
+/* ═══════════════ agent panel ═══════════════
+   A conversation, not a single slot. Each turn keeps its question, its live
+   progress, its answer and its trace, and the last few turns go back to the
+   server as `history` so "what about AMD?" or "why?" means something. */
 const openAgent = on => { document.getElementById("app").classList.toggle("agent-open", on);
+  $("right").inert = !on;
   $("agenttoggle").classList.toggle("on", on);
-  setTimeout(()=>{ if (chart) { const el=$("chart");
+  $("agenttoggle").setAttribute("aria-expanded", String(on));
+  setTimeout(()=>{ if (on) growAsk(); if (chart) { const el=$("chart");
     if (el?.clientWidth) chart.applyOptions({width:el.clientWidth}); chart.timeScale().fitContent(); } }, 340); };
 
-function nodeHTML(name, meta, cls, why, sel, skp) {
-  return `<div class="node ${cls}"><span class="nd"></span>
-    <div class="nrow">${IC.chev}<span class="nname">${esc(name)}</span><span class="nmeta">${esc(meta)}</span></div>
-    <div class="ndet">${(sel?.length||skp?.length)?`<div class="tools">
-        ${(sel||[]).map(t=>`<span class="tc sel">${esc(t)}</span>`).join("")}
-        ${(skp||[]).map(t=>`<span class="tc skp">${esc(t)}</span>`).join("")}</div>`:""}
-      ${why?`<div class="why">${esc(why)}</div>`:""}</div></div>`;
-}
-function renderRun(run, running) {
-  const el = $("nodes");
-  if (!run) { el.innerHTML = `<div class="muted">No run yet — ask a question, or hit Analyze.</div>`; return; }
-  const prev = el.querySelectorAll(".node").length;
-  let html = "";
-  for (const s of run.steps) {
-    if (/\.(gather|select)$/.test(s.node)) continue;
-    const f = run.findings.find(x => s.node.startsWith(x.domain + "."));
-    html += nodeHTML(s.node.replace(".synthesize",""),
-      f ? `${f.tools_used.length}/${f.tools_used.length+f.tools_skipped.length}` : (s.tokens?s.tokens+" tok":""),
-      f && f.confidence==="unavailable" ? "skip" : "done",
-      f ? f.skip_reason : s.detail, f?.tools_used, f?.tools_skipped);
-  }
-  if (running) html += nodeHTML("working…","","run","");
-  el.innerHTML = html || `<div class="muted">no steps</div>`;
-  el.querySelectorAll(".nrow").forEach(r => r.onclick = () => {
-    const n=r.parentElement, open=n.classList.toggle("open"), d=n.querySelector(".ndet");
-    if (animate) mo(d,{height: open?["0px",d.scrollHeight+"px"]:[d.scrollHeight+"px","0px"]},
-                     {duration:.26,easing:[.22,1,.36,1]});
-    else d.style.height = open?"auto":"0"; });
-  mo([...el.querySelectorAll(".node")].slice(prev),
-     {opacity:[0,1],x:[-6,0]},{duration:.3,delay:stag(.05),easing:[.22,1,.36,1]});
-  $("runmeta").textContent = run.llm_calls!=null
-    ? `${(run.latency_ms/1000).toFixed(1)}s · ${run.llm_calls} calls · ${run.total_tokens} tok` : "running…";
-}
-function renderAnswer(run) {
-  const el = $("answer");
-  if (!run?.answer) { el.innerHTML=""; return; }
-  const warn = run.grounded===false
-    ? `<div class="muted" style="color:var(--warn);margin-top:8px">Grounding: ${run.ungrounded_numbers.join(", ")} not in evidence</div>` : "";
-  // a run that fell back says so - an answer to a different question is worse
-  // than no answer, and worst of all when it looks complete
-  const degraded = run.degraded
-    ? `<div class="muted" style="color:var(--warn);margin-top:8px">${esc(run.degraded)}</div>` : "";
-  el.innerHTML = `<div class="answer"><div class="top">
-      <span class="sym">${esc((run.tickers||[]).join(" · "))}</span>
-      ${run.grounded?`<span class="ok">✓ grounded</span>`:""}</div>
-    <p>${esc(run.answer)}</p>${degraded}${warn}
-    <div class="disclaim">${esc(run.disclaimer||DISCLAIMER)}</div>
-    <button class="link" data-trace="1">Show work ${IC.arrow}</button></div>`;
-  el.querySelectorAll("[data-trace]").forEach(b=>b.onclick=openTrace);
-  mo(el.firstElementChild,{opacity:[0,1],y:[8,0],scale:[.98,1]},{duration:.4,easing:[.22,1,.36,1]});
-}
-const busy = on => { $("rst").textContent = on?"running":"idle"; $("rdot").classList.toggle("live",on); };
+const THREAD_KEY = "monsoon.thread", HISTORY_TURNS = 3;
+const T = { turns: [], ctl: null, seq: 0 };
+try { T.turns = JSON.parse(sessionStorage.getItem(THREAD_KEY) || "[]")
+                  .filter(t => t.status === "done" || t.status === "error"); } catch {}
+const saveThread = () => { try { sessionStorage.setItem(THREAD_KEY,
+  JSON.stringify(T.turns.slice(-12).map(t => ({...t, live: undefined})))); } catch {} };
 
-async function streamAsk(question, tickers) {
-  openAgent(true); busy(true); $("answer").innerHTML=""; renderRun({steps:[],findings:[]},true);
-  const acc = {steps:[],findings:[]};
+const DOMAIN_LABEL = { market:"Price action", fundamentals:"Fundamentals", street:"Analysts & news",
+  events:"Earnings & filings", relations:"Peers", macro:"Macro", portfolio:"Portfolio" };
+
+/* suggested first questions, scoped to wherever you are */
+function suggestions() {
+  if (S.route === "ticker" && S.cur) {
+    const t = S.cur;
+    return [`How is ${t} performing this year?`, `Is ${t} expensive relative to what it earns?`,
+            `What's the setup for ${t} into its next earnings?`, `What do analysts think of ${t} right now?`];
+  }
+  if (S.route === "portfolio" && !ME.guest)
+    return ["Where is my portfolio most concentrated?", "Which holding is doing the most work today?",
+            "How exposed am I to a tech sell-off?"];
+  if (S.route === "brief")
+    return ["What's driving the market today?", "Which flagged move matters most, and why?"];
+  return ["What's driving the market today?", "How is NVDA performing versus its peers?",
+          "Is AMD expensive relative to what it earns?", "If NVDA sells off, does AMD usually follow?"];
+}
+
+/* figures stand out from the prose - the answer is about them */
+/* Marked on the RAW text, escaping each piece: run over escaped text, the
+   pattern found the 39 inside &#39; and broke the entity. A number glued to a
+   letter ("Q3", "52w", "S&P 500" stays plain via the letter check) is a name,
+   not a figure. */
+const FIG_RE = /[$−-]?\d[\d,]*(?:\.\d+)?(?:\s?(?:%|×|x(?![a-z])|bps(?![a-z])|[KMBT](?![a-z])))?(?![\w-]|\.\d)/gi;
+const INDEX_BEFORE = /(S&P|Russell|Nasdaq|Dow|FTSE|Nikkei)\s$/i;
+function markFigures(raw) {
+  const s = String(raw ?? ""); let out = "", last = 0;
+  for (const m of s.matchAll(FIG_RE)) {
+    const prev = s[m.index - 1] || "";
+    if (/[A-Za-z&]/.test(prev) || INDEX_BEFORE.test(s.slice(Math.max(0, m.index - 9), m.index))) continue;
+    out += esc(s.slice(last, m.index)) + `<span class="fig">${esc(m[0])}</span>`;
+    last = m.index + m[0].length;
+  }
+  return out + esc(s.slice(last));
+}
+const paras = s => String(s||"").split(/\n{2,}/).map(p => `<p>${markFigures(p.trim())}</p>`).join("");
+
+function tickerChips(tks) {
+  return (tks||[]).filter(t => t && t !== "MARKET")
+    .map(t => `<button class="tchip" data-go="${esc(t)}" title="Open ${esc(t)}">${esc(t)}</button>`).join("");
+}
+
+function progressHTML(turn) {
+  const L = turn.live || {};
+  const tasks = L.tasks || [];
+  const done = new Map((L.findings||[]).map(f => [f.domain+"|"+f.ticker, f]));
+  const chips = tasks.map(t => {
+    const f = done.get(t.domain+"|"+t.ticker);
+    const st = !f ? "run" : f.confidence === "unavailable" ? "skip" : "done";
+    return `<span class="pchip ${st}"><span class="pd"></span>${esc(DOMAIN_LABEL[t.domain]||t.domain)}${
+      t.ticker && t.ticker !== "MARKET" ? ` <b>${esc(t.ticker)}</b>` : ""}</span>`; }).join("");
+  return `<div class="prog">
+    <div class="stage"><span class="spin"></span>${esc(L.stage || "Reading the question…")}</div>
+    ${chips ? `<div class="pchips">${chips}</div>` : ""}</div>`;
+}
+
+function stepsHTML(run) {
+  return (run.steps||[]).filter(s => !/\.(gather|select)$/.test(s.node)).map(s => {
+    const f = (run.findings||[]).find(x => s.node === x.domain + ".synthesize");
+    const label = s.node.replace(".synthesize","");
+    return `<div class="node ${f && f.confidence==="unavailable" ? "skip" : "done"}"><span class="nd"></span>
+      <div class="nrow"><span class="nname">${esc(label)}</span>
+        <span class="nmeta">${s.model ? esc(s.model.replace(/^gemini-/,"")) + " · " : ""}${s.latency_ms ? `${(s.latency_ms/1000).toFixed(1)}s` : ""}</span></div>
+      ${s.detail ? `<div class="why">${esc(s.detail)}</div>` : ""}</div>`;
+  }).join("");
+}
+
+function turnHTML(turn, i) {
+  const r = turn.run;
+  let body = "";
+  if (turn.status === "running") body = progressHTML(turn);
+  else if (turn.status === "error" || turn.status === "stopped")
+    body = `<div class="aerr">${turn.status === "stopped" ? "Stopped." : esc(turn.error || "Something went wrong.")}
+      ${turn.status === "error" ? `<button class="link" data-retry="${i}">Try again ${IC.arrow}</button>` : ""}</div>`;
+  else if (r && (r.refused || !(r.findings||[]).length))
+    body = `<div class="anote">${esc(r.answer || "No answer.")}</div>`;
+  else if (r) {
+    const ndom = new Set((r.findings||[]).map(f => f.domain)).size;
+    const warn = r.grounded === false
+      ? `<div class="awarn">Couldn't match ${esc((r.ungrounded_numbers||[]).join(", "))} to the data the specialists fetched — treat ${(r.ungrounded_numbers||[]).length > 1 ? "them" : "it"} with care.</div>` : "";
+    const degraded = r.degraded ? `<div class="awarn">${esc(r.degraded)}</div>` : "";
+    const gaps = (r.findings||[]).filter(f => f.confidence === "unavailable");
+    const gapLine = gaps.length ? `<div class="agap">No data: ${gaps.map(f =>
+      `${esc(DOMAIN_LABEL[f.domain]||f.domain)} ${f.ticker!=="MARKET"?esc(f.ticker):""}`).join(", ")}</div>` : "";
+    const meta = ndom ? `${ndom} specialist${ndom>1?"s":""} · ${r.llm_calls} model calls · ${((turn.wall_ms||r.wall_ms||r.latency_ms)/1000).toFixed(1)}s` : "";
+    body = `<div class="answer">
+      ${(r.tickers||[]).some(t => t !== "MARKET") || r.grounded ? `<div class="top">${tickerChips(r.tickers)}
+        ${r.grounded ? `<span class="ok" title="Every figure in this answer was matched to the data the specialists fetched">✓ figures checked</span>` : ""}</div>` : ""}
+      ${paras(r.answer)}${degraded}${warn}${gapLine}
+      <div class="afoot">
+        ${meta ? `<button class="link" data-how="${i}">${esc(meta)} ${IC.chev}</button>` : ""}
+        <div class="grow"></div>
+        ${(r.findings||[]).length ? `<button class="link" data-trace="${i}">Evidence ${IC.arrow}</button>` : ""}
+      </div>
+      <div class="how" id="how${i}">${stepsHTML(r)}</div>
+    </div>`;
+  }
+  return `<div class="turn" data-turn="${i}">
+    <div class="uq">${esc(turn.q)}</div>
+    ${r?.resolved && r.resolved.toLowerCase() !== turn.q.toLowerCase()
+      ? `<div class="interp">Read as: ${esc(r.resolved)}</div>` : ""}
+    ${body}</div>`;
+}
+
+function renderThread(scroll = true) {
+  const el = $("thread"); if (!el) return;
+  if (!T.turns.length) {
+    el.innerHTML = `<div class="intro">
+      <div class="ih">Ask the research agent</div>
+      <p>A router sends your question to the specialists it needs — price action, fundamentals,
+        analysts and news, earnings, peers, macro — in parallel. Every figure in the answer is
+        checked against the data they fetched.</p>
+      ${S.llm ? `<div class="isugg">${suggestions().map(q =>
+        `<button class="sugg" data-ask="${esc(q)}">${esc(q)}</button>`).join("")}</div>`
+        : `<div class="awarn">Agent disabled — set <span class="mono">GEMINI_API_KEY</span> and restart. The dashboard works without it.</div>`}
+    </div>`;
+  } else {
+    el.innerHTML = T.turns.map(turnHTML).join("");
+  }
+  wireThread(el);
+  if (scroll) { const sc = $("rscroll"); sc.scrollTop = sc.scrollHeight; }
+}
+
+function wireThread(el) {
+  el.querySelectorAll("[data-ask]").forEach(b => b.onclick = () => submitAsk(b.dataset.ask));
+  el.querySelectorAll("[data-go]").forEach(b => b.onclick = () => location.hash = "#/t/" + b.dataset.go);
+  el.querySelectorAll("[data-trace]").forEach(b => b.onclick = () => openTrace(T.turns[+b.dataset.trace]?.run));
+  el.querySelectorAll("[data-how]").forEach(b => b.onclick = () => {
+    const h = $("how" + b.dataset.how); h?.classList.toggle("on"); b.classList.toggle("open"); });
+  el.querySelectorAll("[data-retry]").forEach(b => b.onclick = () => {
+    const t = T.turns[+b.dataset.retry]; T.turns.splice(+b.dataset.retry, 1); submitAsk(t.q); });
+}
+
+/* repaint ONE turn as its stream advances; the rest of the thread (and any
+   section you have expanded in it) is left alone */
+function paintTurn(turn) {
+  const i = T.turns.indexOf(turn);
+  const node = document.querySelector(`#thread [data-turn="${i}"]`);
+  if (!node) return renderThread();
+  const tmp = document.createElement("div");
+  tmp.innerHTML = turnHTML(turn, i);
+  const fresh = tmp.firstElementChild;
+  node.replaceWith(fresh);
+  wireThread(fresh);
+  const sc = $("rscroll"); sc.scrollTop = sc.scrollHeight;
+}
+
+const busy = on => { $("rst").textContent = on ? "working" : "idle"; $("rdot").classList.toggle("live", on);
+  const b = $("send"); b.classList.toggle("stop", on);
+  b.setAttribute("aria-label", on ? "Stop" : "Ask"); b.title = on ? "Stop" : "Ask";
+  b.innerHTML = on ? `<svg class="ico" viewBox="0 0 24 24" fill="currentColor"><rect x="7" y="7" width="10" height="10" rx="2"/></svg>`
+                   : `<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>`; };
+
+/* what the server needs to read a follow-up: the user's own words, the answer,
+   the tickers it was about. Prefixed scope text stays out of it. */
+const historyFor = () => T.turns.filter(t => t.status === "done" && t.run?.answer)
+  .slice(-HISTORY_TURNS).map(t => ({ q: t.q, a: t.run.answer.slice(0, 700),
+                                     tickers: (t.run.tickers||[]).filter(x => x !== "MARKET") }));
+
+function stageFor(node, d, L) {
+  if (node === "route") return (d.tasks||[]).length ? "Specialists researching…" : L.stage;
+  if (node === "writer") {
+    const s = (d.steps||[]).map(x => x.node);
+    if (s.includes("writer.decide")) return "Answer needs more — asking another specialist…";
+    return "Checking every figure against the evidence…";
+  }
+  const open = (L.tasks||[]).filter(t => !(L.findings||[]).some(f => f.domain===t.domain && f.ticker===t.ticker));
+  return open.length ? "Specialists researching…" : "Writing the answer…";
+}
+
+async function streamAsk(question, opts = {}) {
+  if (T.ctl) T.ctl.abort();                          // one run at a time
+  openAgent(true);
+  const turn = { id: ++T.seq, q: opts.display || question, status: "running", t0: Date.now(),
+                 live: { tasks: [], findings: [], steps: [], stage: "Reading the question…" } };
+  const history = historyFor();
+  T.turns.push(turn); renderThread(); busy(true);
+  const ctl = T.ctl = new AbortController();
   try {
-    const r = await fetch(url("/api/agent/ask/stream"),{method:"POST",credentials:"include",
-      headers:{"Content-Type":"application/json"},body:JSON.stringify({question})});
-    if (!r.ok) throw new Error(await r.text());
-    const rd = r.body.getReader(), dec = new TextDecoder(); let buf="";
-    for(;;){ const {value,done} = await rd.read(); if(done) break;
-      buf += dec.decode(value,{stream:true});
+    const body = { question, history };
+    if (opts.tickers?.length) body.tickers = opts.tickers;          // hard selection
+    if (opts.context?.length) body.context_tickers = opts.context;  // what you're looking at
+    const r = await fetch(url("/api/agent/ask/stream"), { method:"POST", credentials:"include",
+      headers:{"Content-Type":"application/json"}, body: JSON.stringify(body), signal: ctl.signal });
+    if (!r.ok) { let m = ""; try { const j = await r.json(); m = j.detail || j.error; } catch {}
+                 throw new Error(m || `request failed (${r.status})`); }
+    const rd = r.body.getReader(), dec = new TextDecoder(); let buf = "";
+    for (;;) { const {value, done} = await rd.read(); if (done) break;
+      buf += dec.decode(value, {stream:true});
       const parts = buf.split(/\r?\n\r?\n/); buf = parts.pop();
       for (const p of parts) {
         const ev = (p.match(/^event:\s*(.*)$/m)||[])[1];
         const dl = p.split(/\r?\n/).filter(l=>l.startsWith("data:")).map(l=>l.slice(5).trim()).join("");
         if (!dl) continue;
         let d; try { d = JSON.parse(dl); } catch { continue; }
-        if (ev==="node"){ acc.steps.push(...(d.steps||[])); acc.findings.push(...(d.findings||[])); renderRun(acc,true); }
-        else if (ev==="done"){ S.run=d; renderRun(d,false); renderAnswer(d); }
-        else if (ev==="error") $("answer").innerHTML=`<div class="muted" style="color:var(--neg)">${esc(d.error)}</div>`;
+        const L = turn.live;
+        if (ev === "node") {
+          if (d.tasks) L.tasks = d.tasks.map(t => ({domain:t.domain, ticker:t.ticker}));
+          for (const f of d.findings||[]) {
+            L.findings.push(f);
+            if (!L.tasks.some(t => t.domain===f.domain && t.ticker===f.ticker))
+              L.tasks.push({domain:f.domain, ticker:f.ticker});     // a follow-up the writer asked for
+          }
+          L.steps.push(...(d.steps||[]));
+          L.stage = stageFor(d.node, d, L);
+          paintTurn(turn);
+        } else if (ev === "done") {
+          turn.run = d; turn.status = "done"; turn.wall_ms = Date.now() - turn.t0;
+        } else if (ev === "error") {
+          turn.status = "error"; turn.error = d.error;
+        }
       } }
-  } catch(e){ $("answer").innerHTML=`<div class="muted" style="color:var(--neg)">${esc(e.message)}</div>`; }
-  busy(false);
+    if (turn.status === "running") { turn.status = "error"; turn.error = "The connection closed before the answer arrived."; }
+  } catch (e) {
+    turn.status = e.name === "AbortError" ? "stopped" : "error";
+    turn.error = e.message;
+  }
+  delete turn.live;
+  if (T.ctl === ctl) { T.ctl = null; busy(false); }
+  paintTurn(turn); saveThread();
 }
 
+/* the per-tab Explain button: ONE domain specialist, no router, no writer */
 async function runAnalyze() {
-  const domain = TAB_DOMAIN[S.tab] || "fundamentals";
-  const b = $("analyze"); b.disabled=true; b.classList.add("busy"); openAgent(true); busy(true);
+  const domain = TAB_DOMAIN[S.tab] || "fundamentals", sym = S.cur;
+  const b = $("explain"); if (!b) return;
+  b.disabled = true; b.classList.add("busy"); b.innerHTML = `<span class="spin"></span>Reading ${esc(S.tab)}…`;
   try {
-    const r = await api("/api/agent/analyze",{method:"POST",
-      headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({ticker:S.cur,domain,question:`Looking at ${S.cur}'s ${S.tab}, what stands out?`})});
-    if (r.finding) {
-      S.tabAgent[S.cur+":"+domain] = r.finding;
-      S.run = { question:`analyze ${domain} · ${S.cur}`, steps:r.steps, findings:[r.finding],
-                answer:r.finding.narrative, tickers:[S.cur],
-                llm_calls:r.steps.filter(s=>s.llm).length,
-                total_tokens:r.steps.reduce((a,s)=>a+s.tokens,0),
-                latency_ms:r.steps.reduce((a,s)=>a+s.latency_ms,0), grounded:null };
-      renderRun(S.run,false); renderAnswer(S.run); await renderTab();
-    }
-  } catch(e){ $("answer").innerHTML=`<div class="muted" style="color:var(--neg)">${esc(e.message)}</div>`; }
-  b.disabled=false; b.classList.remove("busy"); busy(false);
+    const r = await jpost("/api/agent/analyze", {ticker: sym, domain,
+      question: `Looking at ${sym}'s ${S.tab}, what stands out?`});
+    if (r.finding) S.tabAgent[sym + ":" + domain] = { ...r.finding, steps: r.steps };
+    if (S.cur === sym) await renderTab();
+  } catch (e) {
+    b.disabled = false; b.classList.remove("busy");
+    b.innerHTML = `${IC.spark} Explain ${esc(S.tab)}`;
+    b.insertAdjacentHTML("afterend", `<span class="muted" style="color:var(--neg);margin-left:8px">${esc(e.message)}</span>`);
+  }
 }
 
-function openTrace() {
-  const run = S.run, box = $("tbody");
+function openTrace(run) {
+  const box = $("tbody");
   if (!run) box.innerHTML = `<div class="empty">No run yet.</div>`;
   else {
-    $("tsub").textContent = `${run.question||""} · ${(run.latency_ms/1000).toFixed(1)}s · ${run.llm_calls} LLM calls · ${run.total_tokens} tokens`;
-    box.innerHTML = `<table><thead><tr><th>Node</th><th>Detail</th><th>Tools</th><th>Tokens</th><th>Latency</th><th>LLM</th></tr></thead>
-      <tbody>${run.steps.map(s=>`<tr><td style="color:var(--b2);font-weight:600">${esc(s.node)}</td>
+    $("tsub").textContent = `${run.question||""} · ${run.llm_calls} model calls · ${run.total_tokens} tokens`;
+    const findings = run.findings || [];
+    box.innerHTML = `${findings.map(f => `<div class="section"><div class="section-h">
+          <h3>${esc(DOMAIN_LABEL[f.domain]||f.domain)} · ${esc(f.ticker)}</h3>
+          <span class="r">${f.tools_used.length} tools used · ${f.tools_skipped.length} skipped · ${esc(f.confidence)}</span></div>
+        <div class="tfind">${paras(f.narrative)}</div>
+        ${f.tools_used.length ? `<div class="tools">${f.tools_used.map(t=>`<span class="tc sel">${esc(t)}</span>`).join("")}
+          ${f.tools_skipped.map(t=>`<span class="tc skp">${esc(t)}</span>`).join("")}</div>` : ""}
+        ${(f.failures||[]).length ? `<div class="muted">${f.failures.map(x=>`${esc(x.tool)}: ${esc(x.reason)}`).join(" · ")}</div>` : ""}
+        <details class="raw"><summary>Raw evidence</summary>
+          <pre>${esc(JSON.stringify((f.evidence||[]).reduce((a,e)=>(a[e.tool]=e.data,a),{}),null,1)).slice(0,6000)}</pre></details>
+      </div>`).join("")}
+      <div class="section"><div class="section-h"><h3>Steps</h3></div>
+      <table><thead><tr><th>Node</th><th>Detail</th><th>Model</th><th>Tools</th><th>Tokens</th><th>Latency</th></tr></thead>
+      <tbody>${(run.steps||[]).map(s=>`<tr><td style="color:var(--b2);font-weight:600">${esc(s.node)}</td>
         <td style="text-align:left;color:var(--muted-foreground)">${esc(s.detail||"")}</td>
+        <td>${s.model ? `<span class="badge brand">${esc(s.model.replace(/^gemini-/,""))}</span>`
+                      : `<span class="badge ghost">no model</span>`}</td>
         <td class="mono">${s.tools||"—"}</td><td class="mono">${s.tokens||0}</td>
-        <td class="mono">${(s.latency_ms/1000).toFixed(2)}s</td>
-        <td><span class="badge ${s.llm?"brand":"ghost"}">${s.llm?"yes":"no"}</span></td></tr>`).join("")}</tbody></table>
-      ${run.findings.map(f=>`<div class="section"><div class="section-h"><h3>${esc(f.domain)} evidence</h3>
-        <span class="r">${f.tools_used.length} used · ${f.tools_skipped.length} skipped</span></div>
-        <pre>${esc(JSON.stringify(f.evidence.reduce((a,e)=>(a[e.tool]=e.data,a),{}),null,1)).slice(0,3000)}</pre></div>`).join("")}`;
+        <td class="mono">${((s.latency_ms||0)/1000).toFixed(2)}s</td></tr>`).join("")}</tbody></table></div>
+      <div class="disclaim">${esc(run.disclaimer||DISCLAIMER)}</div>`;
   }
   $("trace").classList.add("on");
+  setTimeout(() => $("tclose").focus(), 30);
   mo($("tbox"),{opacity:[0,1],scale:[.97,1],y:[10,0]},{duration:.3,easing:[.22,1,.36,1]});
 }
 const closeTrace = () => $("trace").classList.remove("on");
+
+function submitAsk(text) {
+  const v = (text || "").trim(); if (!v) return;
+  if (!S.llm) { openAgent(true); renderThread(); return; }
+  const sc = askScope();
+  streamAsk(sc.pre(v), { display: v, tickers: sc.tickers, context: sc.context });
+}
 
 /* ═══════════════ data + router ═══════════════ */
 async function refreshAll() {
@@ -1530,21 +1789,29 @@ async function refreshAll() {
   pfSummary();
 }
 
+/* Every view awaits the network, and you can click away while it does. Each
+   navigation takes a number; a view whose number is no longer current does
+   not paint, so a slow earlier page never lands on top of a newer one. */
+const NAV = { seq: 0 };
 async function route() {
+  const nav = ++NAV.seq;
   document.getElementById("views").scrollTop = 0;   // new destination starts at the top
   const h = (location.hash || "#/dashboard").slice(2);
   const [head, arg] = h.split("/");
-  $$(".navitem").forEach(n => n.classList.toggle("on",
-    n.dataset.route === (head==="t" ? "ticker" : head)));
+  const r = head==="t" ? "ticker" : head;
+  $$(".navitem").forEach(n => { const on = n.dataset.route === r;
+    n.classList.toggle("on", on); on ? n.setAttribute("aria-current", "page") : n.removeAttribute("aria-current"); });
   if (head === "t") {
     S.route = "ticker";
-    const syms = [...new Set(decodeURIComponent(arg || "").toUpperCase()
-      .split(",").map(x=>x.trim()).filter(Boolean))].slice(0, 8);
-    await viewResearch(syms);
+    let raw = ""; try { raw = decodeURIComponent(arg || ""); } catch { raw = ""; }
+    const syms = cleanSyms(raw.split(",")).slice(0, 8);
+    syncAsk();
+    await viewResearch(syms, nav);
   }
-  else if (head === "brief") { S.route="brief"; await viewBrief(); }
-  else if (head === "portfolio") { S.route="portfolio"; await viewPortfolio(); }
-  else { S.route="dashboard"; await viewDashboard(); }
+  else if (head === "brief") { S.route="brief"; syncAsk(); await viewBrief(nav); }
+  else if (head === "portfolio") { S.route="portfolio"; syncAsk(); await viewPortfolio(nav); }
+  else { S.route="dashboard"; syncAsk(); await viewDashboard(nav); }
+  if (nav !== NAV.seq) return;
   syncAsk();
   pfSummary();
 }
@@ -1576,29 +1843,59 @@ $("authform").onsubmit = async e => {
 };
 $("agenttoggle").onclick = () => openAgent(!document.getElementById("app").classList.contains("agent-open"));
 $("agentclose").onclick = () => openAgent(false);
+$("right").inert = true;                              // collapsed: out of the tab order
+$("agentnew").onclick = () => { if (T.ctl) T.ctl.abort(); T.turns = []; saveThread(); renderThread(); $("ask").focus(); };
 $("tclose").onclick = closeTrace;
 $("briefclose").onclick = closeBrief;
 $("briefopen").onclick = () => { closeBrief(); location.hash = "#/brief"; };
 $("briefsheet").onclick = e => { if (e.target.id === "briefsheet") closeBrief(); };
 $("trace").onclick = e => { if (e.target.id==="trace") closeTrace(); };
-addEventListener("keydown", e => { if (e.key==="Escape") { closeTrace(); closeBrief(); closeAuth(); } });
+addEventListener("keydown", e => {
+  if (e.key==="Escape") { closeTrace(); closeBrief(); closeAuth(); }
+  // "/" opens the agent from anywhere that is not already a text field
+  if (e.key === "/" && !/^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement?.tagName||"")) {
+    e.preventDefault(); openAgent(true); $("ask").focus(); }
+});
+/* the panel animates open from zero width, and a textarea measured mid-slide
+   wraps every character onto its own line - so measure only once it is laid out */
+const growAsk = () => { const a = $("ask"); if (a.clientWidth < 120) return;
+  a.style.height = "auto"; a.style.height = Math.min(a.scrollHeight + 2, 132) + "px"; };
+$("ask").oninput = growAsk;
+$("ask").onkeydown = e => { if (e.key === "Enter" && !e.shiftKey && !e.isComposing) {
+  e.preventDefault(); $("askform").requestSubmit(); } };
 $("askform").onsubmit = e => { e.preventDefault();
+  if (T.ctl) { T.ctl.abort(); return; }               // the send button doubles as stop
   const v = $("ask").value.trim();
-  if (v) { const sc = askScope(); streamAsk(sc.pre(v), sc.tickers); $("ask").value=""; } };
+  if (v) { submitAsk(v); $("ask").value = ""; growAsk(); } };
 
 api("/build").then(b => $("buildstamp").textContent = b.build.slice(-6)).catch(()=>{});
 await loadMe();
 await replayResume();
 const health = await api("/api/health").catch(()=>({}));
 S.llm = !!health.llm_configured;
-if (!S.llm) {
-  $("answer").innerHTML = `<div class="muted" style="color:var(--warn)">Agent disabled — set <span class="mono">GEMINI_API_KEY</span> and restart. The dashboard works without it.</div>`;
-  $("rst").textContent = "no key";
-}
-await refreshAll();
-renderRun(null,false);
+if (!S.llm) $("rst").textContent = "no key";
+try { await refreshAll(); } catch (e) { console.warn("initial load", e); }   // still paint the view
+renderThread();
 await route();
 maybeShowBrief();
-setInterval(async () => { if (!S.wl.length) return;
-  const d = await api(`/api/quotes?symbols=${S.wl.join(",")}`).catch(()=>null);
-  if (!d) return; d.quotes.forEach(q=>S.q[q.symbol]=q); pfSummary(); }, 30000);
+/* "live" means the cells move: patch price and change in place, flash on a tick */
+function patchPrices() {
+  $$("#wlbody tr[data-sym]").forEach(tr => {
+    const q = S.q[tr.dataset.sym]; if (!q) return;
+    const px = tr.querySelector(".px"), ch = tr.querySelector(".chg");
+    if (px && px.textContent !== num(q.price)) {
+      const was = parseFloat(px.textContent.replace(/,/g,""));
+      px.textContent = num(q.price);
+      tr.classList.remove("flash-up","flash-dn"); void tr.offsetWidth;
+      if (!isNaN(was)) tr.classList.add(q.price >= was ? "flash-up" : "flash-dn");
+    }
+    if (ch) { ch.textContent = pct(q.change_pct); ch.className = `mono chg ${sgn(q.change_pct)}`; }
+  });
+}
+setInterval(async () => {
+  if (document.hidden) return;
+  const syms = S.wl.length ? S.wl : (S.route === "dashboard" ? POPULAR : []);
+  if (!syms.length) return;
+  const d = await api(`/api/quotes?symbols=${syms.join(",")}`).catch(()=>null);
+  if (!d) return; d.quotes.forEach(q=>S.q[q.symbol]=q); pfSummary();
+  if (S.route === "dashboard") patchPrices(); }, 30000);

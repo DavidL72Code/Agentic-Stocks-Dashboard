@@ -79,7 +79,7 @@ export function surprise(el, history) {
       h(RC.Tooltip, { cursor: { fill: "rgba(144,133,233,.07)" },
         content: ({ active, payload }) => active && payload?.[0]
           ? Tip(payload[0].payload.d,
-                (payload[0].payload.s >= 0 ? "+" : "") + payload[0].payload.s + "%",
+                payload[0].payload.s == null ? "—" : (payload[0].payload.s >= 0 ? "+" : "") + payload[0].payload.s + "%",
                 `actual ${payload[0].payload.a} vs ${payload[0].payload.e} est`) : null }),
       h(RC.Bar, { dataKey: "s", radius: [4, 4, 0, 0], maxBarSize: 40,
                   animationDuration: 560 },
@@ -167,7 +167,10 @@ export function fngGauge(el, score, history) {
   };
   const clamped = Math.max(0, Math.min(100, score ?? 0));
   const needleDeg = clamped * 1.8;                 // 0..100 -> 0..180
-  const [nx, ny] = pol(rOut - 10, needleDeg);
+  // The reading is a marker ON the dial, not a needle from the centre: a
+  // centre needle ran straight through the number and the band label for
+  // most of the range, in the same colour, so the digits merged into it.
+  const [m1x, m1y] = pol(rIn - 7, needleDeg), [m2x, m2y] = pol(rOut + 4, needleDeg);
 
   let from = 0;
   const bands = FNG_BANDS.map(b => {
@@ -179,22 +182,21 @@ export function fngGauge(el, score, history) {
   });
 
   mount(el, h("div", { style:{display:"flex",flexDirection:"column",alignItems:"center"} },
-    h("svg", { viewBox:`0 0 ${W} ${H}`, width:"100%", style:{maxWidth:"210px",display:"block"} },
+    h("svg", { viewBox:`0 0 ${W} ${H}`, width:"100%", style:{maxWidth:"210px",display:"block"},
+               role:"img", "aria-label":`Fear and greed index ${Math.round(clamped)}` },
       bands,
-      // needle
-      h("line", { x1:cx, y1:cy, x2:nx, y2:ny, stroke:col, strokeWidth:3, strokeLinecap:"round" }),
-      h("circle", { cx, cy, r:7, fill:"#0b0d13", stroke:col, strokeWidth:2.5 }),
-      h("circle", { cx, cy, r:2.5, fill:col }),
+      h("line", { x1:m1x, y1:m1y, x2:m2x, y2:m2y, stroke:"#0b0d13", strokeWidth:6, strokeLinecap:"round" }),
+      h("line", { x1:m1x, y1:m1y, x2:m2x, y2:m2y, stroke:"#fff", strokeWidth:2.5, strokeLinecap:"round" }),
       // end labels
       h("text", { x:6, y:H-2, fill:"#8d95a6", fontSize:7.5, fontFamily:"Inter,sans-serif",
                   letterSpacing:".06em" }, "EXTREME FEAR"),
       h("text", { x:W-6, y:H-2, textAnchor:"end", fill:"#8d95a6", fontSize:7.5,
                   fontFamily:"Inter,sans-serif", letterSpacing:".06em" }, "EXTREME GREED"),
-      // the reading, centred in the dial
-      h("text", { x:cx, y:cy-22, textAnchor:"middle", fill:col, fontSize:26, fontWeight:650,
+      // the reading, centred in the dial with the band name under it
+      h("text", { x:cx, y:cy-14, textAnchor:"middle", fill:col, fontSize:28, fontWeight:650,
                   fontFamily:"JetBrains Mono,monospace", letterSpacing:"-.04em" },
         String(Math.round(clamped))),
-      h("text", { x:cx, y:cy-8, textAnchor:"middle", fill:"#8d95a6", fontSize:7.5,
+      h("text", { x:cx, y:cy, textAnchor:"middle", fill:"#adb4c2", fontSize:8,
                   fontWeight:700, letterSpacing:".14em", fontFamily:"Inter,sans-serif" },
         (FNG_BANDS.find(b=>clamped<b.to)||FNG_BANDS.at(-1)).label.toUpperCase()))));
 }
