@@ -6,6 +6,12 @@
       "runtimeExecutable": ".venv/bin/uvicorn",
       "runtimeArgs": ["app.main:app", "--app-dir", "backend", "--port", "8077", "--reload"],
       "port": 8077
+    },
+    {
+      "name": "dashboard-local",
+      "runtimeExecutable": "env",
+      "runtimeArgs": ["TURSO_DATABASE_URL=", "TURSO_AUTH_TOKEN=", ".venv/bin/uvicorn", "app.main:app", "--app-dir", "backend", "--port", "8077", "--reload"],
+      "port": 8077
     }
   ]
 }

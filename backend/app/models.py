@@ -91,6 +91,7 @@ class RunStep(BaseModel):
     tokens: int = 0
     latency_ms: int = 0
     llm: bool = False
+    model: str = ""           # which model answered, so a fallback is visible
 
 
 class AgentRun(BaseModel):

@@ -201,16 +201,24 @@ required for the full product.
 
 ### Optional
 
+**Models are fixed in code, not set here** (`backend/app/llm.py`). Every call except
+tool selection alternates between `gemini-3.5-flash-lite` and `gemini-3.1-flash-lite`,
+so each carries half the load and half of each free-tier daily cap; tool selection runs
+on `gemma-4-26b-a4b-it`. Any model that is out of quota or too slow falls back to the other.
+They used to come from `GEMINI_MODEL`, and a Render service with no such variable
+silently ran a default (`gemini-2.5-flash`) that new keys can no longer use.
+`/api/health` → `models` shows the split and the calls each model has served.
+
 | Variable | Default | Notes |
 |---|---|---|
 | `CORS_ORIGINS` | `APP_BASE_URL` + localhost | Only needed if the frontend is served from a different origin than the API. |
 | `SESSION_DAYS` | `30` | Cookie lifetime and the session row's expiry. |
 | `FINNHUB_API_KEY` | unset | Recommended on Render. Yahoo refuses its crumb there, so P/E, market cap, margins and analyst ratings fall back to Finnhub's free tier. Prices work without it. |
 | `AGENT_FOLLOWUP` | `writer` | `writer`: after the first round the writer may ask for up to two more specialists, once, when the findings leave the question unanswered. `trigger`: a code rule (4%+ move or a "why" question) gates a supervisor call instead. `0` turns it off. |
-| `GEMINI_MODEL` | `gemini-2.5-flash` | Synthesis and the final write-up. |
-| `GEMINI_FAST_MODEL` | same as above | Tool selection and the guard. Cheap model is fine. |
 | `LLM_BASE_URL` | Gemini's OpenAI-compatible endpoint | Not a "switch providers" knob — the client is `ChatOpenAI`, which would otherwise default to `api.openai.com`. |
 | `OPENAI_API_KEY` | — | Only if you repoint `LLM_BASE_URL` at OpenAI. |
+| `LLM_RPS` | `0.5` | Model requests per second, per process. Sized for Gemini's free tier; raise it on a paid key. Two processes on one key share the key's limit, not this one. |
+| `LLM_TIMEOUT` | `45` | Seconds per model call. A per-minute 429 is retried after the wait Gemini names (up to 30s); a daily cap fails at once. |
 | `STORE_PATH` | `data/store.json` | Legacy single-file store, read once to import, then renamed. Leave it. |
 | `TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN` | — | Hosted database instead of a local file. [DATABASE.md](DATABASE.md). |
 | `REDIS_URL`, `REDIS_PREFIX`, `REDIS_STALE_FACTOR`, `REDIS_TIMEOUT` | — | Cache second tier. Below. |

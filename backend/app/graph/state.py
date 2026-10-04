@@ -19,6 +19,9 @@ class Task(TypedDict):
 
 class ResearchState(TypedDict, total=False):
     question: str
+    history: list[dict]       # prior turns {q, a, tickers}, oldest first
+    context: list[str]        # tickers on screen: a hint, not a constraint
+    resolved: str             # the question rewritten to stand alone, from route
     degraded: str             # set when the router failed and we fell back
     selection: list[str]      # tickers the user explicitly picked
     tickers: list[str]

@@ -1,6 +1,6 @@
 """Data plane. No LLM anywhere in this file - that is the point."""
 from __future__ import annotations
-import asyncio
+import asyncio, re
 from datetime import date, datetime, timezone
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
@@ -18,9 +18,10 @@ router = APIRouter(prefix="/api")
 
 @router.get("/health")
 async def health():
-    from ..llm import MODEL, api_key
+    from ..llm import MODEL, api_key, status
     from .. import db
     return clean({"ok": True, "llm_configured": bool(api_key()), "model": MODEL,
+                  "models": status(),
                   "db": db.backend_name(),
                   "tools": len(TOOLS), "cache": cache_stats(),
                   "quote_batches": yahoo.QUOTE_LOADER.batches,
@@ -1003,8 +1004,10 @@ async def compare(symbols: str = Query(..., min_length=1), period: str = "6mo"):
     """Any basket of tickers, side by side: normalised price paths, the
     fundamentals that are comparable across names, and how they move together."""
     syms = [s.strip().upper() for s in symbols.split(",") if s.strip()][:8]
+    # echoed back into the page; a "symbol" with markup in it is not one
+    syms = [x for x in syms if re.match(r"^[A-Z0-9][A-Z0-9.^=-]{0,11}$", x)]
     if not syms:
-        raise HTTPException(400, "give at least one symbol")
+        raise HTTPException(400, "give at least one valid symbol")
 
     quotes, *series = await asyncio.gather(
         yahoo.quotes(syms),

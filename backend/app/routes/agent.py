@@ -1,6 +1,6 @@
 """Agent plane. The ONLY endpoints in the app that spend an LLM call."""
 from __future__ import annotations
-import asyncio, json
+import asyncio, json, re, time
 from fastapi import APIRouter
 from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse
@@ -15,9 +15,28 @@ from ..tools import TOOLS, DOMAIN_DESC, domain_tools
 router = APIRouter(prefix="/api/agent")
 
 
+class Turn(BaseModel):
+    q: str
+    a: str = ""
+    tickers: list[str] = []
+
+
 class Ask(BaseModel):
     question: str
     tickers: list[str] | None = None   # explicit selection from the workspace
+    context_tickers: list[str] | None = None   # what is on screen: a hint, not a fence
+    history: list[Turn] | None = None  # the conversation so far, oldest first
+
+SYMBOL = re.compile(r"^[A-Z0-9][A-Z0-9.^=-]{0,11}$")
+
+
+def _syms(xs, n=8) -> list[str]:
+    out = []
+    for x in xs or []:
+        x = str(x).strip().upper()
+        if SYMBOL.match(x) and x not in out:
+            out.append(x)
+    return out[:n]
 
 
 class Analyze(BaseModel):
@@ -35,30 +54,42 @@ async def domains():
         for d in DOMAIN_DESC]}
 
 
-def _run_json(out: dict, question: str) -> dict:
+def _run_json(out: dict, question: str, t0: float | None = None) -> dict:
     run = AgentRun(question=question, tickers=out.get("tickers", []),
                    findings=out.get("findings", []), answer=out.get("answer", ""),
                    steps=out.get("steps", []), degraded=out.get("degraded", ""))
     run = grounding_check(run)
     return {**json.loads(run.model_dump_json()),
             "llm_calls": run.llm_calls, "total_tokens": run.total_tokens,
-            "latency_ms": run.latency_ms, "disclaimer": DISCLAIMER}
+            # latency_ms sums the steps, so parallel specialists count once
+            # each; wall_ms is what the user actually waited
+            "latency_ms": run.latency_ms,
+            "wall_ms": int((time.time() - t0) * 1000) if t0 else run.latency_ms,
+            "refused": bool(out.get("refused")),
+            "resolved": out.get("resolved") or "",
+            "disclaimer": DISCLAIMER}
 
 
 def _seed(a: Ask) -> dict:
-    sel = [t.strip().upper() for t in (a.tickers or []) if t.strip()][:8]
-    return {"question": a.question, "selection": sel, "findings": [], "steps": []}
+    hist = [{"q": h.q[:300], "a": h.a[:700], "tickers": _syms(h.tickers, 6)}
+            for h in (a.history or [])[-3:] if h.q.strip()]
+    return {"question": a.question[:1000], "selection": _syms(a.tickers),
+            "context": _syms(a.context_tickers, 4), "history": hist,
+            "findings": [], "steps": []}
 
 
 @router.post("/ask")
 async def ask(a: Ask):
+    t0 = time.time()
     out = await GRAPH.ainvoke(_seed(a))
-    return _run_json(out, a.question)
+    return _run_json(out, a.question, t0)
 
 
 @router.post("/ask/stream")
 async def ask_stream(a: Ask):
     """Streams real LangGraph node updates - the agent rail is not simulated."""
+    t0 = time.time()
+
     async def gen():
         acc: dict = {"findings": [], "steps": [], "tickers": [], "answer": ""}
         try:
@@ -70,7 +101,7 @@ async def ask_stream(a: Ask):
                     for k in ("findings", "steps"):
                         if upd.get(k):
                             acc[k] = acc[k] + list(upd[k])
-                    for k in ("tickers", "answer", "tasks", "refused"):
+                    for k in ("tickers", "answer", "tasks", "refused", "resolved", "degraded"):
                         if upd.get(k) is not None:
                             acc[k] = upd[k]
                     payload = {"node": node,
@@ -78,7 +109,7 @@ async def ask_stream(a: Ask):
                                "findings": [json.loads(f.model_dump_json()) for f in upd.get("findings", [])],
                                "tasks": upd.get("tasks"), "tickers": upd.get("tickers")}
                     yield {"event": "node", "data": json.dumps(payload, default=str)}
-            yield {"event": "done", "data": json.dumps(_run_json(acc, a.question), default=str)}
+            yield {"event": "done", "data": json.dumps(_run_json(acc, a.question, t0), default=str)}
         except Exception as e:
             yield {"event": "error", "data": json.dumps({"error": f"{type(e).__name__}: {e}"})}
     return EventSourceResponse(gen())
@@ -137,10 +168,32 @@ Reply with ONLY JSON:
               "sources": ["exact headline text you used"]}]}"""
 
 
+# The narration is one LLM call over ~24k characters, and the page asks for it on
+# every load. Every guest gets the same market-wide brief, and a signed-in book
+# changes slowly, so it is cached per user for a few minutes - a reload, a second
+# tab or the dashboard plus the brief view no longer pay for the same paragraph.
+BRIEF_TTL_S = 600
+_brief_cache: dict[str, tuple[float, dict]] = {}
+
+
 @router.post("/brief")
 async def curated_brief():
     """The daily brief, narrated. One LLM call over data the scanner already found."""
     from .data import brief as data_brief
+    from ..store import current_user_id
+    key = current_user_id()
+    hit = _brief_cache.get(key)
+    if hit and time.time() - hit[0] < BRIEF_TTL_S:
+        return {**hit[1], "cached": True}
+    out = await _curate(data_brief)
+    if not out.get("error"):
+        if len(_brief_cache) > 500:
+            _brief_cache.clear()
+        _brief_cache[key] = (time.time(), out)
+    return out
+
+
+async def _curate(data_brief):
     b = await data_brief()
     flagged = sorted({s["ticker"] for s in b.get("signals", [])})
     focus = flagged[:4] or (b.get("checked") or [])[:3]
@@ -176,12 +229,13 @@ async def curated_brief():
         r = await llm.call(CURATOR_PROMPT, json.dumps(payload, default=str)[:24000])
         narrative = llm.parse_json(r.text) or narrative
         steps.append(RunStep(node="brief.curate", detail=f"{len(narrative.get('threads', []))} threads",
-                             tokens=r.tokens, latency_ms=r.latency_ms, llm=True))
+                             tokens=r.tokens, latency_ms=r.latency_ms, llm=True, model=r.model))
     except llm.NoAPIKey as e:
         return clean_brief(b, {"summary": "", "threads": []}, steps, str(e))
     except Exception as e:
         return clean_brief(b, {"summary": "", "threads": []}, steps,
-                           f"{type(e).__name__}: {e}")
+                           f"The written summary is unavailable: {llm.friendly(e)}. "
+                           f"The signals and headlines below come straight from the data.")
 
     # grounding: every quoted source must actually exist in what we fetched
     known = {h["title"] for h in payload["market_headlines"]}
@@ -197,10 +251,10 @@ async def curated_brief():
 
 
 def clean_brief(b, narrative, steps, error):
-    return {"date": b.get("date"), "portfolio": b.get("portfolio"),
-            "signals": b.get("signals", []), "quiet": b.get("quiet", []),
-            "checked": b.get("checked", []), "since_last": b.get("since_last", []),
-            "since_last_day": b.get("since_last_day"),
+    # everything the scanner returned, plus the narration - this used to pick
+    # a handful of keys and so dropped the market headlines, index levels and
+    # adjacent names the brief view renders
+    return {**b,
             "narrative": narrative, "error": error,
             "steps": [json.loads(s.model_dump_json()) for s in steps],
             "llm_calls": sum(1 for s in steps if s.llm),

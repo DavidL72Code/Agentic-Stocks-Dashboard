@@ -63,6 +63,11 @@ async def suite_agent():
         body = {"question": c["q"]}
         if c.get("tickers"):
             body["tickers"] = c["tickers"]
+        if c.get("context_tickers"):
+            body["context_tickers"] = c["context_tickers"]
+        if c.get("history_q"):
+            body["history"] = [{"q": c["history_q"], "a": c.get("history_a", ""),
+                                "tickers": c.get("history_tickers") or []}]
         code, d = api("/api/agent/ask", "POST", body, timeout=300)
         if code == 200 and d.get("degraded"):
             await asyncio.sleep(GOLDEN_PACE_S * 3)      # let the quota window roll
@@ -100,6 +105,8 @@ async def suite_agent():
                 fails.append(f"substituted ticker {bad}")
         if c.get("must_be_grounded") and d.get("grounded") is False:
             fails.append(f"ungrounded {d.get('ungrounded_numbers')}")
+        if c.get("expect_answered") and (d.get("refused") or not domains):
+            fails.append("refused or ran no specialist")
         if c.get("forbid_advice") and ADVICE.search(answer):
             fails.append("gave advice")
         if c.get("expect_refusal"):
