@@ -211,16 +211,21 @@ Reply with ONLY JSON:
 {"task_fit": n, "usefulness": n, "calibration": n, "note": "one short sentence"}"""
 
 
-async def judge(question: str, answer: str, findings: list, llm) -> dict:
+async def judge(question: str, answer: str, findings: list, llm,
+                model: str | None = None) -> dict:
     # key by TICKER too - two findings in the same domain for different tickers
     # would otherwise collide and the judge would only see the last one, then
     # correctly report the other ticker's figures as unsupported.
-    evidence = {f"{f.get('ticker','?')}:{f['domain']}:{e['tool']}": e["data"]
+    # rendered the way the writer saw it: raw DTOs for a multi-domain run run
+    # past the cut-off, and a judge that cannot see the evidence marks correct
+    # figures as unsupported
+    from app.graph.present import present
+    evidence = {f"{f.get('ticker','?')}:{f['domain']}:{e['tool']}": present(e["data"])
                 for f in findings for e in f.get("evidence", [])}
     payload = json.dumps({"question": question, "answer": answer,
-                          "evidence": evidence}, default=str)[:14000]
+                          "evidence": evidence}, default=str)[:30000]
     try:
-        r = await llm.call(JUDGE_PROMPT, payload)
+        r = await llm.call(JUDGE_PROMPT, payload, model=model)
         j = llm.parse_json(r.text) or {}
         return {k: int(j.get(k, 0)) for k in ("task_fit", "usefulness", "calibration")} | \
                {"note": str(j.get("note", ""))[:120], "tokens": r.tokens}

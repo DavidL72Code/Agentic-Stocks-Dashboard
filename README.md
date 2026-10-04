@@ -108,7 +108,16 @@ Open http://localhost:8077
 | `#/portfolio` | named accounts (401k / Roth / taxable) with inline add / edit / delete |
 | `#/brief` | daily brief — threshold moves with reasons, adjacent names, macro |
 
-The agent panel is collapsible (the node icon at the bottom of the nav rail).
+The agent panel is collapsible (the sparkle icon at the bottom of the nav rail,
+or press <kbd>/</kbd> anywhere). It is a conversation: the last three turns go
+back to the server, so "what about AMD?" or "why?" is read against what came
+before, and the answer says how it was read ("Read as: …"). On a ticker page
+the ticker you are looking at is context, not a constraint — "how does it
+compare with AMD?" still fetches AMD. Each answer shows which specialists ran,
+live, and a figure-checked badge; **Evidence** opens what they fetched. Every
+research tab also has an **Explain** button: one specialist, one or two model
+calls, no router.
+
 A build stamp sits under it — if you don't see one, you're on a cached page.
 
 **The dashboard needs no API key.** Quotes, charts, financials, news, analysts,
@@ -156,6 +165,18 @@ don't deploy it publicly as the backbone.
 The negative control matters more than the pass count: it sabotages real
 defences and asserts the matching case goes red. A green suite you have never
 watched fail proves nothing. Reports land in `evals/REPORT.md`.
+
+The golden set checks mechanics, and passes. Whether an answer is any *good* is
+a different question, and `evals/quality.py` measures it: fifteen realistic
+questions (including follow-ups that only make sense with the turn before),
+answered by two versions of the agent, then judged side by side by a different,
+validated model — see [evals/QUALITY.md](evals/QUALITY.md).
+
+```bash
+./.venv/bin/python -m evals.quality --tag base --no-judge   # collect answers
+./.venv/bin/python -m evals.quality --tag new --no-judge
+./.venv/bin/python -m evals.quality --pairwise base new     # one judge call per question
+```
 
 | Suite | What it covers |
 |---|---|

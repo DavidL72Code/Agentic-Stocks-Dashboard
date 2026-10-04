@@ -52,7 +52,7 @@ a{color:inherit}
 ::-webkit-scrollbar-thumb{background:#232833;border-radius:99px;border:3px solid var(--surface)}
 ::-webkit-scrollbar-thumb:hover{background:#2e3542}
 ::-webkit-scrollbar-track{background:transparent}
-:focus-visible{outline:none;box-shadow:0 0 0 2px var(--background),0 0 0 4px var(--ring)}
+:focus-visible{outline:2px solid var(--b2);outline-offset:2px}
 .ico{width:15px;height:15px;stroke-width:1.9;flex:0 0 auto}
 
 /* ═══ shell ═══ */
@@ -218,7 +218,8 @@ a{color:inherit}
 .tile{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);
   padding:14px 15px;box-shadow:var(--shadow-sm),var(--ring-offset);position:relative;overflow:hidden}
 .tile .k{font-size:10px;font-weight:650;letter-spacing:.09em;text-transform:uppercase;color:var(--subtle-foreground)}
-.tile .v{font-size:19px;font-weight:620;letter-spacing:-.04em;margin-top:6px}
+.tile .v{font-size:19px;font-weight:620;letter-spacing:-.04em;margin-top:6px;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .tile .s{font-size:10.5px;color:var(--subtle-foreground);margin-top:3px}
 .blk{margin-top:24px}
 .blk-h{display:flex;align-items:center;gap:10px;font-size:10px;font-weight:700;letter-spacing:.13em;
@@ -297,7 +298,7 @@ tbody tr:hover{background:var(--card)}
 .tools{display:flex;flex-wrap:wrap;gap:5px;padding:3px 0 9px}
 .tc{font-size:10px;font-family:"JetBrains Mono",monospace;padding:3px 7px;border-radius:5px;letter-spacing:-.03em}
 .tc.sel{background:var(--accent);border:1px solid var(--accent-line);color:#cfc7ff}
-.tc.skp{border:1px solid var(--border);color:#474e5c;text-decoration:line-through}
+.tc.skp{border:1px solid var(--border);color:#7b8392;text-decoration:line-through}
 .why{font-size:11px;line-height:1.65;color:var(--muted-foreground);padding-bottom:10px;font-style:italic}
 
 .answer{border:1px solid var(--accent-line);border-radius:var(--radius);background:var(--accent);padding:14px 15px}
@@ -496,7 +497,7 @@ pre{background:rgba(6,7,10,.62);border-color:rgba(255,255,255,.08)}
 
 /* ═══════════ structured shell: nav | main | agent ═══════════ */
 #app{display:grid;grid-template-columns:58px 1fr 0;grid-template-rows:100vh;
-  height:100vh;min-width:980px;transition:grid-template-columns .32s cubic-bezier(.22,1,.36,1)}
+  height:100vh;height:100dvh;min-width:0;transition:grid-template-columns .32s cubic-bezier(.22,1,.36,1)}
 #app.agent-open{grid-template-columns:58px 1fr 392px}
 
 /* nav rail */
@@ -758,6 +759,93 @@ tbody tr:hover .rowacts{opacity:1}
   margin-top:10px;padding-top:9px;border-top:1px solid rgba(255,255,255,.08);letter-spacing:.01em}
 .briefsum .disclaim{border-top-color:rgba(255,255,255,.14);color:rgba(255,255,255,.5)}
 
+/* ═══════════ agent conversation ═══════════ */
+#rscroll{scroll-behavior:smooth}
+#thread{padding:16px 16px 22px;display:flex;flex-direction:column;gap:22px}
+.intro .ih{font-size:14px;font-weight:650;letter-spacing:-.02em;margin-bottom:8px}
+.intro p{font-size:12px;line-height:1.7;color:var(--muted-foreground)}
+.isugg{display:flex;flex-direction:column;align-items:flex-start;gap:7px;margin-top:16px}
+.isugg .sugg{text-align:left;font-size:12px;padding:8px 12px;border-radius:12px;line-height:1.4}
+.turn{display:flex;flex-direction:column;gap:9px}
+.uq{align-self:flex-end;max-width:88%;font-size:12.5px;line-height:1.55;padding:9px 13px;
+  border-radius:14px 14px 4px 14px;background:rgba(255,255,255,.09);
+  border:1px solid rgba(255,255,255,.10);color:var(--foreground);white-space:pre-wrap;word-break:break-word}
+.interp{align-self:flex-end;max-width:88%;font-size:10.5px;color:var(--subtle-foreground);
+  font-style:italic;margin-top:-4px}
+.prog{padding:12px 13px;border-radius:14px;border:1px dashed rgba(183,173,247,.28);
+  background:rgba(144,133,233,.06)}
+.stage{display:flex;align-items:center;gap:9px;font-size:12px;color:var(--muted-foreground)}
+.spin{width:12px;height:12px;border-radius:99px;border:1.6px solid rgba(183,173,247,.3);
+  border-top-color:var(--b2);animation:spin .8s linear infinite;flex:none;display:inline-block}
+.pchips{display:flex;flex-wrap:wrap;gap:6px;margin-top:11px}
+.pchip{display:inline-flex;align-items:center;gap:6px;font-size:10.5px;padding:4px 9px 4px 7px;
+  border-radius:99px;border:1px solid rgba(255,255,255,.10);color:var(--muted-foreground);
+  background:rgba(255,255,255,.04);transition:.2s}
+.pchip b{font-weight:650;color:var(--foreground);font-family:"JetBrains Mono",monospace;font-size:10px}
+.pchip .pd{width:6px;height:6px;border-radius:99px;background:var(--b1);animation:bp 1.1s infinite}
+.pchip.done{border-color:var(--accent-line);color:#cfc7ff;background:var(--accent)}
+.pchip.done .pd{background:var(--pos);animation:none}
+.pchip.skip{opacity:.55}.pchip.skip .pd{background:#474e5c;animation:none}
+.answer p{font-size:13px;line-height:1.72;color:#e4e0fa}
+.answer p+p{margin-top:9px}
+.fig{font-family:"JetBrains Mono",monospace;font-size:.93em;font-weight:600;color:#fff;letter-spacing:-.02em}
+.answer .top{flex-wrap:wrap}
+.tchip{font-size:10.5px;font-weight:700;letter-spacing:.02em;padding:3px 8px;border-radius:7px;
+  border:1px solid var(--accent-line);background:rgba(144,133,233,.16);color:#d9d3ff;transition:.15s}
+.tchip:hover{background:rgba(144,133,233,.3);color:#fff}
+.awarn{font-size:11.5px;line-height:1.55;color:var(--warn);margin-top:9px}
+.anote{font-size:12.5px;line-height:1.65;color:var(--muted-foreground);padding:11px 13px;
+  border-radius:12px;border:1px solid rgba(255,255,255,.10);background:rgba(255,255,255,.04)}
+.agap{font-size:11px;color:var(--subtle-foreground);margin-top:8px}
+.aerr{font-size:12px;color:var(--neg);padding:10px 12px;border-radius:12px;
+  border:1px solid rgba(230,103,103,.25);background:var(--neg-bg)}
+.aerr .link{margin-left:6px}
+.afoot{display:flex;align-items:center;gap:8px;margin-top:10px;padding-top:9px;
+  border-top:1px solid rgba(255,255,255,.08)}
+.afoot .link{margin-top:0;font-size:10.5px;color:var(--muted-foreground)}
+.afoot .link:hover{color:var(--b2)}
+.afoot .link .chev{width:10px;height:10px;transition:transform .2s}
+.afoot .link.open .chev{transform:rotate(90deg)}
+.how{display:none;margin-top:10px}
+.how.on{display:block}
+.how .nrow{cursor:default;padding:5px 0}
+.how .why{font-style:normal;font-size:10.5px;padding-bottom:6px;word-break:break-word}
+#askscope{display:none;font-size:10px;color:var(--subtle-foreground);margin:0 0 7px 2px;
+  letter-spacing:.02em}
+#askscope.on{display:block}
+#askscope::before{content:"◉ ";color:var(--b1)}
+#ask{resize:none;line-height:1.45;max-height:132px;font-family:inherit}
+#send.stop{background:linear-gradient(165deg,rgba(230,103,103,.5),rgba(230,103,103,.25));border-color:rgba(230,103,103,.4)}
+#foot kbd{font-family:"JetBrains Mono",monospace;font-size:9px;padding:0 4px;border-radius:4px;
+  border:1px solid rgba(255,255,255,.18);color:var(--muted-foreground)}
+.explain{margin-left:auto;gap:6px}
+.explain .ico{width:13px;height:13px}
+.explain.busy{opacity:.8;pointer-events:none}
+.tfind{font-size:12.5px;line-height:1.65;color:var(--muted-foreground);margin-bottom:10px}
+details.raw summary{cursor:pointer;font-size:11px;color:var(--subtle-foreground);margin:6px 0}
+@media (prefers-reduced-motion:reduce){.spin,.pchip .pd{animation:none}}
+
+/* ═══════════ fixes: toggles, touch, narrow desktops ═══════════ */
+.btn.on{background:linear-gradient(165deg,rgba(144,133,233,.38),rgba(144,133,233,.14));
+  border-color:var(--accent-line);color:#fff}
+#wlbody tr[data-go]{cursor:pointer}
+#wlbody tr[data-go]:focus-visible,.sigline:focus-visible{outline-offset:-2px}
+.tick input:focus-visible+.box{outline:2px solid var(--b2);outline-offset:2px}
+@media (hover:none){.rowacts,.tp-x{opacity:1}.kbdhint{display:none}}
+/* between the phone layout and a full desktop the agent panel overlays the
+   page instead of squeezing the table columns off the edge */
+@media (max-width:1180px) and (min-width:861px){
+  #app.agent-open{grid-template-columns:58px 1fr 0}
+  #app.agent-open #right{position:fixed;top:0;right:0;bottom:0;width:392px;z-index:50;
+    box-shadow:-24px 0 60px -20px rgba(0,0,0,.8)}
+}
+@media (max-width:860px){.inp,#ask{font-size:16px}}
+/* a phone keeps what you scan for - name, price, move - and drops the rest */
+@media (max-width:560px){
+  .wtable.wl th:nth-child(n+4),.wtable.wl td:nth-child(n+4){display:none}
+  .wname .n{max-width:120px}
+}
+
 /* ═══════════════ mobile ═══════════════ */
 @media (max-width:860px){
   #app{min-width:0;grid-template-columns:52px 1fr 0}
@@ -1009,7 +1097,7 @@ select.inp option{background:#141824;color:var(--foreground)}
         <span class="tip">Portfolio</span></a>
     </div>
     <div class="navgroup bottom">
-      <button class="navitem" id="agenttoggle" title="Agent panel">
+      <button class="navitem" id="agenttoggle" title="Agent panel" aria-label="Agent panel" aria-expanded="false">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.55" stroke-linecap="round" stroke-linejoin="round"><path d="M10.5 3.2l1.75 4.8 4.8 1.75-4.8 1.75-1.75 4.8-1.75-4.8L4 9.75l4.75-1.75z"/><path d="M17.8 14.4l.85 2.3 2.3.85-2.3.85-.85 2.3-.85-2.3-2.3-.85 2.3-.85z"/></svg>
         <span class="tip">Agent panel</span></button>
       <span id="buildstamp" class="tip-build">—</span>
@@ -1033,34 +1121,29 @@ select.inp option{background:#141824;color:var(--foreground)}
     <div id="rhead">
       <span class="dot" id="rdot"></span>
       <span class="t">Agent</span>
-      <span class="st" id="rst">idle</span>
-      <button class="btn btn-ghost btn-sm" id="agentclose" title="Hide">✕</button>
+      <span class="st" id="rst" role="status">idle</span>
+      <button class="btn btn-ghost btn-sm" id="agentnew" title="New conversation" aria-label="New conversation">
+        <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg></button>
+      <button class="btn btn-ghost btn-sm" id="agentclose" title="Hide" aria-label="Hide agent panel">✕</button>
     </div>
-    <div id="rscroll">
-      <div class="rsec">
-        <div class="rsec-t">Last run <span class="r" id="runmeta">—</span></div>
-        <div id="nodes"></div>
-      </div>
-      <div class="rsec">
-        <div class="rsec-t">Answer</div>
-        <div id="answer"></div>
-      </div>
-    </div>
+    <div id="rscroll"><div id="thread" aria-live="polite"></div></div>
     <div id="askwrap">
+      <div id="askscope"></div>
       <form id="askform">
-        <input id="ask" class="inp" placeholder="Ask about this ticker…" autocomplete="off">
-        <button id="send" class="btn btn-primary" type="submit">
+        <textarea id="ask" class="inp" rows="1" placeholder="Ask about any stock or the market…"
+                  autocomplete="off" aria-label="Ask the research agent"></textarea>
+        <button id="send" class="btn btn-primary" type="submit" aria-label="Ask" title="Ask">
           <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg></button>
       </form>
-      <div id="foot">Informational only · not investment advice</div>
+      <div id="foot">Informational only · not investment advice<span class="kbdhint"> · <kbd>/</kbd> to ask from anywhere</span></div>
     </div>
   </aside>
 </div>
 
 <div id="briefsheet">
-  <div id="briefbox">
+  <div id="briefbox" role="dialog" aria-modal="true" aria-labelledby="briefttl">
     <div id="briefhead">
-      <div><div class="t">Daily brief</div><div class="s" id="briefdate"></div></div>
+      <div><div class="t" id="briefttl">Daily brief</div><div class="s" id="briefdate"></div></div>
       <div class="grow"></div>
       <button class="btn btn-ghost" id="briefclose">Dismiss</button>
     </div>
@@ -1074,7 +1157,7 @@ select.inp option{background:#141824;color:var(--foreground)}
 </div>
 
 <div id="authsheet">
-  <div id="authbox">
+  <div id="authbox" role="dialog" aria-modal="true" aria-labelledby="authttl">
     <div class="ttl" id="authttl">Sign in to Monsoon</div>
     <div class="sub" id="authsub">Your watchlist, portfolios and cost basis live with your account.</div>
     <div class="authtabs">
@@ -1104,9 +1187,9 @@ select.inp option{background:#141824;color:var(--foreground)}
 </div>
 
 <div id="trace">
-  <div id="tbox">
+  <div id="tbox" role="dialog" aria-modal="true" aria-labelledby="tttl">
     <div id="thead">
-      <div><div class="t">Run trace</div><div class="s" id="tsub"></div></div>
+      <div><div class="t" id="tttl">Evidence</div><div class="s" id="tsub"></div></div>
       <div class="grow"></div>
       <button class="btn btn-ghost" id="tclose">Close</button>
     </div>

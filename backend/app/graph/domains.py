@@ -10,7 +10,8 @@ This is where the multi-agent part actually lives. Each domain agent:
 from __future__ import annotations
 import asyncio, json, time
 from langgraph.graph import END, START, StateGraph
-from typing import Any, TypedDict
+import operator
+from typing import Annotated, Any, TypedDict
 
 from .. import llm
 from ..models import DomainFinding, RunStep, ToolFailure, ToolResult
@@ -44,6 +45,8 @@ What to say:
 - Look for CONJUNCTIONS across your tools. A relationship between two results
   beats restating each ("near its 52-week high but on below-average volume").
   This is why you get every result at once.
+- Answer every part of the question. If one part is not covered by your
+  results, say so in a few words rather than skipping it.
 - Lead with the point, then the figure that supports it.
 - If a tool says the data does not exist (no dividend, no filings), say so
   plainly. That is information, not a failure.
@@ -86,7 +89,10 @@ class DState(TypedDict, total=False):
     skipped: list[str]
     skip_reason: str
     results: list
-    steps: list
+    # Accumulated, not replaced. With a plain list each node overwrote the
+    # last, so only `synthesize` reached the run: tool selection's model call
+    # and the gather timing were never counted or shown.
+    steps: Annotated[list, operator.add]
     finding: DomainFinding
 
 
@@ -106,13 +112,13 @@ def build_domain(domain: str):
         try:
             r = await llm.call(
                 SELECT_PROMPT.format(domain=domain, desc=desc, catalog=catalog(domain)),
-                f"Ticker: {s['ticker']}\nQuestion: {s['question']}", fast=True)
+                f"Ticker: {s['ticker']}\nQuestion: {s['question']}", role="select")
             j = llm.parse_json(r.text) or {}
             sel = [t for t in j.get("tools", []) if t in names][:5]
             reason = str(j.get("reason_skipped", ""))[:240]
-            tok, ms = r.tokens, r.latency_ms
+            tok, ms, mdl = r.tokens, r.latency_ms, r.model
         except Exception as e:
-            sel, reason, tok, ms = names[:3], f"selector unavailable ({type(e).__name__}); used defaults", 0, 0
+            sel, reason, tok, ms, mdl = names[:3], f"selector unavailable ({llm.friendly(e)}); used defaults", 0, 0, ""
         if not sel:
             sel = names[:3]
         return {"selected": sel, "skipped": [n for n in names if n not in sel],
@@ -120,7 +126,7 @@ def build_domain(domain: str):
                 "steps": [RunStep(node=f"{domain}.select", detail=reason[:80],
                                   tools=len(sel), tokens=tok,
                                   latency_ms=ms or int((time.time() - t0) * 1000),
-                                  llm=tok > 0)]}
+                                  llm=tok > 0, model=mdl)]}
 
     async def gather(s: DState) -> dict:
         t0 = time.time()
@@ -157,22 +163,34 @@ def build_domain(domain: str):
                 evidence=[], failures=bad, tools_used=[], tools_skipped=s.get("skipped", []),
                 skip_reason=s.get("skip_reason", ""), confidence="unavailable"),
                 "steps": [RunStep(node=f"{domain}.synthesize", detail="skipped - no data")]}
+        body = json.dumps(payload, default=str)
+        if len(body) > 12000:      # trim lists rather than cutting the JSON mid-value
+            from .build import present_short
+            payload["tool_results"] = {k: present_short(v) for k, v in payload["tool_results"].items()}
+            body = json.dumps(payload, default=str)[:12000]
         try:
-            r = await llm.call(SYNTH_PROMPT.format(domain=domain, desc=desc),
-                               json.dumps(payload, default=str)[:12000])
+            r = await llm.call(SYNTH_PROMPT.format(domain=domain, desc=desc), body,
+                               role="specialist")
             j = llm.parse_json(r.text) or {}
             text = str(j.get("finding") or r.text).strip()
-            tok, ms = r.tokens, r.latency_ms
+            tok, ms, mdl = r.tokens, r.latency_ms, r.model
         except Exception as e:
-            text = "; ".join(f"{r.tool}: {json.dumps(r.data, default=str)[:160]}" for r in okr)
-            tok, ms = 0, 0
+            # no model to write it up - say so, and list the headline figures
+            # readably rather than dumping raw JSON on the user
+            text = (f"The {domain} specialist could not write this up "
+                    f"({llm.friendly(e)}). What it fetched: " + "; ".join(
+                        f"{r.tool.replace('_', ' ')}: " + ", ".join(
+                            f"{k.replace('_', ' ')} {v}" for k, v in list(present(r.data).items())[:4]
+                            if not isinstance(v, (dict, list)))
+                        for r in okr) + ".")
+            tok, ms, mdl = 0, 0, ""
         return {"finding": DomainFinding(
                     domain=domain, ticker=s["ticker"], narrative=text, evidence=okr,
                     failures=bad, tools_used=[r.tool for r in okr],
                     tools_skipped=s.get("skipped", []), skip_reason=s.get("skip_reason", ""),
                     confidence=conf, tokens=tok, latency_ms=ms),
                 "steps": [RunStep(node=f"{domain}.synthesize", detail=f"{len(okr)} results",
-                                  tokens=tok, latency_ms=ms, llm=tok > 0)]}
+                                  tokens=tok, latency_ms=ms, llm=tok > 0, model=mdl)]}
 
     g = StateGraph(DState)
     g.add_node("select", select); g.add_node("gather", gather); g.add_node("synthesize", synthesize)

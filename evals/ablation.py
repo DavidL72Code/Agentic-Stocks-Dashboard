@@ -185,7 +185,7 @@ async def main() -> int:
         if quota_hit:
             print("  Cause: Gemini free-tier DAILY quota (500 requests/model/day) is "
                   "exhausted. It resets on a rolling 24h window - rerun tomorrow, or "
-                  "set GEMINI_MODEL to a model whose quota is untouched.")
+                  "change POOL in backend/app/llm.py to models whose quota is untouched.")
         return 2
     if scored_total < len(cases):          # thin sample: keep it, but say so loudly
         md.insert(2, f"> **Provisional.** Only {scored_total} of {len(cases)*3} runs "

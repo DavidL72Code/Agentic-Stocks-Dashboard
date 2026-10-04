@@ -10,6 +10,8 @@ async def income_statement(ticker: str, **_):
     ni = await edgar.concept(ticker, "net_income", limit=6)
     if not rev and not ni:
         return fail("income_statement", ticker, "no SEC XBRL data (non-US filer?)")
+    if all((edgar.stale_days(x) or 0) > 200 for x in (rev, ni) if x):
+        return fail("income_statement", ticker, "SEC quarterly figures on file are over 200 days old")
     return ok("income_statement", ticker, {
         "quarterly_revenue": [{"end": r["end"], "usd": r["val"]} for r in rev],
         "quarterly_net_income": [{"end": r["end"], "usd": r["val"]} for r in ni],
@@ -41,21 +43,42 @@ async def growth_rates(ticker: str, **_):
     rev = await edgar.concept(ticker, "revenue", limit=9)
     if len(rev) < 5:
         return fail("growth_rates", ticker, "need 5+ quarters of filings")
+    age = edgar.stale_days(rev)
+    if age is not None and age > 200:
+        return fail("growth_rates", ticker,
+                    f"newest quarterly revenue in SEC filings ends {rev[-1]['end']} - too old to describe current growth")
+    # matched by date: a missing quarter must not turn "a year ago" into five
+    # quarters ago
+    ya, qb = edgar.year_ago(rev), edgar.quarter_before(rev)
+    if not ya:
+        return fail("growth_rates", ticker, "no quarter on file from a year earlier")
     out = {"latest_quarter_end": rev[-1]["end"], "latest_revenue_usd": rev[-1]["val"],
-           "qoq_pct": pct(rev[-1]["val"], rev[-2]["val"]),
-           "yoy_pct": pct(rev[-1]["val"], rev[-5]["val"])}
-    if len(rev) >= 9:
-        out["yoy_pct_prior_quarter"] = pct(rev[-2]["val"], rev[-6]["val"])
-        out["growth_accelerating"] = out["yoy_pct"] > out["yoy_pct_prior_quarter"]
+           "yoy_pct": pct(rev[-1]["val"], ya["val"])}
+    if qb:
+        out["qoq_pct"] = pct(rev[-1]["val"], qb["val"])
+        prev_i = rev.index(qb)
+        ya2 = edgar.year_ago(rev, prev_i)
+        if ya2:
+            out["yoy_pct_prior_quarter"] = pct(qb["val"], ya2["val"])
+            out["growth_accelerating"] = out["yoy_pct"] > out["yoy_pct_prior_quarter"]
     return ok("growth_rates", ticker, out, source="sec-edgar+derived")
 
 
 @tool("fundamentals", "debt/equity, current ratio, cash - balance sheet risk")
 async def leverage_liquidity(ticker: str, **_):
     i = await yahoo.info(ticker)
-    keys = {"debtToEquity": "debt_to_equity", "currentRatio": "current_ratio",
-            "quickRatio": "quick_ratio", "totalCash": "total_cash", "totalDebt": "total_debt"}
+    keys = {"currentRatio": "current_ratio", "quickRatio": "quick_ratio",
+            "totalCash": "total_cash", "totalDebt": "total_debt"}
     d = {v: i[k] for k, v in keys.items() if i.get(k) is not None}
+    # Yahoo's debtToEquity is a PERCENT (16.97 means debt is 17% of equity).
+    # Passed through raw, the agent wrote "a debt-to-equity ratio of 16.97" for
+    # a balance sheet holding more cash than debt. Give it both readings, named.
+    de = i.get("debtToEquity")
+    if isinstance(de, (int, float)):
+        d["debt_to_equity_ratio"] = round(de / 100, 2)
+        d["debt_as_pct_of_equity"] = round(de, 1)
+    if isinstance(d.get("total_cash"), (int, float)) and isinstance(d.get("total_debt"), (int, float)):
+        d["net_cash_usd"] = d["total_cash"] - d["total_debt"]     # negative = net debt
     return ok("leverage_liquidity", ticker, d) if d else fail("leverage_liquidity", ticker, "no balance sheet data")
 
 

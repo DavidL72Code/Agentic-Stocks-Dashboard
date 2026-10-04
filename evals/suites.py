@@ -1,15 +1,33 @@
 """Deterministic suites: data plane, tools, and regressions for bugs found
 during the build. None of these spend a token."""
 from __future__ import annotations
-import asyncio, http.cookiejar, json, secrets, sys, time, urllib.error, urllib.request
+import asyncio, http.cookiejar, json, os, secrets, sys, time, urllib.error, urllib.request
 
-BASE = "http://localhost:8077"
+BASE = os.environ.get("EVAL_BASE", "http://localhost:8077")
 
 # Login is on by default, so the suite signs in as its own account rather than
 # measuring a signed-out guest with an empty book. The cookie jar is what makes
 # every later call run as that user.
 EVAL_USER = "monsoon-evals"
-EVAL_PASS = "evals-only-not-a-real-secret-7"
+# Never a literal in code: from EVAL_PASSWORD, else a random one made on first
+# use and kept in data/ (gitignored), so repeat runs can sign back in.
+def _eval_password() -> str:
+    if os.environ.get("EVAL_PASSWORD"):
+        return os.environ["EVAL_PASSWORD"]
+    f = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                     "data", ".eval-password")
+    try:
+        return open(f).read().strip()
+    except FileNotFoundError:
+        os.makedirs(os.path.dirname(f), exist_ok=True)
+        pw = secrets.token_urlsafe(24)
+        with open(f, "w") as h:
+            h.write(pw)
+        os.chmod(f, 0o600)
+        return pw
+
+
+EVAL_PASS = _eval_password()
 _jar = http.cookiejar.CookieJar()
 _opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(_jar))
 
@@ -409,6 +427,89 @@ async def suite_regressions():
         got = mk(ans, data).grounded
         add(f"grounding:{name}", got == want, f"grounded={got}, expected={want}",
             "REGRESSION: the checker flagged dates/index names/units as hallucinations")
+
+    # ── EDGAR: the CURRENT tag, and fiscal Q4 rebuilt from the annual ──
+    from app.providers import edgar
+    from datetime import date as _d
+    rev = await edgar.concept("MSFT", "revenue", 9)
+    age = edgar.stale_days(rev)
+    add("edgar_current_tag", age is not None and age < 200,
+        f"newest MSFT revenue quarter {rev[-1]['end'] if rev else None} ({age} days old)",
+        "REGRESSION: the first tag with any data won, so MSFT growth came from 2010 filings")
+    gaps = [(_d.fromisoformat(b["end"]) - _d.fromisoformat(a["end"])).days
+            for a, b in zip(rev, rev[1:])]
+    add("edgar_no_missing_q4", rev and all(g < 105 for g in gaps),
+        f"gaps between quarters {gaps}",
+        "REGRESSION: 10-Ks report the year, so Q4 was missing and 'four rows back' was five quarters back")
+    units = [{"start": "2024-07-01", "end": "2025-06-30", "val": 400, "filed": "2025-07-30"}] + [
+        {"start": st, "end": en, "val": 90, "filed": en}
+        for st, en in (("2024-07-01", "2024-09-30"), ("2024-10-01", "2024-12-31"),
+                       ("2025-01-01", "2025-03-31"))]
+    q4 = next((r for r in edgar._quarterly(units) if r["end"] == "2025-06-30"), None)
+    add("edgar_q4_derived", q4 is not None and q4["val"] == 130,
+        f"derived Q4 = {q4 and q4['val']} (year 400 less 3 x 90)", "Q4 is the year less the three quarters in it")
+    g = await TOOLS_FOR_PERF["growth_rates"].fn("MSFT")
+    gd = getattr(g, "data", {}) or {}
+    add("growth_is_current", str(gd.get("latest_quarter_end", "")) >= str(_d.today().year - 1),
+        f"latest_quarter_end={gd.get('latest_quarter_end')} yoy={gd.get('yoy_pct')}",
+        "REGRESSION: a growth figure from 2010 was presented as the latest quarter")
+
+    # ── units the model reads must be named for what they are ──
+    lv = await TOOLS_FOR_PERF["leverage_liquidity"].fn("NVDA")
+    ld = getattr(lv, "data", {}) or {}
+    add("leverage_ratio_not_percent", "debt_to_equity" not in ld
+        and (ld.get("debt_to_equity_ratio") is None or ld["debt_to_equity_ratio"] < 5),
+        f"keys={sorted(ld)[:6]} ratio={ld.get('debt_to_equity_ratio')}",
+        "REGRESSION: Yahoo's percent reached the model raw and NVDA read as 17x levered")
+
+    # ── the writer sees every finding, however wide the fan-out ──
+    from app.graph.build import writer_payload
+    big = [DomainFinding(domain=f"d{i}", ticker="NVDA", narrative=f"finding {i}", evidence=[
+              ToolResult(tool=f"t{i}", ticker="NVDA", prov=Provenance(source="s"),
+                         data={"rows": [{"k": j, "v": "x" * 200} for j in range(40)]})])
+           for i in range(7)]
+    body = writer_payload(big)
+    add("writer_keeps_every_finding", all(f"finding {i}" in body for i in range(7)) and len(body) <= 16000,
+        f"{len(body)} chars, narratives kept: {sum(f'finding {i}' in body for i in range(7))}/7",
+        "REGRESSION: json.dumps(...)[:16000] cut the last findings off a wide fan-out")
+
+    # ── model split: 50/50 between the Flash-Lites, Gemma picks tools ──
+    from app import llm as L
+    firsts = [L.chain_for("main")[0] for _ in range(10)]
+    add("models_split_half_half", firsts.count(L.POOL[0]) == firsts.count(L.POOL[1]) == 5,
+        f"{firsts.count(L.POOL[0])} x {L.POOL[0]}, {firsts.count(L.POOL[1])} x {L.POOL[1]}",
+        "every non-selection call alternates, so each model carries half the load")
+    add("models_select_is_gemma", L.chain_for("select")[0] == L.SELECT_MODEL
+        and "gemma" in L.SELECT_MODEL, L.chain_for("select"), "tool selection runs on its own model")
+
+    class _Quota(Exception):
+        pass
+    oi, dead = L._invoke, dict(L._dead_until)
+    class _R:
+        content, usage_metadata, response_metadata = "ok", {"total_tokens": 1}, {}
+    async def fake(m, msgs, timeout, retries=2):
+        if m == L.POOL[0]:
+            raise _Quota("Error code: 429 RESOURCE_EXHAUSTED GenerateRequestsPerDayPerProjectPerModel")
+        return _R()
+    L._invoke = fake
+    L._dead_until.clear()
+    try:
+        while L.chain_for("main")[0] != L.POOL[1]:      # line up so POOL[0] is next
+            pass
+        r = await L.call("s", "u")
+    finally:
+        L._invoke = oi
+        L._dead_until.clear(); L._dead_until.update(dead)
+    add("model_fallback_on_daily_cap", r.model == L.POOL[1],
+        f"{L.POOL[0]} out of quota -> answered by {r.model}",
+        "a model at its daily cap hands the call to the other, instead of failing the run")
+
+    import typing
+    from app.graph.domains import DState
+    meta = getattr(typing.get_type_hints(DState, include_extras=True)["steps"], "__metadata__", ())
+    add("subgraph_steps_accumulate", bool(meta),
+        f"steps reducer: {meta}",
+        "REGRESSION: each subgraph node overwrote steps, so tool selection's model call was never counted")
     return out
 
 

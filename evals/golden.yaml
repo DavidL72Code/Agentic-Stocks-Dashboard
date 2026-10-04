@@ -83,3 +83,27 @@ agent:
     allow_no_data: true
     forbid_fabrication: true
     why: "an unresolvable symbol must say so, never invent a price"
+
+  - id: followup_resolves
+    q: "Why is that?"
+    history_q: "What do analysts think about AAPL?"
+    history_a: "Most analysts rate AAPL a buy, with a mean target above the current price."
+    history_tickers: [AAPL]
+    expect_tickers: [AAPL]
+    expect_answered: true
+    must_be_grounded: true
+    why: "a follow-up is read against the previous turn - it used to be refused as off-topic"
+
+  - id: context_ticker
+    q: "Is it expensive relative to what it earns?"
+    context_tickers: [NVDA]
+    expect_tickers: [NVDA]
+    expect_domains: [fundamentals]
+    must_be_grounded: true
+    why: "on a ticker page, 'it' is the ticker on screen - the UI used to drop it entirely"
+
+  - id: context_not_a_fence
+    q: "How does it compare with AMD on margins?"
+    context_tickers: [NVDA]
+    expect_tickers: [NVDA, AMD]
+    why: "what is on screen is a hint, not a selection - AMD must still be fetched"

@@ -55,6 +55,33 @@ async def main() -> int:
                    lambda: setattr(R.yahoo, "peers", dead),
                    lambda: setattr(R.yahoo, "peers", op))
 
+    # ── the fixes from the quality loop: each guard must be able to fail ──
+    import json as _json
+    import app.providers.edgar as E
+    from app.tools import TOOLS as _T
+    oq = E._quarterly
+    await sabotage("fiscal Q4 no longer derived", "edgar_q4_derived",
+                   lambda: setattr(E, "_quarterly", lambda u, derive_q4=True: oq(u, False)),
+                   lambda: setattr(E, "_quarterly", oq))
+
+    ow = B.writer_payload
+    def cut(findings, budget=16000):          # the old json.dumps(...)[:16000]
+        return _json.dumps([{"domain": f.domain, "ticker": f.ticker, "finding": f.narrative,
+                             "evidence": {e.tool: e.data for e in f.evidence}}
+                            for f in findings], default=str)[:budget]
+    await sabotage("writer payload cut at 16k", "writer_keeps_every_finding",
+                   lambda: setattr(B, "writer_payload", cut),
+                   lambda: setattr(B, "writer_payload", ow))
+
+    lt = _T["leverage_liquidity"]
+    olf = lt.fn
+    async def raw_pct(t, **_):                # Yahoo's percent handed over raw
+        from app.models import ToolResult, Provenance
+        return ToolResult(tool="leverage_liquidity", ticker=t, prov=Provenance(source="x"),
+                          data={"debt_to_equity": 16.97})
+    await sabotage("leverage percent passed raw", "leverage_ratio_not_percent",
+                   lambda: setattr(lt, "fn", raw_pct), lambda: setattr(lt, "fn", olf))
+
     # ── the auth defences, sabotaged the same way ──
     import app.passwords as P
     print()

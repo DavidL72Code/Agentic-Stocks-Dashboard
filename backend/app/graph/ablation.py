@@ -63,7 +63,7 @@ async def run_flat(question: str, ticker: str, tools: list[str]):
         try:
             reply = await llm.call(FLAT_PROMPT,
                 json.dumps({"question": question, "ticker": ticker,
-                            "tool": name, "result": r.data}, default=str)[:6000])
+                            "tool": name, "result": r.data}, default=str)[:6000], role="specialist")
             text = (llm.parse_json(reply.text) or {}).get("finding") or reply.text
             tok, ms = reply.tokens, reply.latency_ms
         except Exception:
@@ -92,7 +92,7 @@ async def run_react(question: str, ticker: str, tools: list[str]):
                 reply = await llm.call(
                     REACT_PROMPT.format(tool=name, desc=TOOLS[name].desc),
                     json.dumps({"question": question, "ticker": ticker,
-                                "observations": obs}, default=str)[:6000])
+                                "observations": obs}, default=str)[:6000], role="specialist")
                 calls += 1
                 tok_total += reply.tokens
                 j = llm.parse_json(reply.text) or {}
