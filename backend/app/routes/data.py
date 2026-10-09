@@ -1086,3 +1086,38 @@ async def compare(symbols: str = Query(..., min_length=1), period: str = "6mo"):
     return clean({"symbols": syms, "period": period, "rows": rows,
                   "paths": paths, "correlations": corr,
                   "note": "paths indexed to 100 at the first shared session"})
+
+
+# ════════════════════ earnings this week ════════════════════
+
+@router.get("/calendar/earnings")
+async def earnings_week(days: int = Query(7, ge=1, le=14), limit: int = Query(10, ge=1, le=30)):
+    """Who reports in the next `days`, biggest companies first.
+
+    The calendar lists every filer - most weeks that is hundreds of micro caps.
+    Revenue estimate is a free size proxy to cut it to 80 candidates, then one
+    batched quote call supplies names and market caps to rank the rest."""
+    from datetime import timedelta
+    from ..providers import finnhub
+    if not finnhub.enabled():
+        return {"items": [], "unavailable": "earnings calendar needs FINNHUB_API_KEY"}
+    today = date.today()
+    rows = await finnhub.earnings_calendar(today.isoformat(),
+                                           (today + timedelta(days=days)).isoformat())
+    rows = [r for r in rows if r.get("symbol") and "." not in r["symbol"]]
+    rows.sort(key=lambda r: r.get("revenueEstimate") or 0, reverse=True)
+    cand = rows[:80]
+    q = await yahoo.quotes([r["symbol"] for r in cand]) if cand else {}
+    items = []
+    for r in cand:
+        qq = q.get(r["symbol"]) or {}
+        cap = qq.get("marketCap")
+        if not cap:
+            continue
+        items.append({"symbol": r["symbol"], "name": qq.get("shortName") or qq.get("longName"),
+                      "date": r.get("date"), "hour": r.get("hour") or "",
+                      "eps_estimate": r.get("epsEstimate"),
+                      "revenue_estimate": r.get("revenueEstimate"), "market_cap": cap})
+    items.sort(key=lambda x: x["market_cap"], reverse=True)
+    return clean({"items": items[:limit], "window_days": days,
+                  "total_reporting": len(rows), "source": "finnhub calendar"})

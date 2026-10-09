@@ -11,9 +11,16 @@ from ..tools import DOMAIN_DESC, domain_tools  # imports package => registers to
 from .domains import SUBGRAPHS
 from .present import present
 from .quality import density_report
+from .progress import emit
 from .state import ResearchState, Task
 
 DOMAIN_LIST = "\n".join(f"- {d}: {v}" for d, v in DOMAIN_DESC.items())
+# Each specialist's tools, so the router can name them in the call it already
+# makes. A specialist used to spend its own model call choosing - one more step
+# in series before any data was fetched.
+TOOL_LIST = "\n".join(f"{d}: " + "; ".join(f"{t.name} ({t.desc})" for t in domain_tools(d))
+                      for d in DOMAIN_DESC)
+DOMAIN_TOOL_NAMES = {d: {t.name for t in domain_tools(d)} for d in DOMAIN_DESC}
 
 ROUTE_PROMPT = f"""You route stock-research questions to specialist agents.
 
@@ -50,13 +57,35 @@ Rules:
   "that", "why?", "what about AMD?"). Resolve those from the conversation: "what
   about AMD?" after a performance question is AMD's performance over the same
   window. Never answer the earlier question again.
+- For EVERY task, name the 2-4 tools that specialist should run, from ITS OWN
+  list below. Pick only tools whose data bears on that task's sub-question -
+  fewer is better. Never name a tool from another domain's list.
+
+Tools per domain:
+{TOOL_LIST}
+
+- A question that wants stocks it does not name ("find me", "ideas", "which
+  small caps", "good low-cap tickers") gets a `screener` task with ticker
+  MARKET and its criteria in args: {{"cap": "micro|small|mid|large",
+  "style": "growth|value|momentum|quality|balanced", "sector": "..."}}. Read
+  the style from the words ("cheap" = value, "fast-growing" = growth, "strong
+  trend" = momentum, "profitable" = quality; "good" alone = balanced). Do NOT
+  refuse these: the answer presents screen results against stated criteria,
+  never as recommendations.
+- Only `macro` and `screener` take the ticker MARKET. Every other domain needs
+  a real ticker.
+- Answer the part you can. A question that mixes something in scope with
+  something out of scope gets tasks for the in-scope part; the writer says
+  plainly what was not done. Refuse ONLY when nothing in it is about markets,
+  companies or investing.
 
 Reply with ONLY JSON:
 {{"standalone": "the user's question rewritten to make sense on its own",
   "tickers": ["AAPL"],
-  "tasks": [{{"domain": "market", "ticker": "AAPL", "question": "...", "args": {{}}}}]}}
+  "tasks": [{{"domain": "market", "ticker": "AAPL", "question": "...",
+             "tools": ["quote", "range_52w"], "args": {{}}}}]}}
 
-If the question is not about markets, companies or investing, reply:
+If NOTHING in the question is about markets, companies or investing, reply:
 {{"refuse": "one sentence saying what you can help with instead"}}"""
 
 WRITER_PROMPT = """You write the final answer from specialist findings.
@@ -71,7 +100,7 @@ Rules:
   few words rather than skipping it.
 - Prefer a cross-domain observation if the evidence supports one.
 - If a specialist reports data is unavailable, say so plainly. Do not guess.
-- 2-5 sentences. Plain prose, no headers.
+- 2-5 sentences (up to 8 when presenting screen results). Plain prose, no headers.
 
 How to write it:
 - Short sentences. Aim for 20 words, never more than 30. If a sentence needs an
@@ -95,6 +124,19 @@ balanced read of the evidence, not a recommendation:
 - NEVER say buy, sell, hold, accumulate, trim, overweight, underweight, or give
   a price target of your own. You summarise evidence; you do not advise.
 
+When a screener finding is present:
+- If the question also asks about the market and a macro finding is present,
+  OPEN with one or two sentences on the market from it, then the screen. Both
+  parts of the question get answered.
+- Present the names as results of a screen: say the criteria first ("Screening
+  liquid small caps for revenue growth, these lead:"), then one short sentence
+  per name with at most two figures, up to five names. Up to 8 sentences.
+- Never call them good, attractive, picks or buys. Where the evidence shows
+  operating losses, a big drawdown or a tiny market cap, say it - that is the
+  risk a reader of a small-cap screen most needs.
+- If the user asked for "good" stocks, say in one plain sentence that this is a
+  screen against measurable criteria, not a recommendation.
+
 Reply with ONLY JSON: {"answer": "..."}"""
 
 POLISH_PROMPT = """You are the editor. One specialist has already done the
@@ -115,7 +157,8 @@ Change only the prose:
 
 Do not add analysis, caveats, context or recommendations the specialist did not
 make. Do not introduce a number that is not already in its text. If it already
-reads well, return it close to unchanged.
+reads well, return it close to unchanged. If the specialist listed screened
+names, keep every name it listed and its "Company (TICKER)" form.
 
 Reply with ONLY JSON: {"answer": "..."}"""
 
@@ -206,6 +249,7 @@ def _conversation(state) -> str:
 
 async def route(state: ResearchState) -> dict:
     t0 = time.time()
+    emit("route")
     sel = state.get("selection") or []
     ctx = [c for c in (state.get("context") or []) if c not in sel]
     # When the user has picked tickers in the workspace, those ARE the subjects.
@@ -219,9 +263,12 @@ async def route(state: ResearchState) -> dict:
     elif ctx:
         # what is on screen is a hint, not a fence: "how does it compare with
         # AMD?" on the NVDA page must still be free to fetch AMD
-        prompt += (f"\n\n[The user is looking at {', '.join(ctx[:4])}. If the question "
+        about = (ctx[0] if len(ctx) == 1 else
+                 f"all of {', '.join(ctx[:8])} - a question like 'which is cheaper?' or "
+                 f"'what would the laggard need?' compares them, so give each one its tasks")
+        prompt += (f"\n\n[The user is looking at {', '.join(ctx[:8])}. If the question "
                    f"names no company and the conversation does not settle it, it is about "
-                   f"{ctx[0]}.]")
+                   f"{about}.]")
     route_error = ""
     try:
         r = await llm.call(ROUTE_PROMPT, prompt)
@@ -252,14 +299,22 @@ async def route(state: ResearchState) -> dict:
         if d not in SUBGRAPHS:
             continue
         tk = (t.get("ticker") or "").upper().strip()
-        if not tk:
-            if d in ("macro",):          # macro is about the market, not a name
-                tk = "MARKET"
-            else:
-                continue
+        if d == "screener" or (not tk and d == "macro"):
+            tk = "MARKET"                # about the market, not a name
+        if not tk or (tk == "MARKET" and d not in MARKET_DOMAINS):
+            continue                     # e.g. street(MARKET): a news search for a ticker called MARKET
+        named = [x for x in (t.get("tools") or []) if isinstance(x, str) and x in DOMAIN_TOOL_NAMES[d]]
+        if d == "screener":
+            # the user's words fill whatever the router left out; a router
+            # "balanced" yields to an explicit style in the question
+            said, got = screen_args(state["question"]), dict(t.get("args") or {})
+            for k, v in said.items():
+                if not got.get(k) or (k == "style" and got.get(k) == "balanced"):
+                    got[k] = v
+            t = {**t, "args": got}
         tasks.append(Task(id=f"t{i}", domain=d, ticker=tk,
                           question=str(t.get("question") or resolved or state["question"]),
-                          tools=[n.name for n in domain_tools(d)] if False else [],
+                          tools=list(dict.fromkeys(named))[:5],      # none named -> the specialist picks
                           args=t.get("args") or {}))
 
     if sel:
@@ -285,7 +340,7 @@ async def route(state: ResearchState) -> dict:
                     id=f"p{len(tasks)}", domain="relations", ticker=sym,
                     question=f"How does {sym} compare with its peer cohort over the "
                              f"last year, adjusted for beta and company size?",
-                    tools=[], args={}))
+                    tools=["peer_set", "peer_performance"], args={}))
 
     degraded = ""
     if not tasks:   # fallback: pull a ticker out of the text, ask market only
@@ -337,6 +392,41 @@ async def route(state: ResearchState) -> dict:
                                      + ", ".join(f"{t['domain']}({t['ticker']})" for t in tasks)
                                      + (f" · dropped unresolved {', '.join(unknown)}" if unknown else ""),
                               tokens=tok, latency_ms=ms, llm=tok > 0, model=mdl)]}
+
+
+# Screen criteria read from the user's own words. The router is asked to put
+# them in args and, on a small model, sometimes leaves them out: "micro-cap
+# tech stocks near their 52-week highs" arrived as {cap, sector} with no style,
+# so the screen ranked by trading activity and answered a different question.
+# Same idea as question_period: code backs up the model on the literal words.
+_STYLE_WORDS = [
+    ("momentum", r"52[\s-]*week high|near (?:their |its )?highs?|momentum|trending|uptrend|breaking out|strong trend|all[\s-]*time high"),
+    ("value", r"cheap|undervalued|bargain|low p/?e|value stocks?|inexpensive|discount"),
+    ("growth", r"fast[\s-]*growing|high[\s-]*growth|revenue growth|growing|growth"),
+    ("quality", r"profitable|quality|high margins?|best margins?|cash[\s-]*generative"),
+]
+_CAP_WORDS = [("micro", r"micro[\s-]*caps?|penny"), ("small", r"small[\s-]*caps?|low[\s-]*caps?"),
+              ("mid", r"mid[\s-]*caps?"), ("large", r"large[\s-]*caps?|big caps?"),
+              ("mega", r"mega[\s-]*caps?")]
+
+
+def screen_args(q: str) -> dict:
+    from ..tools.screener import SECTORS
+    t = (q or "").lower()
+    out = {}
+    for style, pat in _STYLE_WORDS:
+        if re.search(pat, t):
+            out["style"] = style
+            break
+    for cap, pat in _CAP_WORDS:
+        if re.search(pat, t):
+            out["cap"] = cap
+            break
+    for name, words in SECTORS.items():
+        if any(re.search(rf"\b{re.escape(w)}\b", t) for w in (name.lower(), *words) if len(w) >= 2):
+            out["sector"] = name
+            break
+    return out
 
 
 def q_of(state) -> str:
@@ -434,10 +524,29 @@ async def review(state: ResearchState) -> dict:
         tokens=tok, latency_ms=int(ms), llm=True, model=r.model)]}
 
 
+MARKET_DOMAINS = {"macro", "screener"}
+TICKER_DOMAINS = [d for d in DOMAIN_DESC if d not in MARKET_DOMAINS | {"portfolio"}]
+
+
+def _screened(findings) -> list[str]:
+    """Names a screen turned up - the writer may send specialists to them."""
+    out = []
+    for f in findings:
+        for e in f.evidence:
+            if e.tool == "screen_stocks":
+                out += [r.get("symbol") for r in (e.data.get("results") or [])[:5] if r.get("symbol")]
+    return list(dict.fromkeys(out))
+
+
 def _free_domains(findings) -> dict:
+    """Specialists the writer may still send for, per subject. The market as a
+    whole only has macro and the screener: the writer once sent the news
+    specialist to research a ticker literally called MARKET."""
     used = {(f.domain, f.ticker) for f in findings}
-    return {t: [d for d in SUBGRAPHS if d != "portfolio" and (d, t) not in used]
-            for t in sorted({f.ticker for f in findings})}
+    subjects = sorted({f.ticker for f in findings} | set(_screened(findings)))
+    return {t: [d for d in (sorted(MARKET_DOMAINS) if t == "MARKET" else TICKER_DOMAINS)
+                if (d, t) not in used]
+            for t in subjects}
 
 
 WRITER_FOLLOWUP = """
@@ -516,6 +625,13 @@ def after_writer(state: ResearchState):
     return END
 
 
+def _draft(text: str) -> None:
+    """The writer's words as they arrive. The figure check still runs on the
+    whole answer before it is final; the client shows this as a draft and
+    swaps in the checked version when the run is done."""
+    emit("draft", text=text)
+
+
 async def writer(state: ResearchState) -> dict:
     if state.get("refused"):
         return {"answer": state["refused"]}
@@ -530,10 +646,12 @@ async def writer(state: ResearchState) -> dict:
         # multi-domain ones did. Readability measured worst exactly there.
         f = findings[0]
         clause, free = _writer_clause(state)
+        emit("write", mode="edit", findings=1)
         try:
-            r = await llm.call(POLISH_PROMPT + clause,
-                               f"Question: {q_of(state)}\n\n"
-                               f"Specialist ({f.domain}) wrote:\n{f.narrative}")
+            r = await llm.stream_call(POLISH_PROMPT + clause,
+                                      f"Question: {q_of(state)}\n\n"
+                                      f"Specialist ({f.domain}) wrote:\n{f.narrative}",
+                                      on_text=_draft)
             j = llm.parse_json(r.text) or {}
             asks = _requested(j, free, state) if clause else []
             if asks:
@@ -556,9 +674,11 @@ async def writer(state: ResearchState) -> dict:
                     "steps": [RunStep(node="writer",
                                       detail="editor unavailable - specialist text used")]}
     clause, free = _writer_clause(state)
+    emit("write", mode="compose", findings=len(findings))
     try:
-        r = await llm.call(WRITER_PROMPT + clause,
-                           f"Question: {q_of(state)}\n\n" + writer_payload(findings))
+        r = await llm.stream_call(WRITER_PROMPT + clause,
+                                  f"Question: {q_of(state)}\n\n" + writer_payload(findings),
+                                  on_text=_draft)
         j = llm.parse_json(r.text) or {}
         asks = _requested(j, free, state) if clause else []
         if asks:
@@ -638,10 +758,12 @@ async def _verify_and_repair(state, ans, findings, step):
     warning badge attached. For financial output that is the wrong default -
     it is now blocking, with one repair attempt.
     """
+    emit("verify")
     bad = unverified_figures(ans, findings)
     dens = density_report(ans)
     if not bad and dens["ok"]:
         return {"answer": ans, "steps": [step]}
+    emit("repair", unsupported=len(bad), dense=not dens["ok"])
 
     problems = []
     if bad:

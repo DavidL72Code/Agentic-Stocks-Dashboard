@@ -17,6 +17,7 @@ from .. import llm
 from ..models import DomainFinding, RunStep, ToolFailure, ToolResult
 from ..tools import DOMAIN_DESC, TOOLS, catalog, domain_tools
 from .present import present
+from .progress import emit
 
 SELECT_PROMPT = """You pick tools for the {domain} specialist.
 {domain} covers: {desc}
@@ -56,6 +57,12 @@ What to say:
   margins and growth, leverage. Say what would change it. Never forecast a
   price, never say buy, sell or hold.
 - No investment advice. Factual only.
+- If you are the screener, the 1-3 sentence and four-figure limits do not
+  apply. Write up to 6 sentences: first the criteria in plain words, then one
+  sentence per name (up to five) as "Company (TICKER) ..." with at most two
+  figures - the one the screen ranked on, plus a risk where the data shows one
+  (operating losses, a large drawdown, a tiny market cap). Never call a name
+  good, attractive or a pick: these are names that MEET THE CRITERIA.
 
 How to write it:
 - Short sentences. Aim for 20 words; never more than 30.
@@ -101,9 +108,11 @@ def build_domain(domain: str):
     names = [t.name for t in domain_tools(domain)]
 
     async def select(s: DState) -> dict:
+        emit("select", domain=domain, ticker=s["ticker"])
         # fast path: router already named the tools, or only a few exist
         pre = [t for t in (s.get("tools") or []) if t in names]
         if pre:
+            emit("picked", domain=domain, ticker=s["ticker"], tools=pre, model="router")
             return {"selected": pre, "skipped": [n for n in names if n not in pre],
                     "skip_reason": "named by router", "steps": [
                         RunStep(node=f"{domain}.select", detail="router-named",
@@ -121,6 +130,7 @@ def build_domain(domain: str):
             sel, reason, tok, ms, mdl = names[:3], f"selector unavailable ({llm.friendly(e)}); used defaults", 0, 0, ""
         if not sel:
             sel = names[:3]
+        emit("picked", domain=domain, ticker=s["ticker"], tools=sel, model=mdl)
         return {"selected": sel, "skipped": [n for n in names if n not in sel],
                 "skip_reason": reason,
                 "steps": [RunStep(node=f"{domain}.select", detail=reason[:80],
@@ -130,6 +140,7 @@ def build_domain(domain: str):
 
     async def gather(s: DState) -> dict:
         t0 = time.time()
+        emit("gather", domain=domain, ticker=s["ticker"], tools=s["selected"])
         args = s.get("args") or {}
         async def run(name: str):
             try:
@@ -138,6 +149,8 @@ def build_domain(domain: str):
                 return ToolFailure(tool=name, ticker=s["ticker"],
                                    reason=f"{type(e).__name__}: {e}", kind="error")
         res = await asyncio.gather(*(run(n) for n in s["selected"]))
+        emit("gathered", domain=domain, ticker=s["ticker"],
+             ok=sum(1 for r in res if isinstance(r, ToolResult)), of=len(res))
         return {"results": list(res),
                 "steps": [RunStep(node=f"{domain}.gather",
                                   detail=f"{sum(1 for r in res if isinstance(r, ToolResult))}/{len(res)} returned data",
@@ -163,6 +176,7 @@ def build_domain(domain: str):
                 evidence=[], failures=bad, tools_used=[], tools_skipped=s.get("skipped", []),
                 skip_reason=s.get("skip_reason", ""), confidence="unavailable"),
                 "steps": [RunStep(node=f"{domain}.synthesize", detail="skipped - no data")]}
+        emit("synth", domain=domain, ticker=s["ticker"])
         body = json.dumps(payload, default=str)
         if len(body) > 12000:      # trim lists rather than cutting the JSON mid-value
             from .build import present_short

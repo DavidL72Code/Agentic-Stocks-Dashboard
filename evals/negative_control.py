@@ -82,6 +82,14 @@ async def main() -> int:
     await sabotage("leverage percent passed raw", "leverage_ratio_not_percent",
                    lambda: setattr(lt, "fn", raw_pct), lambda: setattr(lt, "fn", olf))
 
+    of = B._free_domains
+    def leaky(findings):                         # the old rule: every domain for every subject
+        used = {(f.domain, f.ticker) for f in findings}
+        return {t: [d for d in B.SUBGRAPHS if d != "portfolio" and (d, t) not in used]
+                for t in sorted({f.ticker for f in findings})}
+    await sabotage("MARKET open to every specialist", "market_followups_only_market_domains",
+                   lambda: setattr(B, "_free_domains", leaky), lambda: setattr(B, "_free_domains", of))
+
     # ── the auth defences, sabotaged the same way ──
     import app.passwords as P
     print()

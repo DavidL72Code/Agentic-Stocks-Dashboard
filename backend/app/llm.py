@@ -11,20 +11,22 @@ from langchain_openai import ChatOpenAI
 # model variable silently ran a default this key can no longer use.
 #
 # Every call except tool selection alternates between the two Flash-Lite
-# models, so each carries exactly half the load - and half of each free-tier
-# daily cap. On one model, 500 requests a day ran out by noon. Tool selection is
-# the highest-volume, easiest judgement, so it goes to Gemma, whose free tier is
-# far larger.
+# models, so each carries half of that load - and half of each free-tier daily
+# cap. On one model, 500 requests a day ran out by noon.
+#
+# Tool selection runs on 3.5 Flash-Lite. It was on Gemma 4 for Gemma's larger
+# free quota, but Gemma thinks before it answers and that cannot be switched
+# off over this API: picks took 12-24s each and were ~39s of a 48s run. On
+# Flash-Lite a pick is under a second. The trade: 3.5 now carries more than
+# half the calls, so its daily cap is the one to watch.
 POOL = ("gemini-3.5-flash-lite", "gemini-3.1-flash-lite")
-SELECT_MODEL = "gemma-4-26b-a4b-it"
+SELECT_MODEL = "gemini-3.5-flash-lite"
 MODEL = POOL[0]                     # what /api/health reports as "model"
 _turn = itertools.count()
 _served: collections.Counter = collections.Counter()
-# Gemma thinks before it answers, and that cannot be switched off over this
-# API. The 26B picks tools in 6-10s; the 31B measured 22-132s with timeouts
-# and 500s, which put a minute or more on every question. Past this timeout a
-# pick falls back to Flash-Lite rather than hold up the specialists behind it.
-TIMEOUT = {"select": 20.0}
+# A tool pick is a few hundred tokens; one that has not come back in 15s is
+# stuck, and the specialist falls back rather than wait on it.
+TIMEOUT = {"select": 15.0}
 
 
 def chain_for(role: str) -> list[str]:
@@ -32,7 +34,9 @@ def chain_for(role: str) -> list[str]:
     then the other. Selection tries Gemma first, then both Flash-Lites."""
     i = next(_turn) % len(POOL)
     pair = [POOL[i], POOL[1 - i]]
-    return [SELECT_MODEL, *pair] if role == "select" else pair
+    if role != "select":
+        return pair
+    return [SELECT_MODEL] + [m for m in POOL if m != SELECT_MODEL]
 BASE_URL = os.environ.get("LLM_BASE_URL",
                           "https://generativelanguage.googleapis.com/v1beta/openai/")
 
@@ -60,11 +64,19 @@ def client(model: str, timeout: float | None = None, retries: int = 2) -> ChatOp
         if not k:
             raise NoAPIKey("Set GEMINI_API_KEY to use the agent. "
                            "The dashboard works without it.")
-        lim = _limiters.setdefault(model, InMemoryRateLimiter(
-            requests_per_second=_RPS, check_every_n_seconds=0.1, max_bucket_size=30))
+        if model not in _limiters:
+            lim = InMemoryRateLimiter(requests_per_second=_RPS, check_every_n_seconds=0.1,
+                                      max_bucket_size=30)
+            # The bucket starts EMPTY, so the first question after a restart -
+            # every Render wake-up - queued its parallel tool picks two seconds
+            # apart. Start with a small burst; the refill rate is unchanged.
+            lim.available_tokens = 8.0
+            _limiters[model] = lim
+        lim = _limiters[model]
         _clients[(model, t, retries)] = ChatOpenAI(model=model, api_key=k, base_url=BASE_URL,
                                                    temperature=0, max_retries=retries,
-                                                   timeout=t, rate_limiter=lim)
+                                                   timeout=t, rate_limiter=lim,
+                                                   stream_usage=True)
     return _clients[(model, t, retries)]
 
 
@@ -158,8 +170,8 @@ async def _invoke(m: str, msgs, timeout: float | None, retries: int = 2):
 
 async def call(system: str, user: str, fast: bool = False,
                model: str | None = None, role: str = "main") -> LLMReply:
-    """One model call. role="select" is tool selection (Gemma); anything else
-    takes the next turn in the 50/50 rotation. `model` pins an exact one (the
+    """One model call. role="select" is tool selection; anything else takes
+    the next turn in the 50/50 rotation. `model` pins an exact one (the
     eval judge does this) with no fallback; `fast=True` means role="select"."""
     t0 = time.time()
     role = "select" if fast else role
@@ -170,8 +182,9 @@ async def call(system: str, user: str, fast: bool = False,
     for m in live:
         try:
             # a timed-out tool pick is not retried on the same model: the
-            # client's own retries turned one 45s wait into 135s
-            slow = m == SELECT_MODEL and not model
+            # client's own retries turned one 45s wait into 135s. Keyed on the
+            # ROLE - the select model also serves the router and the writer.
+            slow = role == "select" and not model
             r = await _invoke(m, msgs, TIMEOUT["select"] if slow else None, 0 if slow else 2)
         except NoAPIKey:
             raise
@@ -189,6 +202,104 @@ async def call(system: str, user: str, fast: bool = False,
         ).get("total_tokens", 0)
         _served[m] += 1
         return LLMReply(str(r.content), int(tok or 0), int((time.time() - t0) * 1000), m)
+    raise err or RuntimeError("no model available")
+
+
+class AnswerTap:
+    """Pull the value of "answer" out of a JSON reply while it is still arriving.
+
+    The writer replies {"gap": ..., "followups": [...], "answer": "..."}, so the
+    text a reader wants is a JSON string inside a stream of chunks. This decodes
+    that one string incrementally - escapes included, and holding back an escape
+    split across two chunks - and hands each new piece to on_text."""
+
+    _KEY = re.compile(r'"answer"\s*:\s*"')
+    _ESC = {"n": "\n", "t": "\t", "r": "", "b": "", "f": "", '"': '"', "\\": "\\", "/": "/"}
+
+    def __init__(self, on_text):
+        self.on_text, self.buf, self.pos, self.done = on_text, "", None, False
+
+    def feed(self, chunk: str) -> None:
+        if self.done or not chunk:
+            return
+        self.buf += chunk
+        if self.pos is None:
+            m = self._KEY.search(self.buf)
+            if not m:
+                return
+            self.pos = m.end()
+        out, i, b = [], self.pos, self.buf
+        while i < len(b):
+            c = b[i]
+            if c == '"':
+                self.done = True
+                break
+            if c == "\\":
+                if i + 1 >= len(b):
+                    break                                  # the escaped char is in the next chunk
+                e = b[i + 1]
+                if e == "u":
+                    if i + 6 > len(b):
+                        break
+                    try:
+                        out.append(chr(int(b[i + 2:i + 6], 16)))
+                    except ValueError:
+                        pass
+                    i += 6
+                    continue
+                out.append(self._ESC.get(e, e))
+                i += 2
+                continue
+            out.append(c)
+            i += 1
+        self.pos = i
+        if out:
+            self.on_text("".join(out))
+
+
+async def stream_call(system: str, user: str, role: str = "main", on_text=None) -> LLMReply:
+    """call(), streamed: the same models, fallbacks and rate-limit waits, with
+    the reply's "answer" field handed to on_text piece by piece as it arrives.
+    A model that fails before its first token hands over to the next one; once
+    text has gone out, a failure is raised rather than restarted mid-sentence."""
+    t0 = time.time()
+    chain = chain_for(role)
+    msgs = [SystemMessage(content=system), HumanMessage(content=user)]
+    live = [x for x in chain if _dead_until.get(x, 0) < time.time()] or chain[-1:]
+    err: Exception | None = None
+    for m in live:
+        for attempt in range(3):
+            tap = AnswerTap(on_text) if on_text else None
+            text, tok, started = "", 0, False
+            try:
+                async for ch in client(m).astream(msgs):
+                    piece = ch.content if isinstance(ch.content, str) else ""
+                    if piece:
+                        started = True
+                        text += piece
+                        if tap:
+                            tap.feed(piece)
+                    um = getattr(ch, "usage_metadata", None) or {}
+                    if um.get("total_tokens"):
+                        tok = um["total_tokens"]
+                _served[m] += 1
+                return LLMReply(text, int(tok), int((time.time() - t0) * 1000), m)
+            except NoAPIKey:
+                raise
+            except Exception as e:
+                err = e
+                if started:
+                    raise
+                wait = _rate_wait(e, attempt)
+                if wait is not None and attempt < 2 and time.time() - t0 + wait <= 50:
+                    await asyncio.sleep(wait)
+                    continue
+                hold = _gone(e)
+                if hold:
+                    _dead_until[m] = time.time() + hold
+                break
+        if err is not None and not _moves_on(err):
+            raise err
     raise err or RuntimeError("no model available")
 
 

@@ -74,44 +74,124 @@ def _seed(a: Ask) -> dict:
     hist = [{"q": h.q[:300], "a": h.a[:700], "tickers": _syms(h.tickers, 6)}
             for h in (a.history or [])[-3:] if h.q.strip()]
     return {"question": a.question[:1000], "selection": _syms(a.tickers),
-            "context": _syms(a.context_tickers, 4), "history": hist,
+            "context": _syms(a.context_tickers, 8), "history": hist,
             "findings": [], "steps": []}
+
+
+# ── answer cache ─────────────────────────────────────────────────────────
+# Every run costs 6-11 model calls and 15-60 seconds, and the same questions
+# come round again: the suggested ones are the same for everyone, and people
+# re-ask after a reload. An identical question (same words, same tickers, same
+# conversation) from the same user inside ten minutes gets the answer it got
+# before. Keyed by user id, so one account's portfolio answer can never be
+# served to another. Degraded runs, model failures and unverified figures are
+# never cached - only an answer worth giving twice.
+ANSWER_TTL_S = 600
+_answers: dict[str, tuple[float, dict]] = {}
+
+
+def _answer_key(a: "Ask") -> str:
+    import hashlib
+    from ..store import current_user_id
+    seed = _seed(a)
+    raw = json.dumps({"u": current_user_id(), "q": " ".join(a.question.lower().split()),
+                      "s": seed["selection"], "c": seed["context"], "h": seed["history"]},
+                     sort_keys=True)
+    return hashlib.sha256(raw.encode()).hexdigest()
+
+
+def _cache_get(key: str) -> dict | None:
+    hit = _answers.get(key)
+    if not hit or time.time() - hit[0] > ANSWER_TTL_S:
+        return None
+    return {**hit[1], "cached": True, "cached_age_s": int(time.time() - hit[0]), "wall_ms": 0}
+
+
+def _cache_put(key: str, run: dict) -> None:
+    if (run.get("degraded") or not run.get("answer") or run.get("grounded") is False
+            or any("unavailable" in (st.get("detail") or "") for st in run.get("steps", []))):
+        return
+    if len(_answers) > 400:
+        for k in sorted(_answers, key=lambda k: _answers[k][0])[:100]:
+            _answers.pop(k, None)
+    _answers[key] = (time.time(), run)
 
 
 @router.post("/ask")
 async def ask(a: Ask):
     t0 = time.time()
+    key = _answer_key(a)
+    if (hit := _cache_get(key)):
+        return hit
     out = await GRAPH.ainvoke(_seed(a))
-    return _run_json(out, a.question, t0)
+    run = _run_json(out, a.question, t0)
+    _cache_put(key, run)
+    return run
 
 
 @router.post("/ask/stream")
 async def ask_stream(a: Ask):
-    """Streams real LangGraph node updates - the agent rail is not simulated."""
+    """Streams the run as it happens: node updates when a node finishes, and
+    progress events from inside nodes as each step starts (router reading, a
+    specialist picking tools / fetching / writing, the writer, the figure
+    check). The agent rail is not simulated - every line is a real event."""
+    from ..graph import progress
     t0 = time.time()
+    key = _answer_key(a)
 
     async def gen():
+        yield {"event": "start", "data": json.dumps({"question": a.question})}
+        if (hit := _cache_get(key)):
+            yield {"event": "progress", "data": json.dumps({"step": "cached", "age_s": hit["cached_age_s"]})}
+            yield {"event": "done", "data": json.dumps(hit, default=str)}
+            return
+
+        q: asyncio.Queue = asyncio.Queue()
+        token = progress.attach(lambda ev: q.put_nowait(("progress", ev)))
+
+        async def run():
+            try:
+                async for chunk in GRAPH.astream(_seed(a), stream_mode="updates"):
+                    await q.put(("update", chunk))
+                await q.put(("end", None))
+            except Exception as e:                  # surfaced to the client below
+                await q.put(("error", e))
+        # created while the sink is attached, so the graph's tasks inherit it
+        task = asyncio.create_task(run())
+        progress.detach(token)
+
         acc: dict = {"findings": [], "steps": [], "tickers": [], "answer": ""}
         try:
-            yield {"event": "start", "data": json.dumps({"question": a.question})}
-            async for chunk in GRAPH.astream(_seed(a), stream_mode="updates"):
-                for node, upd in chunk.items():
-                    if not isinstance(upd, dict):
-                        continue
-                    for k in ("findings", "steps"):
-                        if upd.get(k):
-                            acc[k] = acc[k] + list(upd[k])
-                    for k in ("tickers", "answer", "tasks", "refused", "resolved", "degraded"):
-                        if upd.get(k) is not None:
-                            acc[k] = upd[k]
-                    payload = {"node": node,
-                               "steps": [json.loads(s.model_dump_json()) for s in upd.get("steps", [])],
-                               "findings": [json.loads(f.model_dump_json()) for f in upd.get("findings", [])],
-                               "tasks": upd.get("tasks"), "tickers": upd.get("tickers")}
-                    yield {"event": "node", "data": json.dumps(payload, default=str)}
-            yield {"event": "done", "data": json.dumps(_run_json(acc, a.question, t0), default=str)}
-        except Exception as e:
-            yield {"event": "error", "data": json.dumps({"error": f"{type(e).__name__}: {e}"})}
+            while True:
+                kind, item = await q.get()
+                if kind == "progress":
+                    yield {"event": "progress", "data": json.dumps(item, default=str)}
+                elif kind == "update":
+                    for node, upd in item.items():
+                        if not isinstance(upd, dict):
+                            continue
+                        for k in ("findings", "steps"):
+                            if upd.get(k):
+                                acc[k] = acc[k] + list(upd[k])
+                        for k in ("tickers", "answer", "tasks", "refused", "resolved", "degraded"):
+                            if upd.get(k) is not None:
+                                acc[k] = upd[k]
+                        payload = {"node": node,
+                                   "steps": [json.loads(s.model_dump_json()) for s in upd.get("steps", [])],
+                                   "findings": [json.loads(f.model_dump_json()) for f in upd.get("findings", [])],
+                                   "tasks": upd.get("tasks"), "tickers": upd.get("tickers")}
+                        yield {"event": "node", "data": json.dumps(payload, default=str)}
+                elif kind == "end":
+                    run_ = _run_json(acc, a.question, t0)
+                    _cache_put(key, run_)
+                    yield {"event": "done", "data": json.dumps(run_, default=str)}
+                    return
+                else:
+                    yield {"event": "error", "data": json.dumps({"error": f"{type(item).__name__}: {item}"})}
+                    return
+        finally:
+            if not task.done():                     # the reader left (stop button, closed tab)
+                task.cancel()
     return EventSourceResponse(gen())
 
 
