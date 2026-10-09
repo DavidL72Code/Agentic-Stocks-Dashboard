@@ -11,6 +11,10 @@ const h = React.createElement;
 const roots = new WeakMap();
 export const C = { s1:"#9085e9", s2:"#c98500", s3:"#3987e5",
                    pos:"#199e70", neg:"#e66767", ink:"#8d95a4", faint:"#15181f" };
+const CLASSIC = { ...C };
+/* Pro (and its light theme) recolour the charts from the page's own tokens, so a
+   chart never keeps dark-theme gridlines on a white card. */
+export function setPalette(p) { Object.assign(C, CLASSIC, p || {}); }
 
 function mount(el, node) {
   if (!el) return;
