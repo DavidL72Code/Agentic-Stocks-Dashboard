@@ -55,6 +55,11 @@ DOMAIN_DESC = {
     "macro": ("the market backdrop: index levels, rates, volatility, Fed and policy news, "
               "geopolitics, and sector-level spillover. Use when the question is about WHY "
               "the market or a sector moved rather than one company."),
+    "screener": ("FINDS stocks across the whole US market by size (micro/small/mid/large "
+                 "cap), sector and style (growth, value, momentum, quality). Use for 'find me', "
+                 "'which small caps', 'ideas', 'good low-cap stocks' - any question that names no "
+                 "ticker but wants some. Ticker is MARKET; put the criteria in args: cap, sector, "
+                 "style."),
     "portfolio": ("the USER'S OWN holdings: positions, cost basis, unrealised and daily P&L, "
                   "concentration, correlation between holdings, portfolio beta. Use this for any "
                   "question about 'my portfolio', 'my holdings', 'my book' or 'what I own'. "

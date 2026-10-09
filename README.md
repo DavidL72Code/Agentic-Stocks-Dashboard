@@ -19,23 +19,23 @@ flowchart TD
 
     subgraph DP["DATA PLANE &mdash; no LLM, no tokens"]
         R["/api/quotes &middot; /bars &middot; /financials<br/>/portfolio &middot; /brief &middot; /related"]
-        R --> T["42 tools &rarr; batch loader + TTL cache<br/>Yahoo &middot; SEC EDGAR &middot; CNN"]
+        R --> T["45 tools &rarr; batch loader + TTL cache<br/>Yahoo &middot; SEC EDGAR &middot; Nasdaq &middot; CNN"]
         R --> DB[("SQLite / Turso<br/>users &middot; portfolios &middot; positions &middot; sessions")]
     end
 
     subgraph AP["AGENT PLANE &mdash; LLM"]
-        RT["guard &rarr; router"] -->|"Send: 7 domains in parallel"| D["market &middot; fundamentals &middot; street &middot; events<br/>relations &middot; macro &middot; portfolio<br/><i>each: select &rarr; gather &rarr; synthesize</i>"]
+        RT["guard &rarr; router<br/><i>names each specialist's tools</i>"] -->|"Send: 8 domains in parallel"| D["market &middot; fundamentals &middot; street &middot; events<br/>relations &middot; macro &middot; screener &middot; portfolio<br/><i>each: (select) &rarr; gather &rarr; synthesize</i>"]
         D --> W["writer &rarr; grounding gate<br/><i>figure not in evidence &rarr; repair</i>"]
     end
 
-    D -. the same 42 tools .-> T
+    D -. the same 45 tools .-> T
 ```
 
 **Multi-agent vs plain tool calling**
 
 | | What | Why |
 |---|---|---|
-| **Multi-agent** | `/api/agent/ask` — router fans out to 7 domain subgraphs in parallel, each `select → gather → synthesize` | Each domain sees only its own tool catalog and its own evidence, never another's. Measured against one-agent-per-tool on the same questions: **~1/4 the LLM calls and ~35% of the tokens** ([ABLATION.md](evals/ABLATION.md)). |
+| **Multi-agent** | `/api/agent/ask` — router fans out to 8 domain subgraphs in parallel, each `gather → synthesize` (the router names the tools; a specialist picks its own only when it was not told) | Each domain sees only its own tool catalog and its own evidence, never another's. Measured against one-agent-per-tool on the same questions: **~1/4 the LLM calls and ~35% of the tokens** ([ABLATION.md](evals/ABLATION.md)). |
 | **Single-agent tool calling** | `/api/agent/analyze` — one domain subgraph, no router, no writer. 1–2 LLM calls. | The per-tab Analyze button already knows its domain, so routing would be waste. |
 | **No LLM at all** | every endpoint the UI renders from | Deterministic, cacheable, free. A 20-ticker watchlist is **one** HTTP request and zero tokens. |
 
@@ -118,6 +118,14 @@ live, and a figure-checked badge; **Evidence** opens what they fetched. Every
 research tab also has an **Explain** button: one specialist, one or two model
 calls, no router.
 
+It can also **find** stocks, not only study the ones you name. "Find small caps
+with fast revenue growth" or "cheap, profitable mid caps in healthcare" goes to a
+screener specialist that filters the whole US market (Nasdaq's list, ~7,000
+names) by size, sector and style, with a liquidity floor and no penny stocks,
+then enriches the shortlist with P/E, 52-week range, growth and margins. The
+answer is a screen against stated criteria, never a list of picks. The agent
+panel has a small screener builder for this.
+
 A build stamp sits under it — if you don't see one, you're on a cached page.
 
 **The dashboard needs no API key.** Quotes, charts, financials, news, analysts,
@@ -183,6 +191,6 @@ validated model — see [evals/QUALITY.md](evals/QUALITY.md).
 | App sweep | every route end to end on a throwaway db — [evals/SWEEP.md](evals/SWEEP.md) |
 | Tenancy | one account attacking another's ids — [SECURITY.md](SECURITY.md) |
 | Auth + Sign-in | hashing, throttling, the whole login round trip — [evals/AUTH.md](evals/AUTH.md) |
-| Data plane / Tools | the 42 tools and the endpoints the UI reads |
+| Data plane / Tools | the 45 tools and the endpoints the UI reads |
 | Regressions | one case per bug found during the build, each saying which |
 | Agent | the golden set, routing and grounding (spends tokens) |

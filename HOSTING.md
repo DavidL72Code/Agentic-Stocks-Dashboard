@@ -203,8 +203,8 @@ required for the full product.
 
 **Models are fixed in code, not set here** (`backend/app/llm.py`). Every call except
 tool selection alternates between `gemini-3.5-flash-lite` and `gemini-3.1-flash-lite`,
-so each carries half the load and half of each free-tier daily cap; tool selection runs
-on `gemma-4-26b-a4b-it`. Any model that is out of quota or too slow falls back to the other.
+so each carries half that load and half of each free-tier daily cap; tool selection runs
+on `gemini-3.5-flash-lite` (Gemma 4 was tried and took 12-24s a pick). Any model that is out of quota or too slow falls back to the other.
 They used to come from `GEMINI_MODEL`, and a Render service with no such variable
 silently ran a default (`gemini-2.5-flash`) that new keys can no longer use.
 `/api/health` → `models` shows the split and the calls each model has served.

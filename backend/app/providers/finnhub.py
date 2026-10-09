@@ -155,3 +155,18 @@ async def recommendations(symbol: str) -> dict:
     except Exception as e:
         log.warning("finnhub recommendations %s failed: %s", symbol, e)
         return {}
+
+
+async def earnings_calendar(frm: str, to: str) -> list[dict]:
+    """Every US company reporting between two dates, in ONE call (the free
+    tier allows it). Yahoo has no batch equivalent - its calendar is one
+    request per ticker, and those are crumb-gated on Render. Cached 6h: dates
+    rarely move inside a week."""
+    if not enabled():
+        return []
+    async def load():
+        async with httpx.AsyncClient(timeout=15) as c:
+            js = await _get(c, "/calendar/earnings", **{"from": frm, "to": to})
+        return js.get("earningsCalendar", []) if isinstance(js, dict) else []
+    val, _ = await cached(("finnhub", "earnings-cal", frm, to), 6 * 3600, load)
+    return val if isinstance(val, list) else []

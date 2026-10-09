@@ -186,6 +186,18 @@ def main(run_agent: bool) -> int:
         (cmp_.get("correlations") or [None])[0],
         "pairwise correlation is what makes it a comparison, not three charts")
 
+    r = c.get("/api/compare?symbols=%3Cimg%20src%3Dx%3E")
+    chk("/api/compare", "compare_rejects_markup", r.status_code == 400, r.status_code,
+        "a 'symbol' with markup in it is echoed into the page - it must be refused")
+
+    er = c.get("/api/calendar/earnings?days=7&limit=8").json()
+    items = er.get("items") or []
+    chk("/api/calendar/earnings", "earnings_week",
+        (items and all(i.get("symbol") and i.get("date") for i in items)
+         and items == sorted(items, key=lambda i: -(i.get("market_cap") or 0))) or bool(er.get("unavailable")),
+        f"{len(items)} of {er.get('total_reporting')} reporting · {er.get('unavailable') or ''}",
+        "the Pro dashboard lists who reports this week, largest first")
+
     rel = c.get("/api/related/NVDA").json()
     peers = ((rel.get("read_across") or {}).get("peers")) or []
     chk("/api/related/{symbol}", "related", len(peers) > 0,

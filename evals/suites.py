@@ -479,8 +479,9 @@ async def suite_regressions():
     add("models_split_half_half", firsts.count(L.POOL[0]) == firsts.count(L.POOL[1]) == 5,
         f"{firsts.count(L.POOL[0])} x {L.POOL[0]}, {firsts.count(L.POOL[1])} x {L.POOL[1]}",
         "every non-selection call alternates, so each model carries half the load")
-    add("models_select_is_gemma", L.chain_for("select")[0] == L.SELECT_MODEL
-        and "gemma" in L.SELECT_MODEL, L.chain_for("select"), "tool selection runs on its own model")
+    sel = L.chain_for("select")
+    add("models_select_on_flash_lite", sel[0] == "gemini-3.5-flash-lite" and len(set(sel)) == len(sel),
+        sel, "tool selection on 3.5 Flash-Lite (Gemma took 12-24s a pick), falling back to 3.1")
 
     class _Quota(Exception):
         pass
@@ -503,6 +504,61 @@ async def suite_regressions():
     add("model_fallback_on_daily_cap", r.model == L.POOL[1],
         f"{L.POOL[0]} out of quota -> answered by {r.model}",
         "a model at its daily cap hands the call to the other, instead of failing the run")
+
+    # ── the answer cache is per user: one account's answer is never another's ──
+    from app import store as _st
+    from app.routes.agent import Ask as _Ask, _answer_key, _cache_get, _cache_put
+    _st.set_current_user("eval-cache-a")
+    ka = _answer_key(_Ask(question="How is my portfolio doing?"))
+    _cache_put(ka, {"answer": "A's book is up 3%", "steps": [], "grounded": True})
+    _st.set_current_user("eval-cache-b")
+    kb = _answer_key(_Ask(question="How is my portfolio doing?"))
+    leaked = _cache_get(kb)
+    add("answer_cache_per_user", ka != kb and leaked is None,
+        f"same question, two users -> {'different' if ka != kb else 'SAME'} keys; B sees A's answer: {bool(leaked)}",
+        "a cached answer about one account's book must never be served to another")
+    _st.set_current_user("eval-cache-a")
+    add("answer_cache_hits", bool(_cache_get(ka)), "identical question from the same user is served from cache",
+        "the suggested questions are the same for everyone; re-asking should be instant")
+
+    # ── the streamed answer: decoded from a JSON reply as it arrives ──
+    from app.llm import AnswerTap
+    got = []; tap = AnswerTap(got.append)
+    raw = '{"gap": "a \\"quoted\\" gap", "followups": [], "answer": "NVDA rose 2.4% \\u2014 on \\"thin\\" volume.\\nNext."}'
+    for i in range(0, len(raw), 3):
+        tap.feed(raw[i:i + 3])                     # 3-char chunks split every escape
+    want = 'NVDA rose 2.4% \u2014 on "thin" volume.\nNext.'
+    add("stream_answer_decoded", "".join(got) == want and len(got) > 3,
+        f"{len(got)} pieces -> {''.join(got)[:50]!r}",
+        "the draft the reader sees must be exactly the answer field, escapes and all")
+
+    # ── the router names tools; a name from another domain never gets through ──
+    from app.graph.build import DOMAIN_TOOL_NAMES, TOOL_LIST
+    add("router_sees_every_tool", all(n in TOOL_LIST for names in DOMAIN_TOOL_NAMES.values() for n in names),
+        f"{sum(len(v) for v in DOMAIN_TOOL_NAMES.values())} tools across {len(DOMAIN_TOOL_NAMES)} domains",
+        "a tool missing from the router's list can never be named, only picked the slow way")
+
+    # ── screener: criteria from the user's words, sectors matched exactly ──
+    from app.graph.build import screen_args, _free_domains
+    from app.tools.screener import _sector
+    sa = screen_args("Find micro cap technology stocks trading near their 52-week highs")
+    add("screen_args_backstop", sa == {"style": "momentum", "cap": "micro", "sector": "Technology"}, sa,
+        "REGRESSION: the router dropped the style, and a momentum screen came back ranked by volume")
+    add("screen_sector_exact", _sector("tech") == "Technology" and _sector("biotech") == "Health Care"
+        and _sector("technology") == "Technology", [_sector(x) for x in ("tech", "biotech", "technology")],
+        "REGRESSION: 'technology' matched biotech names, because 'biotechnology' contains it")
+    mk = DomainFinding(domain="macro", ticker="MARKET", narrative="x", evidence=[
+        ToolResult(tool="index_levels", ticker="MARKET", data={"a": 1}, prov=Provenance(source="s"))])
+    fd = _free_domains([mk])
+    add("market_followups_only_market_domains", set(fd.get("MARKET", [])) <= {"macro", "screener"},
+        fd, "REGRESSION: the writer sent the news specialist to research a ticker called MARKET")
+    sc = DomainFinding(domain="screener", ticker="MARKET", narrative="x", evidence=[
+        ToolResult(tool="screen_stocks", ticker="MARKET", prov=Provenance(source="s"),
+                   data={"results": [{"symbol": "UMAC"}, {"symbol": "SHAZ"}]})])
+    fd2 = _free_domains([sc])
+    add("screened_names_can_be_dug_into", "fundamentals" in fd2.get("UMAC", []) and "screener" not in fd2.get("UMAC", []),
+        {k: v for k, v in fd2.items() if k != "MARKET"},
+        "the writer may send specialists to the names a screen turned up")
 
     import typing
     from app.graph.domains import DState
