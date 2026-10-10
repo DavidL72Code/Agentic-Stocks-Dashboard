@@ -1,8 +1,8 @@
 # Eval report
 
-Run 2026-10-04 17:23 · model `gemini-3.5-flash-lite` · 45 tools · LLM on
+Run 2026-10-09 16:25 · model `gemini-3.5-flash-lite` · 45 tools · LLM on
 
-**356/356 passed**
+**345/345 passed**
 
 
 ## Auth — 34/34
@@ -17,10 +17,10 @@ Run 2026-10-04 17:23 · model `gemini-3.5-flash-lite` · 45 tools · LLM on
 | `rejects_weak_passwords` | PASS | rejected all of ['short', 'password123', '9081726354'] |
 | `register_rejects_weak` | PASS | 400 Use at least 10 characters. |
 | `register_rejects_bad_username` | PASS | 400 Usernames are 3-32 characters: letters, digits, . _ or -, starting with a letter or digit. |
-| `register_succeeds` | PASS | 200 probe-257fef74 |
+| `register_succeeds` | PASS | 200 probe-4143a097 |
 | `register_returns_no_password` | PASS | response carries no password field |
 | `username_case_insensitive_unique` | PASS | 409 That username is taken. |
-| `session_cookie_works` | PASS | probe-257fef74 can_save=True |
+| `session_cookie_works` | PASS | probe-4143a097 can_save=True |
 | `no_user_enumeration` | PASS | real user: 401 / unknown: 401, same text: True |
 | `throttle_locks_out` | PASS | 25 failures -> locked for 899s (limit 5) |
 | `ip_budget_is_looser` | PASS | 5 fails -> 0s, 50 -> 899s |
@@ -29,7 +29,7 @@ Run 2026-10-04 17:23 · model `gemini-3.5-flash-lite` · 45 tools · LLM on
 | `guest_sees_empty_book` | PASS | 200 [] |
 | `guest_keeps_market_data` | PASS | 200 1 quote(s) |
 | `register_does_not_adopt` | PASS | fresh account sees ['Brokerage'] |
-| `seeded_ids_are_per_user` | PASS | ids ['262b22d0e01e'] |
+| `seeded_ids_are_per_user` | PASS | ids ['7604d223385a'] |
 | `claim_requires_sign_in` | PASS | 401 Sign in first. |
 | `change_needs_current_password` | PASS | 401 Your current password is not right. |
 | `change_enforces_strength` | PASS | 400 Use at least 10 characters. |
@@ -49,7 +49,7 @@ Run 2026-10-04 17:23 · model `gemini-3.5-flash-lite` · 45 tools · LLM on
 
 | Case | Result | Detail |
 |---|---|---|
-| `register_200` | PASS | {'id': '0340c8d4581a', 'username': 'davidle', 'name': 'David', 'signed |
+| `register_200` | PASS | {'id': '499d99561854', 'username': 'davidle', 'name': 'David', 'signed |
 | `cookie_httponly` | PASS |  |
 | `cookie_samesite_lax` | PASS |  |
 | `cookie_persists` | PASS |  |
@@ -57,12 +57,12 @@ Run 2026-10-04 17:23 · model `gemini-3.5-flash-lite` · 45 tools · LLM on
 | `can_save` | PASS |  |
 | `watchlist_write` | PASS | {'watchlist': ['NVDA', 'AAPL', 'MSFT', 'AMD', 'PLTR', 'KO',  |
 | `watchlist_read_back` | PASS |  |
-| `portfolio_create` | PASS | {'accounts': [{'id': '7b5f0cc48107', 'name': 'Brokerage', 'k |
+| `portfolio_create` | PASS | {'accounts': [{'id': '1853b2e07769', 'name': 'Brokerage', 'k |
 | `logout_204` | PASS |  |
 | `logout_returns_to_guest` | PASS |  |
 | `guest_cannot_write` | PASS |  |
 | `guest_sees_nothing` | PASS |  |
-| `login_200` | PASS | {'id': '0340c8d4581a', 'username': 'davidle', 'name': 'David |
+| `login_200` | PASS | {'id': '499d99561854', 'username': 'davidle', 'name': 'David |
 | `state_survived_logout` | PASS |  |
 | `accounts_survived_logout` | PASS |  |
 | `username_case_insensitive` | PASS |  |
@@ -85,14 +85,14 @@ Run 2026-10-04 17:23 · model `gemini-3.5-flash-lite` · 45 tools · LLM on
 | `expired_sessions_pruned` | PASS | 0 expired rows left |
 
 
-## App sweep — 96/96
+## App sweep — 92/92
 
 | Case | Result | Detail |
 |---|---|---|
-| `index_served` | PASS | 86904 bytes |
+| `index_served` | PASS | 85025 bytes |
 | `index_no_store` | PASS | no-store, must-revalidate |
-| `asset_stamp_matches_build` | PASS | app.js?v=1791149005 |
-| `build_stamp` | PASS | {'build': '1791149005'} |
+| `asset_stamp_matches_build` | PASS | app.js?v=1791577523 |
+| `build_stamp` | PASS | {'build': '1791577523'} |
 | `no_store_api_me` | PASS | no-store, private |
 | `no_store_api_portfolio` | PASS | no-store, private |
 | `no_store_api_watchlist` | PASS | no-store, private |
@@ -107,33 +107,33 @@ Run 2026-10-04 17:23 · model `gemini-3.5-flash-lite` · 45 tools · LLM on
 | `health_names_db` | PASS | sqlite |
 | `quotes_batched` | PASS | 8 quotes / 1 upstream call(s) |
 | `quotes_priced` | PASS | 8/8 priced and named |
-| `bars_ohlcv` | PASS | 21 bars |
+| `bars_ohlcv` | PASS | 22 bars |
 | `bars_intraday` | PASS | 78 5m bars |
-| `sparklines` | PASS | {'NVDA': 21, 'AAPL': 21} |
-| `overview` | PASS | cap=5649190617088 pe=29.576487 margin=0.63663 |
+| `sparklines` | PASS | {'NVDA': 22, 'AAPL': 22} |
+| `overview` | PASS | cap=5536424132608 pe=28.986094 margin=0.6365999999999999 |
 | `overview_has_balance_sheet` | PASS | d/e=16.971 fcf=41809874944 |
 | `financials` | PASS | 8 quarters, single-quarter only: True |
-| `news` | PASS | 12 items, 4 flagged relevant |
+| `news` | PASS | 12 items, 2 flagged relevant |
 | `news_relevance_flagged` | PASS |  |
 | `analysts` | PASS | {'Strong buy': 10, 'Buy': 48, 'Hold': 2, 'Sell': 1, 'Strong sell': 0} |
-| `analyst_targets` | PASS | {'targetLowPrice': 180.0, 'targetMeanPrice': 327.7, 'targetHighPrice': 515.0} |
+| `analyst_targets` | PASS | {'targetLowPrice': 180.0, 'targetMeanPrice': 328.71695, 'targetHighPrice': 515.0} |
 | `events` | PASS | 6 past surprises |
 | `indices` | PASS | ['S&P 500', 'Dow Jones', 'Nasdaq', 'Fear & Greed', 'Volatility', 'US 10-year'] |
 | `no_russell` | PASS |  |
-| `fear_greed` | PASS | 31.2 (None) |
-| `indices_have_history` | PASS | {'S&P 500': 21, 'Dow Jones': 21, 'Nasdaq': 21, 'Volatility': 23, 'US 10-year': 22} |
-| `compare` | PASS | 3 rows, 126 points, 3 pairs |
+| `fear_greed` | PASS | 45 (None) |
+| `indices_have_history` | PASS | {'S&P 500': 22, 'Dow Jones': 22, 'Nasdaq': 22, 'Volatility': 23, 'US 10-year': 23} |
+| `compare` | PASS | 3 rows, 128 points, 3 pairs |
 | `compare_pairwise` | PASS | {'pair': 'AMD/AVGO', 'corr': 0.54} |
 | `compare_rejects_markup` | PASS | 400 |
-| `earnings_week` | PASS | 8 of 70 reporting ·  |
+| `earnings_week` | PASS | 8 of 130 reporting ·  |
 | `related` | PASS | ['AMD', 'TSLA', 'AMZN', 'AAPL'] |
-| `related_is_measured` | PASS | AMD: corr=0.52 n=500 |
+| `related_is_measured` | PASS | AMD: corr=0.53 n=501 |
 | `related_moves` | PASS | ['ticker', 'ticker_change_pct', 'peer_average_pct', 'peers', 'biggest_mover'] |
 | `event_study` | PASS | AMD earnings -> NVDA reaction: 9 events |
 | `event_study_direction` | PASS | source=AMD target=NVDA |
 | `event_study_deduped` | PASS | 9 events, 9 unique dates |
-| `event_study_baseline` | PASS | baseline 69.4%, p=0.284 |
-| `search` | PASS | ['KO', 'COKE', 'KOF', 'CCEP', 'CCH.L'] |
+| `event_study_baseline` | PASS | baseline 69.3%, p=0.108 |
+| `search` | PASS | ['KO', 'COKE', 'KOF', 'CCEP', 'COLA.WA'] |
 | `logo` | PASS | 200 image/png 11180B |
 | `guest_identity` | PASS | Guest |
 | `guest_watchlist_empty` | PASS |  |
@@ -145,37 +145,33 @@ Run 2026-10-04 17:23 · model `gemini-3.5-flash-lite` · 45 tools · LLM on
 | `guest_brief_is_macro_only` | PASS | market_only=True, 0 tickers, 10 macro headlines |
 | `guest_brief_says_why` | PASS | not signed in |
 | `providers` | PASS |  |
-| `register` | PASS | {'id': '69fbcc4caf24', 'username': 'sweeper', 'name': 'sweep |
+| `register` | PASS | {'id': '589026e9aee7', 'username': 'sweeper', 'name': 'sweep |
 | `login_reachable` | PASS |  |
 | `watch_add` | PASS |  |
 | `watch_rejects_junk` | PASS |  |
 | `watch_delete` | PASS |  |
-| `account_create` | PASS | 4c2b3a981b05 |
+| `account_create` | PASS | 80f9a5cf95cb |
 | `account_name_unique` | PASS |  |
 | `account_rename` | PASS |  |
 | `account_activate` | PASS |  |
 | `position_add` | PASS |  |
 | `position_averages_basis` | PASS | qty=20.0 basis=150.0 |
-| `portfolio_math` | PASS | $4,679 |
-| `combined_view` | PASS | $29,261 across 4 rows |
+| `portfolio_math` | PASS | $4,586 |
+| `combined_view` | PASS | $29,203 across 4 rows |
 | `analytics` | PASS | {'weights_pct': [{'ticker': 'NVDA', 'pct': 100.0}], 'top_holding': {'ticker': 'NVDA', 'pct': 100.0}, 'top3_pct': 100.0,  |
-| `analytics_beta` | PASS | {'portfolio_beta': 1.88, 'per_holding': [{'ticker': 'NVDA', 'beta': 1.88}], 'reading': 'more volatile than the market'} |
+| `analytics_beta` | PASS | {'portfolio_beta': 1.89, 'per_holding': [{'ticker': 'NVDA', 'beta': 1.89}], 'reading': 'more volatile than the market'} |
 | `position_edit` | PASS | 200 -> qty=5.0 basis=120.0 |
 | `position_edit_404s_cleanly` | PASS |  |
 | `position_delete` | PASS |  |
 | `account_delete` | PASS |  |
-| `brief_signals` | PASS | 3 signals over 6 tickers |
+| `brief_signals` | PASS | 6 signals over 6 tickers |
 | `brief_macro` | PASS | 8 macro headlines |
 | `brief_index_levels` | PASS | ['S&P 500', 'Nasdaq', 'US 10-year yield', 'volatility index'] |
 | `brief_checks_adjacent` | PASS | 15 adjacent names |
-| `threshold_moves_explain_themselves` | PASS | 0 threshold moves, all with a reason: none today |
+| `threshold_moves_explain_themselves` | PASS | 1 threshold moves, all with a reason: True |
 | `domains_registered` | PASS | ['market', 'fundamentals', 'street', 'events', 'relations', 'macro', 'screener', 'portfolio'] |
 | `every_domain_has_tools` | PASS | all populated |
 | `tool_count` | PASS | 45 tools |
-| `agent_ask` | PASS | 433 chars in 9s |
-| `agent_grounded` | PASS | ungrounded: [] |
-| `agent_disclaimer` | PASS | Informational only, not financial advice. Monsoon summarises public da |
-| `disclaimer_rendered` | PASS | present in the shell |
 | `reset_keeps_watchlist` | PASS |  |
 | `reset_clears_positions` | PASS |  |
 | `env_documented_in_HOSTING_md` | PASS | all 24 documented |
@@ -187,7 +183,7 @@ Run 2026-10-04 17:23 · model `gemini-3.5-flash-lite` · 45 tools · LLM on
 | `every_route_touched` | PASS | all covered |
 
 
-## Tenancy — 36/36
+## Tenancy — 34/34
 
 | Case | Result | Detail |
 |---|---|---|
@@ -215,7 +211,7 @@ Run 2026-10-04 17:23 · model `gemini-3.5-flash-lite` · 45 tools · LLM on
 | `cannot_delete_another_account` | PASS | 400 |
 | `positions_carries_user_id` | PASS | ['basis', 'id', 'portfolio_id', 'qty', 'ticker', 'user_id'] |
 | `positions_scope_invariant_holds` | PASS | 0 rows disagree with their portfolio's owner |
-| `every_position_row_is_owned` | PASS | {'2b4a33b079ed': 3, 'f1c041fb8983': 4} |
+| `every_position_row_is_owned` | PASS | {'494ceac9d7da': 3, 'c8f8acc99f56': 4} |
 | `direct_user_scoped_query_works` | PASS | alice's rows by user_id alone: ['AAPL', 'MSFT', 'NVDA'] |
 | `foreign_keys_enforced` | PASS | ON |
 | `backfill_assigns_the_right_owner` | PASS | [('u1', 'KO'), ('u1', 'PEP'), ('u2', 'XOM')] |
@@ -225,8 +221,6 @@ Run 2026-10-04 17:23 · model `gemini-3.5-flash-lite` · 45 tools · LLM on
 | `concurrent_reads_never_cross` | PASS | 24 reads, each its own |
 | `lost_context_sees_no_holdings` | PASS | resolved to 'guest', saw [] / [] |
 | `lost_context_cannot_write` | PASS | store.save() raises for a context-less caller |
-| `agent_answers_ann_from_anns_book` | PASS | foreign none, local-leak no |
-| `agent_answers_ben_from_bens_book` | PASS | foreign none, local-leak no |
 
 
 ## Cache — 21/21
@@ -261,19 +255,19 @@ Run 2026-10-04 17:23 · model `gemini-3.5-flash-lite` · 45 tools · LLM on
 | Case | Result | Detail |
 |---|---|---|
 | `quotes_batched` | PASS | 8 quotes in 1 upstream request(s) |
-| `bars_shape` | PASS | 21 bars, OHLCV shape True |
+| `bars_shape` | PASS | 22 bars, OHLCV shape True |
 | `edgar_single_quarter` | PASS | 8 quarters, all single-quarter: True |
-| `financials_outlook` | PASS | next 2026-11-17, eps est 2.47332, 8 past reports |
-| `overview/NVDA` | PASS | market_cap=5649190617088 |
-| `news/NVDA` | PASS | items=[{'title': 'Nvidia’s AI Safety Push Could Strengthen Its Moa |
+| `financials_outlook` | PASS | next 2026-11-17, eps est 2.47325, 8 past reports |
+| `overview/NVDA` | PASS | market_cap=5536424132608 |
+| `news/NVDA` | PASS | items=[{'title': 'Nvidia Stocks Edge Higher as $1 Billion Science  |
 | `analysts/NVDA` | PASS | distribution=[{'label': 'Strong buy', 'n': 10}, {'label': 'Buy', 'n': 48} |
 | `events/NVDA` | PASS | surprise_history=[{'date': '2026-08-26', 'estimate': 2.09, 'actual': 2.22, 's |
-| `indices` | PASS | indices=[{'symbol': '^GSPC', 'label': 'S&P 500', 'level': 7722.72, ' |
+| `indices` | PASS | indices=[{'symbol': '^GSPC', 'label': 'S&P 500', 'level': 7811.54, ' |
 | `compare` | PASS | correlations=[{'pair': 'AMD/AVGO', 'corr': 0.54}, {'pair': 'NVDA/AVGO', ' |
 | `related/NVDA` | PASS | read_across={'ticker': 'NVDA', 'peers': [{'peer': 'AMD', 'peer_name': 'A |
-| `portfolio/analytics` | PASS | concentration={'weights_pct': [{'ticker': 'NVDA', 'pct': 47.6}, {'ticker': |
+| `portfolio/analytics` | PASS | concentration={'weights_pct': [{'ticker': 'NVDA', 'pct': 46.6}, {'ticker': |
 | `search` | PASS | results=[{'symbol': 'KO', 'name': 'Coca-Cola Company (The)', 'type': |
-| `fear_greed` | PASS | score 31.2 (fear) |
+| `fear_greed` | PASS | score 45 (fear) |
 | `indices_set` | PASS | ['S&P 500', 'Dow Jones', 'Nasdaq', 'Fear & Greed', 'Volatility', 'US 10-year'] |
 
 
@@ -326,8 +320,8 @@ Run 2026-10-04 17:23 · model `gemini-3.5-flash-lite` · 45 tools · LLM on
 | `tool:institutional_holders` | PASS | data (street) |
 | `tool:insider_transactions` | PASS | data (street) |
 | `tool:short_interest` | PASS | data (street) |
-| `rsi_in_range` | PASS | RSI 63.0 |
-| `beta_plausible` | PASS | beta 1.88 |
+| `rsi_in_range` | PASS | RSI 53.0 |
+| `beta_plausible` | PASS | beta 1.89 |
 | `empty_is_not_error` | PASS | TSLA dividends -> empty |
 | `domain_populated:market` | PASS | 9 tools |
 | `domain_populated:fundamentals` | PASS | 7 tools |
@@ -339,28 +333,28 @@ Run 2026-10-04 17:23 · model `gemini-3.5-flash-lite` · 45 tools · LLM on
 | `domain_populated:portfolio` | PASS | 5 tools |
 
 
-## Regressions — 46/46
+## Regressions — 59/59
 
 | Case | Result | Detail |
 |---|---|---|
 | `threshold_5pct` | PASS | [(-7.4, True), (-5.0, True), (-3.1, False), (6.8, True)] |
 | `threshold_has_reason` | PASS | read=moved further than its peer group, which leaned the same way |
-| `no_duplicate_move_signal` | PASS | ['threshold', 'high', 'peer_gap'] |
+| `no_duplicate_move_signal` | PASS | ['threshold', 'peer_move'] |
 | `event_study_dedupe` | PASS | 9 events, 9 unique |
-| `event_study_baseline` | PASS | baseline 71.4%, p=0.02 |
+| `event_study_baseline` | PASS | baseline 71.7%, p=0.019 |
 | `peers_dynamic` | PASS | {"IREN": ["NBIS", "CRWV", "CIFR", "APLD", "ONDS"], "XOM": ["CVX", "JNJ", "WMT", "PG", "PFE"], "LLY": ["MRK", "BMY", "NVO |
 | `sector_proxy_dynamic` | PASS | {"NVDA": "VGT", "KO": "PG+JNJ+VZ", "XOM": "CVX+JNJ+WMT"} |
 | `present_rounds` | PASS | shown={'language': 'en-US', 'region': 'US', 'quoteType': 'EQUITY', 'typeDisp': 'Equity'} |
-| `present_stays_grounded` | PASS | quoted [233.95, 3.1] |
+| `present_stays_grounded` | PASS | quoted [229.28] |
 | `invented_still_fails` | PASS | 77.7 rejected |
 | `gate_catches_fabrication` | PASS | gate flagged [88.8] |
 | `gate_matches_report` | PASS | gate [88.8] vs report [88.8] |
 | `gate_passes_clean` | PASS | no flags |
 | `readability_ignores_names` | PASS | good=5/5 soup=2/5 |
 | `peer_perf_has_cohort` | PASS | 5 peers measured |
-| `peer_perf_beta_adjusts` | PASS | beta 1.88, excess -5.56% |
+| `peer_perf_beta_adjusts` | PASS | beta 1.89, excess -13.26% |
 | `peer_perf_carries_size` | PASS | caps present for the top peers |
-| `peer_perf_excess_is_correct` | PASS | -5.56 vs recomputed -5.56 |
+| `peer_perf_excess_is_correct` | PASS | -13.26 vs recomputed -13.26 |
 | `perf_question_detected` | PASS | all 7 correct |
 | `degraded_route_is_declared` | PASS | The router was unavailable, so this was answered from price data alone and may not address |
 | `degraded_route_shows_in_trace` | PASS | ROUTER UNAVAILABLE - fell back to market(NVDA) |
@@ -371,10 +365,10 @@ Run 2026-10-04 17:23 · model `gemini-3.5-flash-lite` · 45 tools · LLM on
 | `grounding:windows` | PASS | grounded=True, expected=True |
 | `grounding:unit scaling` | PASS | grounded=True, expected=True |
 | `grounding:real fabrication` | PASS | grounded=False, expected=False |
-| `edgar_current_tag` | PASS | newest MSFT revenue quarter 2026-06-30 (96 days old) |
+| `edgar_current_tag` | PASS | newest MSFT revenue quarter 2026-06-30 (101 days old) |
 | `edgar_no_missing_q4` | PASS | gaps between quarters [92, 92, 90, 91, 92, 92, 90, 91] |
 | `edgar_q4_derived` | PASS | derived Q4 = 130 (year 400 less 3 x 90) |
-| `growth_is_current` | PASS | latest_quarter_end=2026-06-30 yoy=17.75 |
+| `growth_is_current` | PASS | latest_quarter_end=2026-06-30 yoy=17.747 |
 | `leverage_ratio_not_percent` | PASS | keys=['current_ratio', 'debt_as_pct_of_equity', 'debt_to_equity_ratio', 'net_cash_usd', 'quick_ratio', 'total_cash'] ratio=0.17 |
 | `writer_keeps_every_finding` | PASS | 9926 chars, narratives kept: 7/7 |
 | `models_split_half_half` | PASS | 5 x gemini-3.5-flash-lite, 5 x gemini-3.1-flash-lite |
@@ -388,68 +382,18 @@ Run 2026-10-04 17:23 · model `gemini-3.5-flash-lite` · 45 tools · LLM on
 | `screen_sector_exact` | PASS | ['Technology', 'Health Care', 'Technology'] |
 | `market_followups_only_market_domains` | PASS | {'MARKET': ['screener']} |
 | `screened_names_can_be_dug_into` | PASS | {'SHAZ': ['market', 'fundamentals', 'street', 'events', 'relations'], 'UMAC': ['market', 'fundamentals', 'street', 'events', 'relations']} |
+| `cite_nearest_company` | PASS | {'107.6%': ['https://example.com/amd'], '-13.1%': ['https://example.com/nvda'], '$8.2 billion': ['https://news.example/a']} |
+| `cite_headline_figure` | PASS | {'107.6%': ['https://example.com/amd'], '-13.1%': ['https://example.com/nvda'], '$8.2 billion': ['https://news.example/a']} |
+| `cite_segments_rebuild_answer` | PASS | segments concatenate back to the answer |
+| `cite_urls_are_http` | PASS | ['https://example.com/amd', 'https://example.com/nvda', 'https://news.example/a', 'https://example.com/news'] |
+| `cite_field_level_source` | PASS | {'14.43': ['https://finance.yahoo.com/quote/NVDA/analysis/'], '$5.55T': ['https://finance.yahoo.com/quote/NVDA/']} |
+| `url_digits_never_ground` | PASS | [1045810.0] |
+| `ytd_from_prior_year_close` | PASS | ytd base 186.06, 3 closes |
+| `ttm_margins_from_four_filings` | PASS | {'operating_margin_pct': 65.21, 'net_margin_pct': 63.66, 'gross_margin_pct': 74.67} |
+| `ttm_refuses_a_gap` | PASS | None |
+| `chart_for_a_comparison` | PASS | [{'kind': 'bars', 'title': 'Margins over the last 12 months', 'unit': '%', 'series': [{'key': 'gross_margin', 'label': 'Gross'}, {'key': 'operating_ma |
+| `no_chart_unless_needed` | PASS | [[], []] |
+| `chart_lines_for_returns` | PASS | [[{'kind': 'lines', 'period': '1y', 'symbols': ['NVDA', 'SPY'], 'labels': {'SPY': 'S&P 500'}, 'title': 'NVDA vs the S&P 500, the past year', 'note': ' |
+| `chart_returns_first` | PASS | [('lines', ['NVDA', 'AMD']), ('bars', None)] |
 | `subgraph_steps_accumulate` | PASS | steps reducer: (<built-in function add>,) |
 
-
-## Agent — 18/18
-
-| Case | Result | Detail |
-|---|---|---|
-| `single_domain_price` | PASS | domains=['market'] grounded=True |
-| `valuation_fundamentals` | PASS | domains=['events', 'fundamentals', 'relations', 'street'] grounded=True |
-| `street_sentiment` | PASS | domains=['events', 'street'] grounded=True |
-| `macro_backdrop` | PASS | domains=['macro'] grounded=True |
-| `overall_read_pulls_macro` | PASS | domains=['fundamentals', 'macro', 'market', 'street'] grounded=True |
-| `read_across` | PASS | domains=['relations'] grounded=True |
-| `earnings_outlook` | PASS | domains=['events'] grounded=True |
-| `performance_pulls_peers` | PASS | domains=['events', 'market', 'relations', 'street'] grounded=True |
-| `explicit_selection` | PASS | domains=['fundamentals', 'relations'] grounded=True |
-| `selection_not_substituted` | PASS | domains=['fundamentals', 'relations'] grounded=True |
-| `refuse_offtopic` | PASS | domains=[] grounded=True |
-| `refuse_injection` | PASS | domains=[] grounded=True |
-| `unknown_ticker_degrades` | PASS | domains=[] grounded=True |
-| `followup_resolves` | PASS | domains=['fundamentals', 'macro', 'street'] grounded=True |
-| `context_ticker` | PASS | domains=['fundamentals', 'market', 'relations'] grounded=True |
-| `context_not_a_fence` | PASS | domains=['fundamentals', 'relations'] grounded=True |
-| `screener_finds_names` | PASS | domains=['screener'] grounded=True |
-| `mixed_market_and_screen` | PASS | domains=['macro', 'screener'] grounded=True |
-
-
-## Answer quality (deterministic)
-
-| Case | Validity | Readability | Structure | Conjunction |
-|---|---|---|---|---|
-| `single_domain_price` | 5/5 | 5/5 | 5/5 | 4/5 |
-| `valuation_fundamentals` | 5/5 | 5/5 | 5/5 | 5/5 |
-| `street_sentiment` | 5/5 | 5/5 | 5/5 | 4/5 |
-| `macro_backdrop` | 5/5 | 5/5 | 5/5 | 2/5 |
-| `overall_read_pulls_macro` | 5/5 | 5/5 | 4/5 | 5/5 |
-| `read_across` | 5/5 | 5/5 | 5/5 | 5/5 |
-| `earnings_outlook` | 5/5 | 5/5 | 3/5 | 1/5 |
-| `performance_pulls_peers` | 5/5 | 4/5 | 5/5 | 5/5 |
-| `explicit_selection` | 5/5 | 4/5 | 5/5 | 4/5 |
-| `selection_not_substituted` | 5/5 | 5/5 | 5/5 | 4/5 |
-| `unknown_ticker_degrades` | 2/5 | 5/5 | 5/5 | 1/5 |
-| `followup_resolves` | 5/5 | 5/5 | 5/5 | 2/5 |
-| `context_ticker` | 5/5 | 5/5 | 5/5 | 5/5 |
-| `context_not_a_fence` | 5/5 | 4/5 | 5/5 | 4/5 |
-| `screener_finds_names` | 5/5 | 5/5 | 4/5 | 1/5 |
-| `mixed_market_and_screen` | 5/5 | 4/5 | 5/5 | 5/5 |
-
-**Conjunction rate: 11/16 (69%)** — share of answers that relate two tools' or domains' data rather than listing them. This is the metric DESIGN.md §10 says justifies domain subgraphs: a one-tool agent cannot score here by construction.
-
-- mean validity: **4.8/5**
-- mean readability: **4.8/5**
-- mean structure: **4.8/5**
-
-**Lowest readability**
-
-- `performance_pulls_peers` — 3 figures in one sentence
-- `explicit_selection` — 3 figures in one sentence
-- `context_not_a_fence` — 3 figures in one sentence
-
-## Agent cost & latency
-
-- median tokens/run: **8875**
-- median latency: **4.8s** (p95 23.0s)
-- median LLM calls: **4**

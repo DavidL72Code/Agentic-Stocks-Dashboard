@@ -206,8 +206,11 @@ async def analyze(a: Analyze):
         {"domain": a.domain, "ticker": a.ticker.upper(), "question": q,
          "tools": [], "args": {}})
     f = out.get("finding")
+    from ..graph.build import cite
+    segs, srcs = cite(f.narrative, [f]) if f else ([], [])
     return {"disclaimer": DISCLAIMER, "domain": a.domain, "ticker": a.ticker.upper(),
             "finding": json.loads(f.model_dump_json()) if f else None,
+            "segments": segs, "sources": srcs,
             "steps": [json.loads(s.model_dump_json()) for s in out.get("steps", [])]}
 
 
@@ -322,11 +325,26 @@ async def _curate(data_brief):
     for grp in (payload["sector_headlines"], payload["ticker_headlines"]):
         for lst in grp.values():
             known |= {h["title"] for h in lst}
+    # every headline we fetched, by title, so a cited source can link its article
+    heads = {}
+    for h in payload["market_headlines"]:
+        heads[h["title"]] = h
+    for grp in (payload["sector_headlines"], payload["ticker_headlines"]):
+        for lst in grp.values():
+            for h in lst:
+                heads.setdefault(h["title"], h)
     for th in narrative.get("threads", []):
         srcs = [s for s in (th.get("sources") or []) if isinstance(s, str)]
         th["unverified_sources"] = [s for s in srcs
                                     if not any(s[:40].lower() in k.lower() or k[:40].lower() in s.lower()
                                                for k in known)]
+        links = []
+        for s_ in srcs:
+            h = next((v for k, v in heads.items()
+                      if s_[:40].lower() in k.lower() or k[:40].lower() in s_.lower()), None)
+            if h and h.get("url"):
+                links.append({"title": h["title"], "url": h["url"], "publisher": h.get("publisher")})
+        th["source_links"] = links
     return clean_brief(b, narrative, steps, None)
 
 

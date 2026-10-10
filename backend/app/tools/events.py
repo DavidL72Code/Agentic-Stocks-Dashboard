@@ -60,7 +60,12 @@ async def recent_filings(ticker: str, limit: int = 6, period: str | None = None,
         f = [x for x in f if x["form"] in ("8-K", "10-Q", "10-K", "8-K/A")][:15] or f[:limit]
     if not f:
         return empty("recent_filings", ticker, "no SEC filings (non-US filer?)")
-    return ok("recent_filings", ticker, {"filings": f}, source="sec-edgar")
+    from .sources import SEC_COMPANY
+    from ..providers.edgar import cik_for
+    cik = await cik_for(ticker)
+    return ok("recent_filings", ticker, {"filings": f}, source="sec-edgar",
+              url=SEC_COMPANY.format(cik=cik, form="") if cik else None,
+              label=f"SEC EDGAR · {ticker.upper()} filings (each filing links its document)")
 
 
 @tool("events", "ex-dividend date and dividend payment schedule")

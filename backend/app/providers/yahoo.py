@@ -227,13 +227,19 @@ async def attr(symbol: str, name: str, ttl: float = 86400) -> Any:
     # Crumb-gated attrs come back near-empty where Yahoo blocks the crumb (Render
     # gets {"trailingPegRatio": None}). Fill from Finnhub when it is configured;
     # Yahoo's own values win wherever it did return them.
+    from ..tools import sources as _src
+    if name == "info":
+        _src.INFO_SRC[symbol.upper()] = "yahoo"
     if name == "info" and len(val or {}) < 5 and finnhub.enabled():
         fh = await finnhub.info(symbol)
         val = {**fh, **{k: v for k, v in (val or {}).items() if v is not None}}
+        if fh:
+            _src.INFO_SRC[symbol.upper()] = "finnhub"
     # Price targets: Yahoo's need the crumb and Finnhub's need a paid plan
     if name == "info" and not (val or {}).get("targetMeanPrice"):
         tg = await nasdaq.targets(symbol)
         if tg:
+            _src.TARGETS_SRC[symbol.upper()] = "nasdaq"
             val = {**(val or {}), **tg}
             if val.get("currentPrice") is None:     # for "upside vs last"
                 q = await quote(symbol)
@@ -241,6 +247,8 @@ async def attr(symbol: str, name: str, ttl: float = 86400) -> Any:
                     val["currentPrice"] = q["regularMarketPrice"]
     elif name == "recommendations" and not val and finnhub.enabled():
         val = await finnhub.recommendations(symbol)
+        if val:
+            _src.RECS_SRC[symbol.upper()] = "finnhub"
     return val
 
 

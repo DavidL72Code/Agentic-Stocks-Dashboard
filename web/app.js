@@ -40,10 +40,72 @@ const IC = {
   arrow:`<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>`,
   refresh:`<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.6-6.4"/><path d="M21 3v6h-6"/></svg>`,
   spark:`<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M10.5 3.2l1.75 4.8 4.8 1.75-4.8 1.75-1.75 4.8-1.75-4.8L4 9.75l4.75-1.75z"/><path d="M17.8 14.4l.85 2.3 2.3.85-2.3.85-.85 2.3-.85-2.3-2.3-.85 2.3-.85z"/></svg>`,
+  info:`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 11v5.5"/><path d="M12 7.6v.01"/></svg>`,
   chev:`<svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>`,
 };
 
 const DISCLAIMER = "Informational only, not financial advice. Monsoon summarises public data and cannot account for your circumstances.";
+
+/* ── info tips: the explanation lives behind an ⓘ, not as grey text on the page ──
+   Small translucent captions under every heading made each panel read like a
+   footnote. Anything a reader needs only sometimes - where a number comes from,
+   how to read a table, the disclaimer - opens from an icon instead: on hover or
+   focus, and pinned by a click or tap. One floating box for the whole page, so
+   a panel with overflow:hidden can never clip it. `html` must already be
+   escaped by the caller (every call site builds it with esc()). */
+const tip = (html, label = "More info") =>
+  `<button type="button" class="itip" data-tip="${esc(html)}" aria-label="${esc(label)}" aria-expanded="false">${IC.info}</button>`;
+/* the sources a panel's numbers can be checked on, behind one button */
+function srcBtn(list) {
+  const ok = (list || []).filter(x => x && x.label);
+  if (!ok.length) return "";
+  const items = ok.map(x => { const u = safeUrl(x.url);
+    return `<li>${u ? `<a href="${esc(u)}" target="_blank" rel="noopener">${esc(x.label)} ↗</a>` : esc(x.label)}</li>`; }).join("");
+  return `<button type="button" class="srcbtn" data-tip="${esc(`<div class="tiph">Where these numbers come from</div><ul class="tipl">${items}</ul>`)}"
+    aria-expanded="false">${IC.info}Sources · ${ok.length}</button>`;
+}
+const TIP = { el: null, at: null, pinned: false, t: 0 };
+function tipShow(btn, pin) {
+  if (!TIP.el) {
+    TIP.el = document.createElement("div"); TIP.el.className = "tipbox"; TIP.el.setAttribute("role", "tooltip");
+    TIP.el.addEventListener("mouseenter", () => clearTimeout(TIP.t));
+    TIP.el.addEventListener("mouseleave", () => { if (!TIP.pinned) tipSoon(); });
+    document.body.appendChild(TIP.el);
+  }
+  clearTimeout(TIP.t);
+  if (TIP.at && TIP.at !== btn) TIP.at.setAttribute("aria-expanded", "false");
+  TIP.at = btn; TIP.pinned = !!pin;
+  TIP.el.innerHTML = btn.dataset.tip;
+  TIP.el.classList.add("on");
+  const r = btn.getBoundingClientRect(), w = TIP.el.offsetWidth, h = TIP.el.offsetHeight;
+  const x = Math.min(Math.max(8, r.left + r.width / 2 - w / 2), innerWidth - w - 8);
+  const y = r.bottom + 8 + h > innerHeight - 8 ? Math.max(8, r.top - h - 8) : r.bottom + 8;
+  TIP.el.style.left = x + "px"; TIP.el.style.top = y + "px";
+  btn.setAttribute("aria-expanded", "true");
+}
+function tipHide() {
+  clearTimeout(TIP.t);
+  TIP.el?.classList.remove("on"); TIP.at?.setAttribute("aria-expanded", "false");
+  TIP.at = null; TIP.pinned = false;
+}
+const tipSoon = () => { clearTimeout(TIP.t); TIP.t = setTimeout(tipHide, 180); };
+const tipOf = e => e.target?.closest?.("[data-tip]");
+document.addEventListener("mouseover", e => { const b = tipOf(e);
+  if (b && b !== TIP.at && !TIP.pinned && matchMedia("(hover:hover)").matches) tipShow(b); });
+document.addEventListener("mouseout", e => { const b = tipOf(e);
+  if (b && b === TIP.at && !TIP.pinned && !b.contains(e.relatedTarget)) tipSoon(); });
+document.addEventListener("focusin", e => { const b = tipOf(e); if (b && b !== TIP.at) tipShow(b); });
+document.addEventListener("focusout", e => { if (TIP.at && e.target === TIP.at && !TIP.pinned
+  && !TIP.el?.contains(e.relatedTarget)) tipSoon(); });
+// capture, so a tip inside a clickable row opens the tip instead of the row
+document.addEventListener("click", e => {
+  const b = tipOf(e);
+  if (b) { e.preventDefault(); e.stopPropagation(); TIP.at === b && TIP.pinned ? tipHide() : tipShow(b, true); return; }
+  if (TIP.at && !TIP.el?.contains(e.target)) tipHide();
+}, true);
+document.addEventListener("keydown", e => { if (e.key === "Escape" && TIP.at) { const b = TIP.at; tipHide(); b.focus(); } });
+addEventListener("scroll", e => { if (TIP.at && !TIP.el?.contains(e.target)) tipHide(); }, true);
+addEventListener("resize", () => TIP.at && tipHide());
 const LAST_TICKER = "monsoon.lastTicker";
 // null = never saved, so default to NVDA; "" = you closed every ticker, so stay empty
 const lastTicker = () => { try { const v = localStorage.getItem(LAST_TICKER);
@@ -277,16 +339,13 @@ function buildChart() {
   const el = $("chart");
   if (!el || !window.LightweightCharts) return;
   try { chartRO?.disconnect(); chart?.remove(); } catch {}
-  const pro = PRO(), ink = pro ? cssv("--subtle-foreground") : "#8d95a6";
-  const grid = pro ? cssv("--border-subtle") : "rgba(255,255,255,.045)";
-  const edge = pro ? cssv("--border") : "rgba(255,255,255,.08)";
-  const hair = pro ? (LIGHT() ? "rgba(15,23,42,.35)" : "rgba(255,255,255,.3)") : "rgba(255,255,255,.25)";
-  const lab = pro ? cssv("--foreground") : "#1a1d28";
+  const ink = cssv("--subtle-foreground"), grid = cssv("--border-subtle"), edge = cssv("--border");
+  const hair = LIGHT() ? "rgba(15,23,42,.35)" : "rgba(255,255,255,.3)", lab = cssv("--foreground");
   chart = LightweightCharts.createChart(el, {
     width: el.clientWidth||800, height: el.clientHeight||340,
-    layout:{background:{color:"transparent"},textColor:ink,fontSize:pro ? 11 : 10,
-            fontFamily: pro ? "Inter, system-ui, sans-serif" : "JetBrains Mono, monospace"},
-    grid:{vertLines:{color: pro ? "transparent" : grid},horzLines:{color:grid}},
+    layout:{background:{color:"transparent"},textColor:ink,fontSize:11,
+            fontFamily:"Inter, system-ui, sans-serif"},
+    grid:{vertLines:{color:"transparent"},horzLines:{color:grid}},
     rightPriceScale:{borderColor:edge,scaleMargins:{top:.1,bottom:.26}},
     timeScale:{borderColor:edge,rightOffset:3,barSpacing:9,
                fixLeftEdge:true,fixRightEdge:true},
@@ -324,7 +383,7 @@ async function drawChart() {
   maB.setData(S.show.MA ? sma(bars, Math.min(200, Math.max(5, bars.length>>1))) : []);
   chart.applyOptions({timeScale:{timeVisible:/m|h/.test(interval)}});
   requestAnimationFrame(()=>chart.timeScale().fitContent());
-  if (PRO()) wireOhlc(bars);
+  wireOhlc(bars);
 }
 
 /* ─────────────── shared bits ─────────────── */
@@ -405,9 +464,7 @@ function signalStrip(b) {
   const sigs = (b.signals||[]).slice(0,4);
   return `<div class="panel">
     <div class="panel-h"><h4>Daily overview</h4>
-      <span class="r">${!b.checked.length ? "market-wide · " + sigs.length + " flagged"
-        : `${sigs.length} flagged · ${b.checked.length} tracked${
-        b.adjacent_checked?.length?` + ${b.adjacent_checked.length} adjacent`:""}`}</span>
+      <span class="r"><span class="cnt">${sigs.length} flagged</span></span>
       <a class="btn btn-sm btn-ghost" href="#/brief">Full brief</a></div>
     <div class="panel-b" style="display:grid;gap:8px">
       ${sigs.length ? sigs.map(g=>`<div class="sigline" data-go="${esc(g.ticker)}" tabindex="0">
@@ -415,9 +472,7 @@ function signalStrip(b) {
           <div><div class="h">${esc(g.headline)}${g.held?` <span class="badge brand">held</span>`:""}</div>
             <div class="d">${esc(g.detail)}</div></div>
           <span class="sev mono">${g.severity}</span></div>${whyHTML(g.why)}`).join("")
-        : `<div class="empty" style="padding:18px">Nothing unusual today.
-             ${b.quiet?.length?`<div class="muted" style="margin-top:6px">Checked ${b.quiet.join(", ")}${
-               b.adjacent_checked?.length?` and ${b.adjacent_checked.length} adjacent names`:""}</div>`:""}</div>`}
+        : `<div class="empty" style="padding:18px">Nothing unusual today.</div>`}
     </div></div>`;
 }
 
@@ -442,125 +497,8 @@ function wlRows(rows) {
 /* what a guest (or an empty watchlist) sees instead of a table of headers */
 const POPULAR = ["NVDA","AAPL","MSFT","AMZN","GOOGL","META","AVGO","TSLA"];
 
-async function viewDashboard(nav) {
-  if (PRO()) return viewDashboardPro(nav);
-  crumbs([{label:"Dashboard"}]);
-  const v = $("views");
-  const pf = S.pf;
-  const held = new Set((pf?.positions||[]).map(p=>p.ticker));
-  const demo = !S.wl.length;
-  const list = demo ? POPULAR : S.wl;
-  if (demo && POPULAR.some(x => !S.q[x])) {
-    try {
-      const [d, sp] = await Promise.all([api(`/api/quotes?symbols=${POPULAR.join(",")}`),
-                                        api(`/api/sparklines?symbols=${POPULAR.join(",")}`)]);
-      d.quotes.forEach(q => S.q[q.symbol] = q); Object.assign(S.sparks, sp.sparklines);
-    } catch {}
-    if (nav !== undefined && nav !== NAV.seq) return;
-  }
-  const rows = list.map(x => ({ sym:x, held:held.has(x), ...quoteRow(x) }))
-                   .filter(r => r.price != null);
+async function viewDashboard(nav) { return viewDashboardPro(nav); }
 
-  v.innerHTML = `<div class="page">
-    <div class="page-head">
-      <div><div class="ttl">Dashboard</div>
-        <div class="sub">${demo ? "The broad market and the names most people are watching"
-                                 : `The broad market and your ${rows.length} tracked tickers`}</div></div>
-      <div class="acts">
-        <input id="addinput" class="inp" style="width:170px" placeholder="Add ticker…">
-        <button class="btn btn-sm btn-brand" id="askhere">Ask ${IC.arrow}</button></div>
-    </div>
-
-    <div id="idxstrip" class="idxstrip">
-      ${Array(6).fill(`<div class="idx skel" style="height:122px"></div>`).join("")}</div>
-
-    ${ME.guest ? `<div class="guestbar">
-      <span>Browsing as a guest — quotes, research and the agent all work. A free
-      account adds a watchlist and portfolios that persist.</span>
-      <div class="grow"></div>
-      <button class="btn btn-sm btn-brand" id="gbsign">Create account</button></div>` : ""}
-
-    <div class="section" id="sigwrap">${signalStrip(S.brief)}</div>
-
-    <div class="section"><div class="panel">
-      <div class="panel-h"><h4>${demo ? "Most watched" : "Watchlist"}</h4>
-        <span class="r">${demo ? (ME.guest ? "sign in to keep your own list" : "add a ticker above to start your own")
-                               : `live · ${rows.length} tickers in 1 request`}</span></div>
-      <table class="wtable wl"><thead><tr>
-        ${[["sym","Symbol"],["price","Last"],["change_pct","Change"],[null,"30-day"],
-           ["market_cap","Mkt cap"],["pe","P/E"],[null,""]]
-          .map(([k,label])=>`<th ${k?`data-sort="${k}" class="sortable${wlSort.key===k?" on":""}"`:""}>${label}${
-            k&&wlSort.key===k?`<span class="caret">${wlSort.dir<0?"▾":"▴"}</span>`:""}</th>`).join("")}
-      </tr></thead><tbody id="wlbody">${wlRows(rows) || `<tr><td colspan="7"><div class="empty">
-        Prices are unavailable right now.</div></td></tr>`}</tbody></table>
-    </div></div></div>`;
-
-  wireAdd();
-  if ($("gbsign")) $("gbsign").onclick = () => openAuth("register");
-  loadIndices();
-  const paintSparks = () => $$("[data-spark]").forEach(el => {
-    const val = S.sparks[el.dataset.spark] || [];
-    if (val.length>1) CH.sparkline(el, val, val.at(-1)>=val[0]); });
-  const wireRows = () => $$("#wlbody [data-go], .sigline[data-go]").forEach(el => {
-    el.onclick = () => location.hash = "#/t/"+el.dataset.go;
-    el.onkeydown = e => { if (e.key === "Enter") el.click(); }; });
-  paintSparks(); wireRows();
-
-  $$("[data-sort]").forEach(th => th.onclick = () => {
-    const k = th.dataset.sort;
-    wlSort = { key:k, dir: wlSort.key===k ? -wlSort.dir : (k==="sym" ? 1 : -1) };
-    $("wlbody").innerHTML = wlRows(rows);
-    $$("[data-sort]").forEach(x => { x.classList.toggle("on", x.dataset.sort===wlSort.key);
-      x.querySelector(".caret")?.remove();
-      if (x.dataset.sort===wlSort.key) x.insertAdjacentHTML("beforeend",
-        `<span class="caret">${wlSort.dir<0?"▾":"▴"}</span>`); });
-    paintSparks(); wireRows();
-  });
-
-  afterRender(v);
-  // the overview is the slow part - fill it in once it lands
-  loadBrief().then(b => { const w = $("sigwrap"); if (!w) return;
-    w.innerHTML = signalStrip(b); wireRows();
-    mo(w.querySelectorAll(".sigline"), {opacity:[0,1],y:[6,0]},
-       {duration:.32,delay:stag(.04),easing:[.22,1,.36,1]}); })
-    .catch(() => { const w = $("sigwrap"); if (w) w.innerHTML = ""; });
-}
-
-
-/* ───────── broad market strip ───────── */
-async function loadIndices() {
-  const el = $("idxstrip"); if (!el) return;
-  let d; try { d = await api("/api/indices"); } catch { el.innerHTML = ""; return; }
-
-  el.innerHTML = d.indices.map(i => {
-    if (i.kind === "sentiment") {
-      return `<div class="idx fng">
-        <div class="lbl">${esc(i.label)} <span class="src2">${esc(i.source||"")}</span></div>
-        <div class="mount" data-fng="${i.level}"></div>
-        <div class="chg mono">${i.change!=null?`${i.change>=0?"+":""}${num(i.change,1)} vs yesterday`:""}${
-          i.month_ago!=null?` · ${num(i.month_ago,0)} a month ago`:""}</div></div>`;
-    }
-    // a falling VIX or yield is not "good" — keep those neutral
-    const neutral = i.kind !== "index";
-    return `<div class="idx">
-      <div class="lbl">${esc(i.label)}</div>
-      <div class="lvl mono">${i.kind==="rate" ? num(i.level)+"%" : num(i.level, i.level>1000?0:2)}</div>
-      <div class="mount" data-ix="${esc(i.symbol)}"></div>
-      <div class="chg mono ${neutral?"":sgn(i.change_pct)}">${pct(i.change_pct)}</div></div>`;
-  }).join("");
-
-  const by = Object.fromEntries(d.indices.map(i=>[i.symbol,i]));
-  el.querySelectorAll("[data-ix]").forEach(m => {
-    const i = by[m.dataset.ix]; if (!i?.history?.length) return;
-    CH.indexSpark(m, i.history, i.change_pct >= 0, i.kind !== "index");
-  });
-  el.querySelectorAll("[data-fng]").forEach(m => {
-    const i = d.indices.find(x=>x.kind==="sentiment"); if (!i) return;
-    CH.fngGauge(m, i.level, i.history);
-  });
-  mo(el.querySelectorAll(".idx"), { opacity:[0,1], y:[8,0] },
-     { duration:.34, delay:stag(.04), easing:[.22,1,.36,1] });
-}
 
 /* ═══════════════ VIEW: ticker ═══════════════ */
 const TAB_DOMAIN = { overview:"fundamentals", financials:"fundamentals",
@@ -570,41 +508,70 @@ function agentSlot(domain) {
   const f = S.tabAgent[S.cur + ":" + domain];
   if (!f) return "";
   return `<div class="agentbox"><div class="ah"><span class="dot"></span>${esc(DOMAIN_LABEL[f.domain]||f.domain)} specialist · ${f.tools_used.length} tools</div>
-    ${paras(f.narrative)}
-    <div class="disclaim">${esc(DISCLAIMER)}</div>
+    ${f.segments?.length ? citedHTML(f) : paras(f.narrative)}
+    ${sourcesHTML(f)}
     <button class="link" data-trace="${esc(domain)}">Show work ${IC.arrow}</button></div>`;
 }
+
+/* what an SEC form IS, in plain words - the file name told nobody anything */
+const FORM_NAME = { "10-Q": "Quarterly report", "10-K": "Annual report", "8-K": "Current report",
+  "8-K/A": "Amended current report", "4": "Insider trade", "3": "New insider", "144": "Planned insider sale",
+  "SC 13G": "Large shareholder stake", "SC 13G/A": "Large shareholder stake (update)", "SC 13D": "Activist stake",
+  "DEF 14A": "Proxy statement", "S-8": "Employee share plan", "S-3": "Shelf registration",
+  "424B2": "Securities offering", "11-K": "Employee plan annual report", "10-Q/A": "Amended quarterly report" };
+
+/* margins over the last 12 months, added up from the four quarterly filings.
+   Each quarter links its filing, so every margin can be rebuilt by hand - the
+   quote pages' "ttm" margins can't (Yahoo's NVDA one was a single quarter). */
+function marginsHTML(tt) {
+  if (!tt?.quarters?.length) return "";
+  const pv = v => v == null ? "—" : num(v, 1) + "%";
+  const m = (a, b) => a != null && b ? pv(a / b * 100) : "—";
+  const big = [["Gross margin", tt.gross_margin_pct], ["Operating margin", tt.operating_margin_pct],
+               ["Net margin", tt.net_margin_pct]].filter(([, v]) => v != null);
+  const form = q => safeUrl(q.url)
+    ? `<a class="badge brand" href="${esc(q.url)}" target="_blank" rel="noopener"
+         title="${esc((FORM_NAME[q.form] || q.form || "Filing") + (q.derived ? " · this quarter is the full year minus the three quarters before it" : "") + " · opens on SEC EDGAR")}">${esc(q.form || "filing")} ↗</a>`
+    : `<span class="badge">${esc(q.form || "")}</span>`;
+  return `<div class="section"><div class="panel">
+    <div class="panel-h"><h4>Margins · ${esc(tt.period || "last 12 months")}${tip(esc(
+      "How much of each dollar of sales the company keeps. Gross margin: after the cost of what it sold. "
+      + "Operating margin: after the costs of running the business too. Net margin: after everything, including tax and interest. "
+      + "Added up from the four quarterly reports below, each linked to the filing on SEC EDGAR."))}</h4></div>
+    <div class="panel-b">
+      <div class="mgrid">${big.map(([k, v]) => `<div class="mg"><div class="k">${k}</div><div class="v mono">${pv(v)}</div></div>`).join("")}</div>
+      <table class="mtable"><thead><tr><th>Quarter ended</th><th>Revenue</th><th>Gross</th><th>Operating</th><th>Net</th><th>Filing</th></tr></thead>
+      <tbody>${tt.quarters.slice().reverse().map(q => `<tr><td>${esc(longDate(toDate(q.end)))}</td>
+          <td class="mono">${usd(q.revenue)}</td><td class="mono">${m(q.gross_profit, q.revenue)}</td>
+          <td class="mono">${m(q.operating_income, q.revenue)}</td><td class="mono">${m(q.net_income, q.revenue)}</td>
+          <td>${form(q)}</td></tr>`).join("")}
+        <tr class="tot"><td>12 months</td><td class="mono">${usd(tt.revenue)}</td><td class="mono">${pv(tt.gross_margin_pct)}</td>
+          <td class="mono">${pv(tt.operating_margin_pct)}</td><td class="mono">${pv(tt.net_margin_pct)}</td><td></td></tr>
+      </tbody></table></div></div></div>`;
+}
+
+/* where a panel's numbers come from: the same pages the agent cites, behind a
+   "Sources" button at the foot of the tab rather than a line of grey links */
+const srcLine = list => (list || []).length ? `<div class="psrc">${srcBtn(list)}</div>` : "";
 
 const TABS = {
   overview: async t => {
     const o = await api(`/api/overview/${t}`);
     const p = x => x==null ? "—" : num(x*100,1)+"%";
-    if (PRO()) return kvHTML([
+    return kvHTML([
         ["Market cap", usd(o.market_cap)], ["P/E (TTM)", num(o.pe,1)],
         ["Forward P/E", num(o.forward_pe,1)], ["Price / book", num(o.price_to_book,1)],
-        ["Gross margin", p(o.gross_margin), "TTM"], ["Operating margin", p(o.operating_margin), "TTM"],
-        ["Net margin", p(o.net_margin), "TTM"], ["Return on equity", p(o.roe), "TTM"],
+        ["Gross margin", p(o.gross_margin), "12 mo"], ["Operating margin", p(o.operating_margin), "12 mo"],
+        ["Net margin", p(o.net_margin), "12 mo"], ["Return on equity", p(o.roe), "12 mo"],
         ["Revenue growth", o.revenue_growth!=null ? pct(o.revenue_growth*100) : "—", "YoY"],
         ["Debt / equity", o.debt_to_equity==null ? "—" : num(o.debt_to_equity/100,2)+"×",
           o.cash!=null&&o.debt!=null ? (o.cash>=o.debt ? `net cash ${usd(o.cash-o.debt)}` : `net debt ${usd(o.debt-o.cash)}`) : ""],
-        ["Free cash flow", usd(o.fcf), "TTM"], ["Dividend yield", o.dividend_yield ? num(o.dividend_yield,2)+"%" : "—"],
+        ["Free cash flow", usd(o.fcf), "12 mo"], ["Dividend yield", o.dividend_yield ? num(o.dividend_yield,2)+"%" : "—"],
         ["Employees", o.employees ? Number(o.employees).toLocaleString() : "—"],
         ["Sector", esc(o.sector || "—"), o.industry || ""]])
       + `<div class="section"><div class="panel"><div class="panel-h"><h4>About ${esc(t)}</h4></div>
           <div class="panel-b"><div class="prose">${o.summary ? esc(o.summary) : "No profile available."}</div></div>
-        </div></div>` + agentSlot("fundamentals");
-    return tilesHTML([
-      ["Market cap",usd(o.market_cap),""],["P/E",num(o.pe,1),"trailing"],
-      ["Fwd P/E",num(o.forward_pe,1),""],["P/B",num(o.price_to_book,1),""],
-      ["Net margin",p(o.net_margin),"TTM"],["Op margin",p(o.operating_margin),"TTM"],
-      // Yahoo reports debt/equity in percent (16.97 = 0.17x); shown as the ratio
-      ["ROE",p(o.roe),"TTM"],["Debt/Equity",o.debt_to_equity==null?"—":num(o.debt_to_equity/100,2)+"×",
-        o.cash!=null&&o.debt!=null?(o.cash>=o.debt?`net cash ${usd(o.cash-o.debt)}`:`net debt ${usd(o.debt-o.cash)}`):""]])
-      + `<div class="section"><div class="panel"><div class="panel-h"><h4>Profile</h4>
-          <span class="r">${esc(o.sector||"")}${o.industry?" · "+esc(o.industry):""}</span></div>
-          <div class="panel-b"><div class="prose">${o.summary ? esc(o.summary.length > 620 ? o.summary.slice(0,620).replace(/\s+\S*$/,"") + "…" : o.summary)
-                                  : "No profile available."}</div></div>
-        </div></div>` + agentSlot("fundamentals");
+        </div></div>` + srcLine(o.sources) + agentSlot("fundamentals");
   },
   financials: async t => {
     const f = await api(`/api/financials/${t}`);
@@ -625,8 +592,7 @@ const TABS = {
           ["Track record", `${f.beats}/${f.reports}`, "beats on EPS"]])}</div></div>` : "";
     const trackHTML = tr.length ? `
       <div class="section"><div class="panel">
-        <div class="panel-h"><h4>Beat / miss history</h4>
-          <span class="r">reported EPS vs consensus</span></div>
+        <div class="panel-h"><h4>Beat / miss history${tip(esc("Earnings per share the company reported, against what analysts expected beforehand. A beat means it earned more than expected."))}</h4></div>
         <div class="panel-b tight"><div id="trmount" class="chartmount"></div></div>
         <div class="panel-b" style="padding-top:0">
           ${tr.map(t=>`<div class="lrow"><span class="d mono">${esc(t.date)}</span>
@@ -634,30 +600,29 @@ const TABS = {
             <span class="badge ${t.result==="beat"?"pos":t.result==="miss"?"neg":""}">
               ${t.result} ${t.surprise_pct!=null?pct(t.surprise_pct):""}</span></div>`).join("")}
         </div></div></div>` : "";
-    return upcomingHTML + `<div class="panel"><div class="panel-h"><h4>Quarterly revenue</h4>
-        <span class="r">${esc(f.source)}</span></div>
-      <div class="panel-b tight"><div id="revmount" class="chartmount"></div></div></div>
-      <div class="section"><div class="panel"><div class="panel-h"><h4>Income statement</h4>
-        <span class="r">${esc(f.note)}</span></div>
+    return upcomingHTML + marginsHTML(f.ttm) + `<div class="section"><div class="panel"><div class="panel-h"><h4>Quarterly revenue</h4></div>
+      <div class="panel-b tight"><div id="revmount" class="chartmount"></div></div></div></div>
+      <div class="section"><div class="panel"><div class="panel-h"><h4>Income statement${tip(esc("One row per three-month quarter, straight from the company's SEC filings. The badge opens the filing itself."))}</h4></div>
         <div class="panel-b"><table>
         <thead><tr><th>Quarter</th><th>Revenue</th><th>Gross</th><th>Operating</th><th>Net</th><th>Op margin</th><th>Form</th></tr></thead>
         <tbody>${qs.slice().reverse().map(q=>`<tr><td>${q.end}</td>
           <td class="mono">${usd(q.revenue)}</td><td class="mono">${usd(q.gross_profit)}</td>
           <td class="mono">${usd(q.operating_income)}</td><td class="mono">${usd(q.net_income)}</td>
           <td class="mono">${q.operating_margin!=null?q.operating_margin+"%":"—"}</td>
-          <td><span class="badge">${esc(q.form||"")}</span></td></tr>`).join("")}</tbody>
-        </table></div></div></div>` + trackHTML + agentSlot("fundamentals");
+          <td>${safeUrl(q.url) ? `<a class="badge brand" href="${esc(q.url)}" target="_blank" rel="noopener"
+                 title="Open the ${esc(q.form||"filing")} on SEC EDGAR">${esc(q.form||"filing")} ↗</a>`
+               : `<span class="badge">${esc(q.form||"")}</span>`}</td></tr>`).join("")}</tbody>
+        </table></div></div></div>` + trackHTML + srcLine(f.sources) + agentSlot("fundamentals");
   },
   news: async t => {
     const n = await api(`/api/news/${t}`);
     if (!n.items.length) return `<div class="empty">No recent headlines.</div>`;
-    return `<div class="panel"><div class="panel-h"><h4>Headlines</h4>
-        <span class="r">${n.relevant} of ${n.total} name the issuer</span></div>
+    return `<div class="panel"><div class="panel-h"><h4>Headlines${tip(esc(`${n.relevant} of these ${n.total} headlines name ${t} itself; the rest are general market stories the feed attached. The feed doesn't say whether news is good or bad.`))}</h4></div>
       <div class="panel-b">${n.items.map(i=>`<div class="newsrow"><div>
         <div class="h">${/^https?:\/\//i.test(i.url||"")?`<a href="${esc(i.url)}" target="_blank" rel="noopener">${esc(i.title)}</a>`:esc(i.title)}</div>
         <div class="m">${esc(i.publisher||"")}${i.published?" · "+esc(String(i.published).slice(0,10)):""}</div></div>
         <span class="badge ${i.mentions_issuer?"brand":"ghost"}">${i.mentions_issuer?esc(t):"unrelated"}</span></div>`).join("")}
-        <div class="muted" style="margin-top:14px">${esc(n.note)}</div></div></div>`
+        </div></div>`
       + agentSlot("street");
   },
   analysts: async t => {
@@ -672,15 +637,14 @@ const TABS = {
       ["Low target", usdp(g.targetLowPrice), ""],
       ["Mean target", usdp(g.targetMeanPrice), up!=null?pct(up)+" vs last price":""],
       ["High target", usdp(g.targetHighPrice), ""]])
-      + (total ? `<div class="section"><div class="panel"><div class="panel-h"><h4>Consensus distribution</h4>
-          <span class="r">${total} analysts · reported counts</span></div>
+      + (total ? `<div class="section"><div class="panel"><div class="panel-h"><h4>Consensus distribution${tip(esc(`How the ${total} analysts covering ${t} rate it, from strong buy to strong sell.`))}</h4></div>
           <div class="panel-b"><div id="consmount"></div></div></div></div>` : "")
       + `<div class="section"><div class="panel"><div class="panel-h"><h4>Rating changes</h4></div>
         <div class="panel-b">${a.changes.length ? a.changes.map(r=>`<div class="lrow">
           <span class="d mono">${esc(r.date)}</span><span>${esc(r.firm||"")} → ${esc(r.to||"")}</span>
           <span class="badge ${/up/i.test(r.action||"")?"pos":/down/i.test(r.action||"")?"neg":""}">${esc(r.action||"—")}</span>
         </div>`).join("") : `<div class="empty">No rating changes on record.</div>`}</div></div></div>`
-      + agentSlot("street");
+      + srcLine(a.sources) + agentSlot("street");
   },
 
   related: async t => {
@@ -695,8 +659,7 @@ const TABS = {
         ["Gap vs group", gap!=null?pct(gap):"—", m.reading?esc(m.reading):""],
         ["Biggest mover", m.biggest_mover.ticker, pct(m.biggest_mover.change_pct)]]) : "")
       + (m ? `<div class="section"><div class="panel">
-          <div class="panel-h"><h4>How the adjacent cohort traded today</h4>
-            <span class="r">Yahoo peer set</span></div>
+          <div class="panel-h"><h4>How the adjacent cohort traded today${tip(esc(`The peers are the stocks Yahoo Finance lists as similar to ${t}.`))}</h4></div>
           <table class="wtable"><thead><tr><th>Peer</th><th>Last</th><th>Today</th><th></th></tr></thead>
           <tbody>${m.peers.map(pr=>`<tr data-go="${pr.ticker}">
             <td><div class="wname"><img src="${logo(pr.ticker)}" alt="" loading="lazy">
@@ -708,8 +671,8 @@ const TABS = {
               ${Math.abs(pr.change_pct - m.ticker_change_pct) > 3 ? "diverging" : "in line"}</span></td>
           </tr>`).join("")}</tbody></table></div></div>` : "")
       + (a ? `<div class="section"><div class="panel">
-          <div class="panel-h"><h4>Does a peer's move transmit to ${esc(t)}?</h4>
-            <span class="r">~2y daily returns · association, not causation</span></div>
+          <div class="panel-h"><h4>Does a peer's move transmit to ${esc(t)}?${tip(
+            `<p>${esc(a.how_to_read || "")}</p><p>${esc(a.caution || "")}</p><p>Based on about 2 years of daily moves. It shows the stocks move together, not that one causes the other.</p>`)}</h4></div>
           <table class="wtable"><thead><tr><th>Peer</th><th>Today</th><th>Correlation</th>
             <th>Same direction</th><th>Capture of &gt;3% move</th><th></th></tr></thead>
           <tbody>${a.peers.map(pr=>{
@@ -723,10 +686,8 @@ const TABS = {
               <td class="mono">${cap!=null?num(cap)+"×":"—"}</td>
               <td><span class="badge ${cap>=.7?"pos":cap!=null&&cap<.35?"neg":""}">${verdict}</span></td>
               </tr>`;}).join("")}</tbody></table>
-          <div class="panel-b"><div class="muted">${esc(a.how_to_read)}</div>
-            <div class="muted" style="margin-top:8px;color:var(--warn)">${esc(a.caution)}</div>
-            <button class="btn btn-sm" id="esbtn" data-peer="${a.strongest_link.peer}"
-              style="margin-top:12px">Test whether ${a.strongest_link.peer}'s earnings move ${esc(t)}</button>
+          <div class="panel-b">
+            <button class="btn btn-sm" id="esbtn" data-peer="${a.strongest_link.peer}">Test whether ${a.strongest_link.peer}'s earnings move ${esc(t)}</button>
             <div id="esout"></div></div>
         </div></div>` : "")
       + agentSlot("relations");
@@ -744,9 +705,10 @@ const TABS = {
           <div class="panel-b tight"><div id="surpmount" class="chartmount"></div></div></div></div>` : "")
       + `<div class="section"><div class="panel"><div class="panel-h"><h4>SEC filings</h4></div>
         <div class="panel-b">${e.filings.length ? e.filings.map(f=>`<div class="lrow">
-          <span class="d mono">${esc(f.date)}</span><span>${esc(f.doc||"")}</span>
+          <span class="d mono">${esc(f.date)}</span>
+          <span>${safeUrl(f.url) ? `<a href="${esc(f.url)}" target="_blank" rel="noopener">${esc((f.reasons||[]).join(", ") || FORM_NAME[f.form] || f.form + " filing")} ↗</a>` : esc(FORM_NAME[f.form] || f.doc || "")}</span>
           <span class="badge">${esc(f.form)}</span></div>`).join("") : `<div class="empty">None.</div>`}</div></div></div>`
-      + agentSlot("events");
+      + srcLine(e.sources) + agentSlot("events");
   }
 };
 
@@ -786,10 +748,8 @@ async function viewResearch(symbols, nav) {
       </div></div>
 
     <div id="composer"></div>
-    <div id="panels" class="panelgrid">
-      ${symbols.map(()=>`<div class="skel" style="height:188px"></div>`).join("")}</div>
-    ${symbols.length > 1 ? `<div class="section" id="overlaywrap">
-      <button class="btn btn-sm" id="showOverlay">Compare performance</button></div>` : ""}
+    <div id="panels"><div class="skel" style="height:30px;width:260px;border-radius:7px"></div></div>
+    ${symbols.length > 1 ? `<div class="section" id="overlaywrap"></div>` : ""}
     <div class="section" id="detailwrap"></div>
   </div>`;
 
@@ -806,76 +766,25 @@ async function viewResearch(symbols, nav) {
   catch (e) { if (nav === NAV.seq && $("panels")) $("panels").innerHTML = `<div class="empty">Couldn't load: ${esc(e.message)}</div>`; return; }
   if (nav !== undefined && nav !== NAV.seq) return;            // you have already moved on
   S.compare = cmp;
-  const by = Object.fromEntries(cmp.rows.map(r => [r.symbol, r]));
 
-  if (PRO()) {
-    const pg = $("panels"); pg.className = ""; pg.innerHTML = qBarHTML(symbols, cmp);
-    $$("[data-qfocus]").forEach(c => c.onclick = async e => {
-      if (e.target.closest("input,[data-close]")) return;
-      if (S.cur === c.dataset.qfocus) return;
-      S.focus = S.cur = c.dataset.qfocus;
-      $$("[data-qfocus]").forEach(x => x.classList.toggle("on", x.dataset.qfocus === S.cur));
-      await renderDetail(); syncAsk(); });
-    if ($("showOverlay2")) $("showOverlay2").onclick = () => { renderOverlay(cmp, symbols);
-      $("overlaywrap")?.scrollIntoView({ behavior: "smooth", block: "start" }); };
-  } else
-  $("panels").innerHTML = symbols.map((t, i) => {
-    const r = by[t] || {};
-    const col = PANEL_COLORS[i % PANEL_COLORS.length];
-    return `<div class="tpanel ${S.picked.has(t)?"picked":""} ${t===S.cur?"focus":""}" data-panel="${esc(t)}">
-      <div class="tp-head">
-        <label class="tick"><input type="checkbox" data-pick="${esc(t)}" aria-label="Include ${esc(t)} in analysis" ${S.picked.has(t)?"checked":""}>
-          <span class="box" style="--c:${col}"></span></label>
-        <img src="${logo(t)}" alt="" loading="lazy">
-        <div class="tp-id"><div class="s">${esc(t)}</div>
-          <div class="n">${esc(r.name||"")}</div></div>
-        <button class="tp-x" data-close="${esc(t)}" title="Close ${esc(t)}" aria-label="Close ${esc(t)}">${IC.x}</button>
-      </div>
-      <div class="tp-px">
-        <span class="mono lv">${r.price!=null?"$"+num(r.price):"—"}</span>
-        <span class="badge ${sgn(r.change_pct)}">${pct(r.change_pct)}</span>
-        <span class="badge ghost">6mo ${pct(r.period_pct)}</span>
-      </div>
-      <div class="tp-spark" data-tspark="${t}" data-col="${col}"></div>
-      <div class="tp-stats">
-        ${[["P/E",num(r.pe,1)],["Mkt cap",usd(r.market_cap)],
-           ["Net mgn", r.net_margin!=null?num(r.net_margin*100,1)+"%":"—"],
-           ["Rev gr", r.revenue_growth!=null?pct(r.revenue_growth*100):"—"]]
-          .map(([k,val])=>`<div><span class="k">${k}</span><span class="v mono">${val}</span></div>`).join("")}
-      </div>
-      <button class="tp-open" data-focus="${esc(t)}">${t===S.cur?"Showing below":"Open detail"}</button>
-    </div>`;
-  }).join("");
-
-  // per-panel sparkline from the shared normalised paths
-  symbols.forEach(t => {
-    const el = document.querySelector(`[data-tspark="${t}"]`);
-    const vals = (cmp.paths||[]).map(p => p[t]).filter(x => x != null);
-    if (el && vals.length > 1) CH.indexSpark(el, vals, vals.at(-1) >= vals[0], false);
-  });
+  // the open tickers as a chip bar: click one for its detail, tick to include it
+  const pg = $("panels"); pg.className = ""; pg.innerHTML = qBarHTML(symbols, cmp);
+  $$("[data-qfocus]").forEach(c => c.onclick = async e => {
+    if (e.target.closest("input,[data-close]")) return;
+    if (S.cur === c.dataset.qfocus) return;
+    S.focus = S.cur = c.dataset.qfocus;
+    $$("[data-qfocus]").forEach(x => x.classList.toggle("on", x.dataset.qfocus === S.cur));
+    await renderDetail(); syncAsk(); });
+  if ($("showOverlay2")) $("showOverlay2").onclick = () => { renderOverlay(cmp, symbols);
+    $("overlaywrap")?.scrollIntoView({ behavior: "smooth", block: "start" }); };
 
   $$("[data-pick]").forEach(c => c.onchange = () => {
     c.checked ? S.picked.add(c.dataset.pick) : S.picked.delete(c.dataset.pick);
-    document.querySelector(`[data-panel="${c.dataset.pick}"]`)?.classList.toggle("picked", c.checked);
     syncSel();
   });
   $$("[data-close]").forEach(b => b.onclick = e => { e.stopPropagation();
     const left = S.basket.filter(x => x !== b.dataset.close);
     location.hash = "#/t/" + left.join(","); });
-  // click anywhere on a card to show its detail; the checkbox and close stay separate
-  $$(".tpanel").forEach(p => p.onclick = e => {
-    if (e.target.closest(".tick, [data-close], [data-focus]")) return;
-    p.querySelector("[data-focus]").click(); });
-  $$("[data-focus]").forEach(b => b.onclick = async () => {
-    if (S.cur === b.dataset.focus) return;
-    S.focus = S.cur = b.dataset.focus;
-    $$(".tpanel").forEach(x => x.classList.toggle("focus", x.dataset.panel === S.cur));
-    $$("[data-focus]").forEach(x => x.textContent = x.dataset.focus===S.cur ? "Showing below" : "Open detail");
-    await renderDetail(); $("detailwrap").scrollIntoView({behavior:"smooth", block:"start"}); });
-
-  // relative performance is opt-in: most of the time you want one ticker's detail
-  const so = $("showOverlay");
-  if (so) so.onclick = () => renderOverlay(cmp, symbols);
   await renderDetail();
   syncSel();
   afterRender(v);
@@ -893,15 +802,13 @@ function syncSel() {
 function renderOverlay(cmp, symbols) {
   const w = $("overlaywrap"); if (!w) return;
   w.innerHTML = `<div class="panel">
-    <div class="panel-h"><h4>Relative performance</h4>
-      <span class="r">${esc(cmp.note)} · 6 months</span></div>
+    <div class="panel-h"><h4>Relative performance · 6 months${tip(esc("Each line starts at 100, so moves compare fairly whatever the share price."))}</h4></div>
     <div class="panel-b tight"><div id="ovmount" class="chartmount"></div></div>
     ${cmp.correlations?.length ? `<div class="panel-b" style="padding-top:0">
       <div class="corrbar">${cmp.correlations.map(c=>`
         <span class="badge" title="1.0 means they move identically">
-          ${esc(c.pair)} <b class="${c.corr>=.7?"up":c.corr<.4?"dn":""}">${num(c.corr)}</b></span>`).join("")}</div>
-      <div class="muted" style="margin-top:8px">Pairwise return correlation over the same window —
-        high numbers mean the basket is closer to one position than several.</div></div>` : ""}
+          ${esc(c.pair)} <b class="${c.corr>=.7?"up":c.corr<.4?"dn":""}">${num(c.corr)}</b></span>`).join("")}${tip(esc(
+        "How closely each pair's daily moves line up, from -1 to 1. High numbers mean the basket behaves more like one position than several."))}</div></div>` : ""}
   </div>`;
   CH.multiLine($("ovmount"), cmp.paths, symbols, PANEL_COLORS);
 }
@@ -911,10 +818,8 @@ async function renderDetail() {
   const q = (S.compare?.rows || []).find(r => r.symbol === S.cur) || {};
   const open = (quoteRow(S.cur).market_state || "").toUpperCase() === "REGULAR";
   w.innerHTML = `
-    ${PRO() ? `<div class="qhead" id="qhead"><div class="skel" style="height:64px;width:100%"></div></div>
-      <div class="qstats" id="qstats"></div>`
-    : `<div class="section-h"><h3>${esc(S.cur)} detail</h3>
-      <span class="r">${esc(q.name||"")}</span></div>`}
+    <div class="qhead" id="qhead"><div class="skel" style="height:64px;width:100%"></div></div>
+    <div class="qstats" id="qstats"></div>
     <div class="panel" id="chartpanel">
       <div class="panel-h"><h4>Price</h4>
         <div class="seg" id="tfseg" style="margin-left:auto">
@@ -923,7 +828,7 @@ async function renderDetail() {
         <button class="btn btn-sm ${S.show.MA?"on":""}" id="tgMA" aria-pressed="${S.show.MA}" title="Moving averages">MA</button>
         <button class="btn btn-sm ${S.show.Vol?"on":""}" id="tgVol" aria-pressed="${S.show.Vol}" title="Volume">Vol</button>
       </div>
-      <div class="panel-b tight">${PRO() ? `<div class="ohlc" id="ohlc"></div>` : ""}<div id="chart"></div></div>
+      <div class="panel-b tight"><div class="ohlc" id="ohlc"></div><div id="chart"></div></div>
     </div>
     <div class="section">
       <div class="section-h"><div class="seg tabseg" role="tablist">
@@ -934,7 +839,7 @@ async function renderDetail() {
   try { chartRO?.disconnect(); chart?.remove(); } catch {}
   chart = null;
   buildChart(); drawChart(); prefetchFrames(S.cur);
-  if (PRO()) fillQuoteHeader(S.cur);
+  fillQuoteHeader(S.cur);
   $("tfseg").onclick = e => { const b = e.target.closest("[data-tf]"); if(!b) return;
     $$("#tfseg button").forEach(x=>x.classList.remove("on")); b.classList.add("on");
     S.tf = b.dataset.tf; drawChart(); };
@@ -962,14 +867,14 @@ function openComposer() {
   el.innerHTML = `<div class="composer">
     <div class="cm-head">
       <span class="cm-k">Analyse</span>
-      ${picks.map(t=>`<span class="badge brand">${esc(t)}</span>`).join("")}
+      ${picks.map(t=>`<span class="badge brand">${esc(t)}</span>`).join("")}${tip(esc("The agent only looks at the tickers you selected."))}
       <button class="btn btn-sm btn-ghost" id="cm_x" style="margin-left:auto">Cancel</button>
     </div>
     <textarea id="cm_q" class="inp" rows="2"
       placeholder="What do you want to know about ${esc(picks.join(", "))}?"></textarea>
     <div class="cm-sugg">${SUGGESTIONS.map(x=>`<button class="sugg" data-s="${esc(x)}">${esc(x)}</button>`).join("")}</div>
     <div class="cm-foot">
-      <span class="muted">${picks.length} ticker${picks.length>1?"s":""} · the agent only sees what you selected</span>
+      <span></span>
       <button class="btn btn-primary btn-sm" id="cm_go">Run analysis ${IC.arrow}</button>
     </div></div>`;
   mo(el.firstElementChild, {opacity:[0,1], y:[-8,0]}, {duration:.26, easing:[.22,1,.36,1]});
@@ -1017,7 +922,7 @@ async function renderTab() {
       const x = r.result;
       $("esout").innerHTML = x ? `<div class="quietbox" style="margin-top:12px">
           <div class="qh">${esc(r.source)} earnings → ${esc(r.target)}</div>
-          <div class="muted" style="line-height:1.75">
+          <div class="esres">
             Over <b>${x.n_events}</b> of ${esc(r.source)}'s earnings reactions, ${esc(r.target)} moved the
             same way <b>${x.peer_same_direction}</b> (${x.peer_same_direction_pct}%) — against a
             baseline of <b>${x.baseline_same_direction_pct}%</b> on an average day.
@@ -1181,8 +1086,7 @@ async function viewPortfolio(nav) {
     </div>
 
     <div class="section"><div class="panel">
-      <div class="panel-h"><h4>Holdings</h4>
-        <span class="r">${combined?"across every account":esc(d.portfolio_name)}</span></div>
+      <div class="panel-h"><h4>Holdings${combined ? tip(esc("Every account combined.")) : ""}</h4></div>
       <table class="wtable"><thead><tr>
         <th>Symbol</th>${combined?"<th>Account</th>":""}<th>Weight</th><th>Shares</th>
         <th>Avg cost</th><th>Last</th><th>Today</th><th>Value</th><th>Unrealised</th><th></th></tr></thead>
@@ -1208,8 +1112,7 @@ async function viewPortfolio(nav) {
       </tbody></table></div></div>
 
     ${d.positions.length>1 ? `<div class="section" id="riskwrap">
-      <div class="panel"><div class="panel-h"><h4>Risk profile</h4>
-        <span class="r">derived from cached prices · no model involved</span></div>
+      <div class="panel"><div class="panel-h"><h4>Risk profile</h4></div>
       <div class="panel-b"><div class="skel" style="height:96px"></div></div></div></div>` : ""}
     </div>`;
 
@@ -1256,15 +1159,14 @@ async function viewPortfolio(nav) {
     .then(a => {
       const w = $("riskwrap"); if (!w) return;
       const c = a.concentration, bt = a.beta, co = a.correlation;
-      w.innerHTML = `<div class="panel"><div class="panel-h"><h4>Risk profile</h4>
-          <span class="r">${esc(d.portfolio_name)} · ${esc(a.note)}</span></div>
+      w.innerHTML = `<div class="panel"><div class="panel-h"><h4>Risk profile${tip(
+          `<p>${esc(a.note || "")}</p>${co?.note ? `<p>${esc(co.note)}</p>` : ""}<p>Calculated from recent prices; no AI involved.</p>`)}</h4></div>
         <div class="panel-b">${tilesHTML([
           ["Top holding", c?`${c.top_holding.ticker} ${c.top_holding.pct}%`:"—", c?esc(c.reading):""],
           ["Top 3 weight", c?c.top3_pct+"%":"—", "of this account"],
           ["Beta", bt?num(bt.portfolio_beta):"—", bt?esc(bt.reading):""],
           ["Avg pair correlation", co?num(co.average_pairwise):"—",
            co?`most alike ${co.most_correlated.pair} ${co.most_correlated.corr}`:""]])}
-          ${co ? `<div class="muted" style="margin-top:12px">${esc(co.note)}</div>` : ""}
         </div></div>`;
       mo(w.querySelectorAll(".tile"), {opacity:[0,1],y:[8,0]},
          {duration:.36,delay:stag(.03),easing:[.22,1,.36,1]});
@@ -1425,18 +1327,18 @@ function whenPublished(v) {
    comes from, and a jump bar to get to it. */
 const FEED_TOPIC = { "^GSPC": "Stocks", "^TNX": "Rates & bonds", "^VIX": "Volatility" };
 
-function bsec(id, n, title, note, body) {
+function bsec(id, n, title, about, body, count) {
   return `<section class="panel bsec" id="bs-${id}" data-bsec="${id}">
-    <div class="panel-h"><span class="bnum">${n}</span><h4>${esc(title)}</h4>
-      ${note ? `<span class="r">${note}</span>` : ""}</div>
+    <div class="panel-h"><span class="bnum">${n}</span><h4>${esc(title)}${about ? tip(esc(about)) : ""}</h4>
+      ${count ? `<span class="r"><span class="cnt">${esc(count)}</span></span>` : ""}</div>
     <div class="panel-b">${body}</div></section>`;
 }
 
 function briefSummary(b) {
   const n = b.narrative || {};
-  if (n.summary) return `<p class="bsum">${esc(n.summary)}</p><div class="disclaim">${esc(DISCLAIMER)}</div>`;
+  if (n.summary) return `<p class="bsum">${esc(n.summary)}</p>`;
   if (b.error) return `<div class="bnote warn">${esc(b.error)}</div>`;
-  return `<div class="bnote">No written summary for today. The sections below come straight from the data.</div>`;
+  return `<div class="bnote">No written summary today.</div>`;
 }
 
 function briefMarkets(b) {
@@ -1461,16 +1363,21 @@ function briefThreads(n) {
       <div class="tf">
         ${(t.tickers || []).map(x => `<span class="badge brand" data-go="${esc(x)}" style="cursor:pointer">${esc(x)}</span>`).join("")}
         ${(t.sources || []).map(src => { const bad = (t.unverified_sources || []).includes(src);
-          return `<span class="src ${bad ? "bad" : ""}" title="${esc(src)}">${bad ? "⚠ " : ""}${esc(src.slice(0, 68))}${src.length > 68 ? "…" : ""}</span>`; }).join("")}
+          const ln = (t.source_links || []).find(x => x.title.slice(0, 40).toLowerCase() === src.slice(0, 40).toLowerCase()
+                                                   || src.toLowerCase().includes(x.title.slice(0, 40).toLowerCase()));
+          const txt = `${bad ? "⚠ " : ""}${esc(src.slice(0, 68))}${src.length > 68 ? "…" : ""}`;
+          return ln && safeUrl(ln.url) && !bad
+            ? `<a class="src" href="${esc(ln.url)}" target="_blank" rel="noopener" title="${esc((ln.publisher ? ln.publisher + ": " : "") + src)}">${txt} ↗</a>`
+            : `<span class="src ${bad ? "bad" : ""}" title="${esc(src)}">${txt}</span>`; }).join("")}
       </div></div>`).join("");
 }
 
 function briefTickers(b) {
-  if (ME.guest) return `<div class="bnote">Today's brief is market-wide. Sign in and your watchlist and holdings
-      are scanned every day for unusual moves, earnings and peer spillover.
+  if (ME.guest) return `<div class="bnote">Sign in and your watchlist and holdings are checked every day
+      for unusual moves, earnings and moves in related stocks.
       <div style="margin-top:10px"><button class="btn btn-sm btn-brand" data-signin="1">Create a free account</button></div></div>`;
   const parts = [];
-  parts.push(b.signals.length ? `<div class="bsub-h">Flagged today <span>ranked by how unusual the move is, not how big</span></div>${sigRows(b.signals)}`
+  parts.push(b.signals.length ? `<div class="bsub-h">Flagged today${tip(esc("Ranked by how unusual each move is for that stock, not by how big it is."))}</div>${sigRows(b.signals)}`
     : `<div class="bnote">Nothing unusual across your ${b.checked.length} tickers today.</div>`);
   if (b.since_last?.length) parts.push(`<div class="bsub-h">Since you were last here
       <span>${b.since_last_day ? esc(longDate(b.since_last_day)) : ""}</span></div>
@@ -1478,10 +1385,9 @@ function briefTickers(b) {
       <span class="d mono">${esc(r.ticker)}</span>
       <span class="mono">$${num(r.from)} → $${num(r.to)}</span>
       <span class="badge ${sgn(r.pct)}">${pct(r.pct)}</span></div>`).join("")}`);
-  if (b.quiet?.length) parts.push(`<div class="bsub-h">Checked, nothing to flag</div>
-    <div class="qt">${b.quiet.map(q => `<span class="badge ghost">${esc(q)}</span>`).join("")}</div>
-    ${b.adjacent_checked?.length ? `<div class="muted" style="margin-top:9px">Plus ${b.adjacent_checked.length}
-      adjacent names watched for spillover: ${b.adjacent_checked.slice(0, 14).map(esc).join(", ")}${b.adjacent_checked.length > 14 ? "…" : ""}</div>` : ""}`);
+  if (b.quiet?.length) parts.push(`<div class="bsub-h">Checked, nothing to flag${b.adjacent_checked?.length ? tip(esc(
+      `Also watched ${b.adjacent_checked.length} related stocks, in case their moves spill over: ${b.adjacent_checked.slice(0, 14).join(", ")}${b.adjacent_checked.length > 14 ? "…" : ""}`)) : ""}</div>
+    <div class="qt">${b.quiet.map(q => `<span class="badge ghost">${esc(q)}</span>`).join("")}</div>`);
   return parts.join("");
 }
 
@@ -1498,21 +1404,22 @@ function briefHeadlines(items) {
 
 function briefInner(b) {
   const n = b.narrative || {};
-  const secs = [["summary", "Summary", "", briefSummary(b)],
-                ["markets", "Markets at a glance", "index, rates and volatility levels", briefMarkets(b)]];
-  if (n.threads?.length) secs.push(["meaning", "What it means", "written from the headlines in section " +
-                                    (secs.length + 3), briefThreads(n)]);
-  secs.push(["tickers", "Your tickers", ME.guest ? "" : `${b.signals.length} flagged · ${b.checked.length} tracked`,
-             briefTickers(b)]);
+  // [id, title, what the ⓘ explains, body, a count shown beside the title]
+  const secs = [["summary", "Summary", "Written by the AI from today's market data and headlines. " + DISCLAIMER, briefSummary(b)],
+                ["markets", "Markets at a glance", "", briefMarkets(b)]];
+  if (n.threads?.length) secs.push(["meaning", "What it means", "", briefThreads(n)]);
+  secs.push(["tickers", "Your tickers", "", briefTickers(b),
+             ME.guest ? "" : `${b.signals.length} flagged · ${b.checked.length} tracked`]);
   if ((b.market_headlines || []).length)
-    secs.push(["headlines", "Headlines", "what the market feeds are carrying", briefHeadlines(b.market_headlines)]);
-  // "section N" in the What-it-means note must point at Headlines' actual number
+    secs.push(["headlines", "Headlines", "", briefHeadlines(b.market_headlines)]);
+  // the What-it-means note must point at Headlines' actual section number
   const hi = secs.findIndex(x => x[0] === "headlines");
   const mi = secs.findIndex(x => x[0] === "meaning");
-  if (mi >= 0) secs[mi][2] = hi >= 0 ? `written from the headlines in section ${hi + 1}` : "written from today's headlines";
+  if (mi >= 0) secs[mi][2] = (hi >= 0 ? `Written by the AI from the headlines in section ${hi + 1}.`
+                                      : "Written by the AI from today's headlines.") + " Each source links its article.";
   return `<nav class="bjump" aria-label="Brief sections">${secs.map(([id, title]) =>
       `<button type="button" data-jump="${id}">${esc(title)}</button>`).join("")}</nav>
-    ${secs.map(([id, title, note, body], i) => bsec(id, i + 1, title, note, body)).join("")}`;
+    ${secs.map(([id, title, about, body, count], i) => bsec(id, i + 1, title, about, body, count)).join("")}`;
 }
 
 /* jump bar + sign-in + ticker links, for wherever the brief was rendered */
@@ -1553,9 +1460,9 @@ async function viewBrief(nav) {
   try {
     const b = await loadBrief();
     if ((nav !== undefined && nav !== NAV.seq) || !$("bsub")) return;
-    $("bsub").textContent = (b.llm_calls || b.error)
-      ? `${longDate(b.date)} · curated from ${b.checked.length ? b.checked.length + " tickers plus " : ""}market, rates and sector feeds`
-      : `${longDate(b.date)} · set GEMINI_API_KEY to add the written summary`;
+    $("bsub").innerHTML = esc(longDate(b.date)) + tip(esc((b.llm_calls || b.error)
+      ? `Put together from ${b.checked.length ? b.checked.length + " of your tickers plus " : ""}market, interest-rate and sector data.`
+      : "Set GEMINI_API_KEY to add the written summary."));
     $("briefview").innerHTML = briefInner(b);
     wireBrief($("briefview"), t => location.hash = "#/t/" + t);
   } catch (e) {
@@ -1575,8 +1482,8 @@ async function maybeShowBrief() {
     try { localStorage.setItem(BRIEF_KEY, b.date); } catch {} return;
   }
   $("briefdate").textContent = longDate(b.date) + (b.checked.length
-    ? ` · ${b.signals.length} flagged · ${b.checked.length} tracked` : " · market-wide");
-  $("briefnote").textContent = b.note;
+    ? ` · ${b.signals.length} flagged · ${b.checked.length} tracked` : "");
+  $("briefnote").textContent = "";
   $("briefbody").innerHTML = briefInner(b);
   wireBrief($("briefbody"), t => { closeBrief(); location.hash = "#/t/" + t; });
   $("briefsheet").classList.add("on");
@@ -1654,6 +1561,80 @@ function markFigures(raw) {
   return out + esc(s.slice(last));
 }
 const paras = s => String(s||"").split(/\n{2,}/).map(p => `<p>${markFigures(p.trim())}</p>`).join("");
+
+/* ── citations: each figure links the page its number came from ──
+   The server matches every figure in the answer to the evidence record that
+   holds it and sends the answer back as segments; a figure segment carries the
+   numbers of the sources it cites. Rendered as superscripts that open the
+   filing, the statistics page, or the article. */
+const safeUrl = u => /^https?:\/\//i.test(u || "") ? u : null;
+function citedHTML(r) {
+  const src = Object.fromEntries((r.sources || []).map(x => [x.n, x]));
+  const sup = ns => `<sup class="cite">${ns.map(n => { const x = src[n]; if (!x) return "";
+      const u = safeUrl(x.url);
+      return u ? `<a href="${esc(u)}" target="_blank" rel="noopener" title="${esc(x.label)}">${n}</a>`
+               : `<span title="${esc(x.label)}">${n}</span>`; }).join("")}</sup>`;
+  const html = r.segments.map(sg => sg.f != null
+      ? `<span class="fig">${esc(sg.f)}</span>${sup(sg.s || [])}` : markFigures(sg.t)).join("");
+  return html.split(/\n{2,}/).map(p => `<p>${p.trim()}</p>`).join("");
+}
+function asOf(x) {
+  const d = toDate(x.as_of); if (!d) return "";
+  return /^\d+$/.test(String(x.as_of)) ? whenPublished(x.as_of)              // a headline: when it was published
+    : `as of ${longDate(d)}, ${d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}`;
+}
+function sourcesHTML(r) {
+  const all = r.sources || []; if (!all.length) return "";
+  const cited = all.filter(x => x.cited), rest = all.filter(x => !x.cited);
+  const li = x => { const u = safeUrl(x.url);
+    return `<li><span class="sn">${x.n}</span><div>${u ? `<a href="${esc(u)}" target="_blank" rel="noopener">${esc(x.label)} ↗</a>`
+      : esc(x.label)}${asOf(x) ? `<span class="sd">${esc(asOf(x))}</span>` : ""}</div></li>`; };
+  return `<div class="srcs"><div class="srch">Sources</div>
+    ${cited.length ? `<ol>${cited.map(li).join("")}</ol>` : `<div class="sd">No figure in this answer needed a source.</div>`}
+    ${rest.length ? `<details><summary>Also consulted (${rest.length})</summary><ol>${rest.map(li).join("")}</ol></details>` : ""}</div>`;
+}
+
+/* ── charts in answers: only when the answer cites figures a chart makes clearer ──
+   The server picks them from the cited evidence (graph/charts.py): a comparison
+   of returns, margins, valuation or growth across companies, or one company's
+   trend. Bar charts arrive with their values; price paths and quarterly revenue
+   are loaded from the same cached endpoints the research pages use. */
+const CHART_DATA = new Map();       // url -> promise: a repaint never refetches
+const CHART_SEEN = new Set();       // animate a chart once, not on every repaint
+const chartGet = u => { if (!CHART_DATA.has(u)) CHART_DATA.set(u, api(u).catch(e => { CHART_DATA.delete(u); throw e; }));
+  return CHART_DATA.get(u); };
+function chartsHTML(r, i) {
+  return (r.charts || []).map((c, j) => {
+    const srcs = (c.sources || []).filter(x => x && x.label);
+    const about = (c.note ? `<p>${esc(c.note)}</p>` : "") + (srcs.length
+      ? `<div class="tiph">Sources</div><ul class="tipl">${srcs.map(x => { const u = safeUrl(x.url);
+          return `<li>${u ? `<a href="${esc(u)}" target="_blank" rel="noopener">${esc(x.label)} ↗</a>` : esc(x.label)}</li>`; }).join("")}</ul>` : "");
+    return `<figure class="achart"><figcaption>${esc(c.title || "")}${about ? tip(about, "About this chart") : ""}</figcaption>
+      <div class="acm" data-chart="${i}:${j}"><div class="skel" style="height:190px"></div></div></figure>`;
+  }).join("");
+}
+function mountCharts(root) {
+  root.querySelectorAll("[data-chart]").forEach(async el => {
+    const key = el.dataset.chart, [i, j] = key.split(":").map(Number);
+    const c = T.turns[i]?.run?.charts?.[j]; if (!c) return;
+    const animate = !CHART_SEEN.has(key);
+    try {
+      let draw;
+      if (c.kind === "bars") draw = () => CH.bars(el, c.rows, c.series, c.unit, PANEL_COLORS, { animate });
+      else if (c.kind === "lines") {
+        const d = await chartGet(`/api/compare?symbols=${c.symbols.map(encodeURIComponent).join(",")}&period=${encodeURIComponent(c.period || "6mo")}`);
+        if (!d.paths?.length) throw new Error("no price history");
+        draw = () => CH.multiLine(el, d.paths, c.symbols, PANEL_COLORS, { height: 230, labels: c.labels, animate });
+      } else if (c.kind === "revenue") {
+        const d = await chartGet(`/api/financials/${encodeURIComponent(c.symbol)}`);
+        if (!d.quarters?.length) throw new Error("no filings");
+        draw = () => CH.revenue(el, d.quarters.slice(-8), { animate });
+      } else throw new Error("unknown chart");
+      if (!el.isConnected) return;
+      el.innerHTML = ""; draw(); CHART_SEEN.add(key);
+    } catch { el.closest(".achart")?.remove(); }     // a chart is support; no chart beats a broken one
+  });
+}
 
 function tickerChips(tks) {
   return (tks||[]).filter(t => t && t !== "MARKET")
@@ -1791,7 +1772,9 @@ function turnHTML(turn, i) {
     body = `<div class="answer">
       ${(r.tickers||[]).some(t => t !== "MARKET") || r.grounded ? `<div class="top">${tickerChips(r.tickers)}
         ${r.grounded ? `<span class="ok" title="Every figure in this answer was matched to the data the specialists fetched">✓ figures checked</span>` : ""}</div>` : ""}
-      ${paras(r.answer)}${degraded}${warn}${gapLine}
+      ${r.segments?.length ? citedHTML(r) : paras(r.answer)}${degraded}${warn}${gapLine}
+      ${chartsHTML(r, i)}
+      ${sourcesHTML(r)}
       <div class="afoot">
         ${meta ? `<button class="link" data-how="${i}">${esc(meta)} ${IC.chev}</button>` : ""}
         <div class="grow"></div>
@@ -1812,9 +1795,6 @@ function renderThread(scroll = true) {
   if (!T.turns.length) {
     el.innerHTML = `<div class="intro">
       <div class="ih">Ask the research agent</div>
-      <p>A router sends your question to the specialists it needs — price action, fundamentals,
-        analysts and news, earnings, peers, macro — in parallel. Every figure in the answer is
-        checked against the data they fetched.</p>
       ${S.llm && S.route !== "ticker" ? screenerHTML() : ""}
       ${S.llm ? `<div class="isugg">${suggestions().map(q =>
         `<button class="sugg" data-ask="${esc(q)}">${esc(q)}</button>`).join("")}</div>`
@@ -1834,7 +1814,7 @@ const SCR_STYLE = { growth: "fast revenue growth", value: "low P/E and positive 
 function screenerHTML() {
   const seg = (k, opts) => `<div class="seg" data-sg="${k}">${opts.map(([v, l]) =>
     `<button type="button" data-v="${v}" class="${SCR[k] === v ? "on" : ""}">${l}</button>`).join("")}</div>`;
-  return `<div class="scrb"><div class="scrh">Stock screener <span>whole US market · measurable criteria</span></div>
+  return `<div class="scrb"><div class="scrh">Stock screener${tip(esc("Searches the whole US market (about 7,000 stocks) on measurable criteria: company size, sector, growth, valuation and price trend."))}</div>
     <div class="scrrow"><span class="lbl">Size</span>${seg("cap", [["micro","Micro"],["small","Small"],["mid","Mid"],["large","Large"]])}</div>
     <div class="scrrow"><span class="lbl">Style</span>${seg("style", [["growth","Growth"],["value","Value"],["momentum","Momentum"],["quality","Quality"]])}</div>
     <div class="scrrow"><span class="lbl">Sector</span><select class="inp" data-sg-sector>
@@ -1845,6 +1825,7 @@ function screenerHTML() {
 }
 
 function wireThread(el) {
+  mountCharts(el);
   el.querySelectorAll("[data-sg] button").forEach(b => b.onclick = () => {
     const g = b.closest("[data-sg]"); SCR[g.dataset.sg] = b.dataset.v;
     g.querySelectorAll("button").forEach(x => x.classList.toggle("on", x === b)); });
@@ -1952,7 +1933,8 @@ async function runAnalyze() {
   try {
     const r = await jpost("/api/agent/analyze", {ticker: sym, domain,
       question: `Looking at ${sym}'s ${S.tab}, what stands out?`});
-    if (r.finding) S.tabAgent[sym + ":" + domain] = { ...r.finding, steps: r.steps };
+    if (r.finding) S.tabAgent[sym + ":" + domain] = { ...r.finding, steps: r.steps,
+                                                      segments: r.segments, sources: r.sources };
     if (S.cur === sym) await renderTab();
   } catch (e) {
     b.disabled = false; b.classList.remove("busy");
@@ -1971,6 +1953,9 @@ function openTrace(run) {
           <h3>${esc(DOMAIN_LABEL[f.domain]||f.domain)} · ${esc(f.ticker)}</h3>
           <span class="r">${f.tools_used.length} tools used · ${f.tools_skipped.length} skipped · ${esc(f.confidence)}</span></div>
         <div class="tfind">${paras(f.narrative)}</div>
+        ${(f.evidence||[]).length ? `<ul class="tsrc">${f.evidence.map(e => { const u = safeUrl(e.prov?.url);
+            return `<li><span class="tc sel">${esc(e.tool)}</span>${u ? `<a href="${esc(u)}" target="_blank" rel="noopener">${esc(e.prov?.label || "source")} ↗</a>`
+              : `<span>${esc(e.prov?.label || e.prov?.source || "")}</span>`}</li>`; }).join("")}</ul>` : ""}
         ${f.tools_used.length ? `<div class="tools">${f.tools_used.map(t=>`<span class="tc sel">${esc(t)}</span>`).join("")}
           ${f.tools_skipped.map(t=>`<span class="tc skp">${esc(t)}</span>`).join("")}</div>` : ""}
         ${(f.failures||[]).length ? `<div class="muted">${f.failures.map(x=>`${esc(x.tool)}: ${esc(x.reason)}`).join(" · ")}</div>` : ""}
@@ -1984,8 +1969,7 @@ function openTrace(run) {
         <td>${s.model ? `<span class="badge brand">${esc(s.model.replace(/^gemini-/,""))}</span>`
                       : `<span class="badge ghost">no model</span>`}</td>
         <td class="mono">${s.tools||"—"}</td><td class="mono">${s.tokens||0}</td>
-        <td class="mono">${((s.latency_ms||0)/1000).toFixed(2)}s</td></tr>`).join("")}</tbody></table></div>
-      <div class="disclaim">${esc(run.disclaimer||DISCLAIMER)}</div>`;
+        <td class="mono">${((s.latency_ms||0)/1000).toFixed(2)}s</td></tr>`).join("")}</tbody></table></div>`;
   }
   $("trace").classList.add("on");
   setTimeout(() => $("tclose").focus(), 30);
@@ -2000,16 +1984,14 @@ function submitAsk(text) {
   streamAsk(sc.pre(v), { display: v, tickers: sc.tickers, context: sc.context });
 }
 
-/* ═══════════════════════════ Pro UI ═══════════════════════════
-   A second interface over the same data and the same agent, so the two can be
-   compared side by side: top-bar switch, or ?ui=pro / ?ui=classic. Everything
-   below renders only when Pro is on; Classic's views are untouched. */
-const PRO = () => document.documentElement.dataset.ui === "pro";
-const LIGHT = () => PRO() && document.documentElement.dataset.theme === "light";
+/* ═══════════════════════════ interface ═══════════════════════════
+   The terminal look: market map, quote header, tape, ⌘K. (Classic, the glass
+   interface it was compared against, is gone.) */
+const LIGHT = () => document.documentElement.dataset.theme === "light";
 const cssv = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
 function applyPalette() {
-  CH.setPalette(PRO() ? { pos: cssv("--pos"), neg: cssv("--neg"), faint: cssv("--border-subtle"),
-                          ink: cssv("--subtle-foreground") } : null);
+  CH.setPalette({ pos: cssv("--pos"), neg: cssv("--neg"), faint: cssv("--border-subtle"),
+                  ink: cssv("--subtle-foreground") });
 }
 
 /* the market map's universe: large caps by sector, sized by cap, coloured by move */
@@ -2044,7 +2026,7 @@ async function loadMarket(force) {
 /* ── market status: open / pre / after / closed, from the ET clock, with the
       quote feed's own market_state to catch holidays ── */
 function marketStatus() {
-  const el = $("mktstatus"); if (!el || !PRO()) return;
+  const el = $("mktstatus"); if (!el) return;
   const et = new Date(new Date().toLocaleString("en-US", { timeZone: "America/New_York" }));
   const day = et.getDay(), m = et.getHours() * 60 + et.getMinutes(), wk = day >= 1 && day <= 5;
   const spy = (MKT.q.SPY || {}).market_state || "";
@@ -2063,7 +2045,7 @@ function marketStatus() {
 }
 
 async function loadTape() {
-  const el = $("tape"); if (!el || !PRO()) return;
+  const el = $("tape"); if (!el) return;
   try { await loadMarket(); } catch { return; }
   el.innerHTML = TAPE.map(([sym, lbl]) => { const q = MKT.q[sym]; if (!q || q.price == null) return "";
     const d = sym === "EURUSD=X" ? 4 : sym === "^TNX" ? 2 : q.price > 1000 ? 0 : 2;
@@ -2215,9 +2197,10 @@ async function viewDashboardPro(nav) {
           <span class="r"><span class="mm-legend"><span>−3%</span><i style="background:${moveColor(-3)}"></i><i style="background:${moveColor(-1)}"></i><i style="background:${moveColor(0)}"></i><i style="background:${moveColor(1)}"></i><i style="background:${moveColor(3)}"></i><span>+3%</span></span></span></div>
           <div class="mmap" id="mmap"><div class="skel" style="height:100%;border-radius:0"></div></div></div>
         <div id="pdsig"></div>
-        <div class="pcard"><div class="pcard-h"><h4>${demo ? "Most watched" : "Watchlist"}</h4>
-          <span class="r">${demo ? (ME.guest ? "sign in to keep your own list" : "add a ticker to start your own")
-                                 : `${S.wl.length} tickers · live`}
+        <div class="pcard"><div class="pcard-h"><h4>${demo ? "Most watched" : "Watchlist"}${demo
+            ? tip(esc(ME.guest ? "A sample of the most-watched stocks. Sign in to keep a list of your own."
+                               : "A sample of the most-watched stocks. Add a ticker to start your own list.")) : ""}</h4>
+          <span class="r">
             <input id="addinput" class="inp" style="width:150px;height:28px;padding:4px 9px" placeholder="Add ticker…"></span></div>
           <table class="wtable wl"><thead><tr>
             ${[["sym","Symbol"],["price","Last"],["change_pct","Change"],[null,"30-day"],["market_cap","Mkt cap"],["pe","P/E"],[null,""]]
@@ -2228,9 +2211,9 @@ async function viewDashboardPro(nav) {
         <div class="pcard"><div class="pcard-h"><h4>Top movers</h4>
           <span class="r"><span class="seg" id="mvseg"><button class="on" data-mv="gainers">Gainers</button><button data-mv="losers">Losers</button></span></span></div>
           <div id="movers"><div class="skel" style="height:200px;margin:12px"></div></div></div>
-        <div class="pcard"><div class="pcard-h"><h4>Sectors</h4><span class="r">SPDR sector funds · today</span></div>
+        <div class="pcard"><div class="pcard-h"><h4>Sectors${tip(esc("Today's move in each sector, measured by its SPDR sector fund (XLK for technology, XLF for financials, and so on)."))}</h4></div>
           <div id="sectors" style="padding:6px 0"><div class="skel" style="height:200px;margin:12px"></div></div></div>
-        <div class="pcard"><div class="pcard-h"><h4>Earnings this week</h4><span class="r">largest first</span></div>
+        <div class="pcard"><div class="pcard-h"><h4>Earnings this week${tip(esc("Companies reporting results this week, largest first."))}</h4></div>
           <div id="earnings">${earningsHTML(null)}</div></div>
         <div class="pcard"><div class="pcard-h"><h4>Market news</h4></div>
           <div id="mnews">${newsHTML(null)}</div></div>
@@ -2387,8 +2370,7 @@ function cmdBase(q) {
   const pages = [["Dashboard", "#/dashboard"], ["Research", "#/t/" + (lastTicker() || "NVDA")], ["Daily brief", "#/brief"], ["Portfolio", "#/portfolio"]];
   pages.filter(([n]) => !ql || n.toLowerCase().includes(ql))
        .forEach(([n, h]) => out.push({ grp: "Go to", icon: ICN.page, t: n, run: () => location.hash = h }));
-  const acts = [["Switch to Classic interface", () => setUI("classic")],
-                [LIGHT() ? "Switch to dark theme" : "Switch to light theme", toggleTheme],
+  const acts = [[LIGHT() ? "Switch to dark theme" : "Switch to light theme", toggleTheme],
                 ["New agent conversation", () => $("agentnew").click()]];
   acts.filter(([n]) => !ql || n.toLowerCase().includes(ql))
       .forEach(([n, f]) => out.push({ grp: "Actions", icon: ICN.cog, t: n, run: f }));
@@ -2410,7 +2392,6 @@ function cmdPaint() {
 }
 function cmdRun(i) { const it = CMD.items[i]; if (!it) return; closeCmd(); it.run(); }
 function openCmd() {
-  if (!PRO()) return;
   $("cmdpal").classList.add("on"); $("cmdq").value = ""; CMD.active = 0;
   const recent = [...new Set([...(S.basket || []), ...S.wl])].slice(0, 5);
   CMD.items = [...recent.map(s => ({ grp: "Recent", sym: s, t: s, d: (S.q[s] || {}).name || "", k: pct((S.q[s] || {}).change_pct),
@@ -2446,15 +2427,8 @@ $("cmdk").onclick = openCmd;
 
 /* ── interface + theme switches ── */
 function syncSwitch() {
-  $$("#uiswitch button").forEach(b => b.classList.toggle("on", b.dataset.ui === document.documentElement.dataset.ui));
   const m = document.querySelector('meta[name="theme-color"]');
   if (m) m.content = LIGHT() ? "#ffffff" : "#0b0d12";
-}
-function setUI(ui) {
-  document.documentElement.dataset.ui = ui;
-  try { localStorage.setItem("monsoon.ui", ui); } catch {}
-  syncSwitch(); applyPalette(); rerender();
-  if (PRO()) loadTape();
 }
 function toggleTheme() {
   const t = LIGHT() ? "dark" : "light";
@@ -2463,7 +2437,6 @@ function toggleTheme() {
   syncSwitch(); applyPalette(); rerender();
 }
 function rerender() { try { chartRO?.disconnect(); chart?.remove(); } catch {} chart = null; route(); }
-$$("#uiswitch button").forEach(b => b.onclick = () => setUI(b.dataset.ui));
 $("themebtn").onclick = toggleTheme;
 $("navcollapse").onclick = () => {
   const c = document.documentElement.dataset.nav === "collapsed";
@@ -2549,6 +2522,11 @@ $("authform").onsubmit = async e => {
 $("agenttoggle").onclick = () => openAgent(!document.getElementById("app").classList.contains("agent-open"));
 $("agentclose").onclick = () => openAgent(false);
 $("right").inert = true;                              // collapsed: out of the tab order
+$("rhead").querySelector(".t").insertAdjacentHTML("afterend", tip(
+  `<div class="tiph">How the agent works</div><p>A router sends your question to the specialists it needs (price, `
+  + `company finances, analysts and news, earnings, related stocks, the economy), and they work in parallel. Every `
+  + `figure in the answer is checked against the data they fetched and links the page it came from.</p>`
+  + `<p>${esc(DISCLAIMER)}</p><p>Press <kbd>/</kbd> to ask from anywhere.</p>`, "How the agent works"));
 $("agentnew").onclick = () => { if (T.ctl) T.ctl.abort(); T.turns = []; saveThread(); renderThread(); $("ask").focus(); };
 $("tclose").onclick = closeTrace;
 $("briefclose").onclick = closeBrief;
@@ -2557,7 +2535,7 @@ $("briefsheet").onclick = e => { if (e.target.id === "briefsheet") closeBrief();
 $("trace").onclick = e => { if (e.target.id==="trace") closeTrace(); };
 addEventListener("keydown", e => {
   if (e.key==="Escape") { closeTrace(); closeBrief(); closeAuth(); closeCmd(); closePw(); }
-  if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k" && PRO()) { e.preventDefault(); openCmd(); return; }
+  if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") { e.preventDefault(); openCmd(); return; }
   // "/" opens the agent from anywhere that is not already a text field
   if (e.key === "/" && !/^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement?.tagName||"")) {
     e.preventDefault(); openAgent(true); $("ask").focus(); }
@@ -2586,7 +2564,7 @@ renderThread();
 await route();
 maybeShowBrief();
 loadTape();
-setInterval(() => { if (!document.hidden && PRO()) { loadTape(); } }, 60_000);
+setInterval(() => { if (!document.hidden) loadTape(); }, 60_000);
 setInterval(marketStatus, 30_000);
 /* "live" means the cells move: patch price and change in place, flash on a tick */
 function patchPrices() {

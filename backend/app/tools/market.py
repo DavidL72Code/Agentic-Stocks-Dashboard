@@ -2,6 +2,7 @@ from __future__ import annotations
 import numpy as np
 from ..providers import yahoo
 from ._util import closes, empty, fail, ok, pct, rsi
+from .sources import yf
 from .registry import tool
 
 
@@ -32,7 +33,7 @@ async def price_series(ticker: str, period: str = "3mo", **_):
     })
 
 
-@tool("market", "52-week high/low and where the price sits inside that range")
+@tool("market", "52-week high/low (intraday) and where the price sits inside that range")
 async def range_52w(ticker: str, **_):
     q = await yahoo.quote(ticker)
     hi, lo, px = (q or {}).get("fiftyTwoWeekHigh"), (q or {}).get("fiftyTwoWeekLow"), (q or {}).get("regularMarketPrice")
@@ -43,23 +44,41 @@ async def range_52w(ticker: str, **_):
         "pct_below_high": round((hi - px) / hi * 100, 2) if hi else None,
         "pct_above_low": round((px - lo) / lo * 100, 2) if lo else None,
         "position_in_range_pct": round((px - lo) / (hi - lo) * 100, 1) if hi > lo else None,
-    })
+        "range_basis": "intraday highs and lows, so the high can sit above the highest close",
+    }, label=f"Yahoo Finance · {ticker.upper()} quote (52-week range counts intraday trades)")
 
 
 @tool("market", "50/200-day moving averages and price position vs them", derived=True)
 async def moving_averages(ticker: str, **_):
+    """Yahoo's published averages when the quote carries them, so the figure
+    matches the Statistics page it links to (they average unadjusted closes up
+    to yesterday; ours, from dividend-adjusted closes plus today's live price,
+    ran ~0.25% off). Computed from the price history only as a fallback."""
+    t = ticker.upper()
     s = await closes(ticker, "1y")
     if len(s) < 50:
         return fail("moving_averages", ticker, "need 50+ bars")
-    px = float(s.iloc[-1]); ma50 = float(s.tail(50).mean())
-    ma200 = float(s.tail(200).mean()) if len(s) >= 200 else None
-    return ok("moving_averages", ticker, {
+    px = float(s.iloc[-1])
+    q = await yahoo.quote(ticker) or {}
+    a50, a200 = q.get("fiftyDayAverage"), q.get("twoHundredDayAverage")
+    published = isinstance(a50, (int, float)) and isinstance(a200, (int, float))
+    if published:
+        ma50, ma200 = float(a50), float(a200)
+    else:
+        ma50 = float(s.tail(50).mean())
+        ma200 = float(s.tail(200).mean()) if len(s) >= 200 else None
+    data = {
         "price": round(px, 2), "ma50": round(ma50, 2),
         "ma200": round(ma200, 2) if ma200 else None,
         "vs_ma50_pct": pct(px, ma50),
         "vs_ma200_pct": pct(px, ma200) if ma200 else None,
         "golden_cross": (ma200 is not None and ma50 > ma200),
-    }, source="derived")
+    }
+    if published:
+        return ok("moving_averages", ticker, data, source="yahoo",
+                  label=f"Yahoo Finance · {t} statistics (50-day and 200-day moving averages)",
+                  url=yf(t, "key-statistics/"))
+    return ok("moving_averages", ticker, data, source="derived")
 
 
 @tool("market", "14-day RSI momentum (over 70 overbought, under 30 oversold)", derived=True)
@@ -85,6 +104,9 @@ async def volatility(ticker: str, **_):
     j = r.to_frame("a").join(spy.pct_change().dropna().to_frame("b"), how="inner").dropna()
     if len(j) > 60:
         out["beta_vs_spy"] = round(float(np.polyfit(j["b"], j["a"], 1)[0]), 2)
+        # quote pages publish a 5-year MONTHLY beta (NVDA: Yahoo 2.22 vs this 1.86);
+        # say which one this is so a reader who checks isn't told it's wrong
+        out["beta_basis"] = "1 year of daily moves vs SPY (Yahoo's 'Beta (5Y Monthly)' uses 5 years of monthly moves)"
         out["corr_vs_spy"] = round(float(j["a"].corr(j["b"])), 2)
     return ok("volatility", ticker, out, source="derived")
 
@@ -106,14 +128,16 @@ async def volume_profile(ticker: str, **_):
 
 @tool("market", "drawdown from the highest close in the window", derived=True)
 async def drawdown(ticker: str, period: str = "1y", **_):
+    # the peak is a CLOSE; the 52-week high is intraday and usually higher, so the
+    # keys say which one this is and the writer doesn't present two "peaks"
     s = await closes(ticker, period)
     if s.empty:
         return fail("drawdown", ticker, "no bars")
     peak = float(s.max()); px = float(s.iloc[-1])
     return ok("drawdown", ticker, {
-        "peak": round(peak, 2), "price": round(px, 2),
-        "drawdown_pct": round((px - peak) / peak * 100, 2),
-        "peak_date": str(s.idxmax().date()),
+        "peak_close": round(peak, 2), "price": round(px, 2),
+        "drawdown_from_peak_close_pct": round((px - peak) / peak * 100, 2),
+        "peak_close_date": str(s.idxmax().date()),
     }, source="derived")
 
 

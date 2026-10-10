@@ -49,7 +49,7 @@ export function sparkline(el, values, positive) {
 }
 
 /* ── quarterly revenue: magnitude over time, one series, 4px rounded ends ── */
-export function revenue(el, quarters) {
+export function revenue(el, quarters, opt = {}) {
   const data = (quarters || []).map(q => ({
     q: q.end.slice(2, 7), rev: q.revenue, ni: q.net_income, margin: q.operating_margin, end: q.end }));
   mount(el, h(RC.ResponsiveContainer, { width: "100%", height: 200 },
@@ -67,7 +67,7 @@ export function revenue(el, quarters) {
                   ? `net ${"$" + abbr(payload[0].payload.ni)} · op margin ${payload[0].payload.margin}%`
                   : null) : null }),
       h(RC.Bar, { dataKey: "rev", fill: "url(#revg)", radius: [4, 4, 0, 0],
-                  maxBarSize: 46, isAnimationActive: true, animationDuration: 620 }))));
+                  maxBarSize: 46, isAnimationActive: opt.animate !== false, animationDuration: 620 }))));
 }
 
 /* ── earnings surprise: polarity around zero → diverging, two poles + zero line ── */
@@ -212,12 +212,14 @@ export function fngGauge(el, score, history) {
    since adjacent-pair CVD separation was validated for that sequence.
    Every line is also direct-labelled, which is the secondary encoding the
    skill requires when CVD separation sits in the warn band. */
-export function multiLine(el, paths, symbols, colors) {
+export function multiLine(el, paths, symbols, colors, opt = {}) {
   if (!el || !(paths || []).length) return;
   const data = paths.map(p => ({ ...p, d: new Date(p.t * 1000) }));
   const fmt = t => new Date(t * 1000).toLocaleDateString(undefined,
     { month: "short", day: "numeric" });
-  mount(el, h(RC.ResponsiveContainer, { width: "100%", height: 300 },
+  const name = sym => (opt.labels || {})[sym] || sym;
+  const anim = opt.animate !== false;
+  mount(el, h(RC.ResponsiveContainer, { width: "100%", height: opt.height || 300 },
     h(RC.LineChart, { data, margin: { top: 10, right: 54, bottom: 0, left: -12 } },
       h(RC.CartesianGrid, { vertical: false, stroke: C.faint }),
       h(RC.XAxis, { dataKey: "t", tickFormatter: fmt, tickLine: false,
@@ -233,18 +235,55 @@ export function multiLine(el, paths, symbols, colors) {
               payload.slice().sort((a, b) => b.value - a.value).map(pl =>
                 h("div", { key: pl.dataKey, className: "sub",
                            style: { color: pl.stroke, fontFamily: "JetBrains Mono, monospace" } },
-                  `${pl.dataKey}  ${(pl.value - 100) >= 0 ? "+" : ""}${(pl.value - 100).toFixed(1)}%`)))
+                  `${name(pl.dataKey)}  ${(pl.value - 100) >= 0 ? "+" : ""}${(pl.value - 100).toFixed(1)}%`)))
           : null }),
       h(RC.Legend, { verticalAlign: "top", height: 28, iconType: "plainline",
-        formatter: v => h("span", { style: { color: "var(--muted-foreground)", fontSize: 11.5 } }, v) }),
+        formatter: v => h("span", { style: { color: "var(--muted-foreground)", fontSize: 11.5 } }, name(v)) }),
       symbols.map((sym, i) => h(RC.Line, {
-        key: sym, type: "monotone", dataKey: sym,
+        key: sym, type: "monotone", dataKey: sym, name: sym,
         stroke: (colors || [])[i % (colors || []).length] || C.s1,
-        strokeWidth: 2, dot: false, isAnimationActive: true, animationDuration: 520,
+        strokeWidth: 2, dot: false, isAnimationActive: anim, animationDuration: 520,
         label: ({ index, x, y, value }) =>                    // direct label at the end
           index === data.length - 1 && value != null
             ? h("text", { x: x + 6, y: y + 4, fill: (colors || [])[i % (colors || []).length],
                           fontSize: 10.5, fontWeight: 650,
-                          fontFamily: "JetBrains Mono, monospace" }, sym)
+                          fontFamily: "JetBrains Mono, monospace" }, sym === "SPY" && opt.labels?.SPY ? "S&P" : sym)
             : null })))));
+}
+
+/* ── one metric (or a few) across companies: grouped bars, values printed ──
+   For an answer that compares names - margins, P/E, growth. The figures are
+   printed on the bars so the chart reads without hovering, and they are the
+   same numbers the answer cites. Negative values hang below a zero line. */
+export function bars(el, rows, series, unit, colors, opt = {}) {
+  if (!el || !(rows || []).length || !(series || []).length) return;
+  const pal = colors && colors.length ? colors : [C.s1, C.s2, C.s3];
+  const fmt = v => v == null ? "" : unit === "×" ? Number(v).toFixed(1) + "×"
+    : (Math.abs(v) >= 100 ? Math.round(v) : Number(v).toFixed(1)) + (unit || "");
+  // printed on the bar: whole numbers when bars sit side by side, so three
+  // labels fit a narrow panel; the hover keeps the exact figure
+  const short = v => v == null ? "" : series.length > 1 || rows.length > 4
+    ? Math.round(v) + (unit || "") : fmt(v);
+  const neg = rows.some(r => series.some(sr => (r[sr.key] ?? 0) < 0));
+  const anim = opt.animate !== false;
+  mount(el, h(RC.ResponsiveContainer, { width: "100%", height: opt.height || 210 },
+    h(RC.BarChart, { data: rows, margin: { top: 20, right: 6, bottom: 0, left: -10 }, barGap: 3, barCategoryGap: "22%" },
+      h(RC.CartesianGrid, { vertical: false, stroke: C.faint }),
+      h(RC.XAxis, { dataKey: "label", tickLine: false, axisLine: false, dy: 6 }),
+      h(RC.YAxis, { tickFormatter: v => v + (unit === "×" ? "" : unit || ""), tickLine: false,
+                    axisLine: false, width: 46 }),
+      neg ? h(RC.ReferenceLine, { y: 0, stroke: "var(--border)" }) : null,
+      h(RC.Tooltip, { cursor: { fill: "rgba(144,133,233,.07)" },
+        content: ({ active, payload, label }) => active && payload?.length
+          ? h("div", { className: "rt-tip" }, h("div", { className: "lab" }, label),
+              payload.map(pl => h("div", { key: pl.dataKey, className: "sub", style: { color: pl.fill } },
+                `${pl.name}  ${fmt(pl.value)}`))) : null }),
+      series.length > 1 ? h(RC.Legend, { verticalAlign: "top", height: 26, iconType: "circle", iconSize: 8,
+        formatter: v => h("span", { style: { color: "var(--muted-foreground)", fontSize: 11.5 } }, v) }) : null,
+      series.map((sr, i) => h(RC.Bar, { key: sr.key, dataKey: sr.key, name: sr.label,
+          fill: pal[i % pal.length], radius: [4, 4, 0, 0], maxBarSize: 34,
+          isAnimationActive: anim, animationDuration: 520 },
+        h(RC.LabelList, { dataKey: sr.key, position: "top", formatter: short,
+          style: { fill: "var(--muted-foreground)", fontSize: 10.5, fontWeight: 600,
+                   fontFamily: "JetBrains Mono, monospace" } }))))));
 }

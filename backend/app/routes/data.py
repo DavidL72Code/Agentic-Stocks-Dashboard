@@ -1,6 +1,6 @@
 """Data plane. No LLM anywhere in this file - that is the point."""
 from __future__ import annotations
-import asyncio, re
+import asyncio, logging, re
 from datetime import date, datetime, timezone
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
@@ -12,8 +12,11 @@ from fastapi.responses import Response
 from ..providers import edgar, logos, sentiment, yahoo
 from ..providers.yahoo import clean          # scrubs pandas NaN/Inf -> None
 from ..tools import TOOLS
+from ..tools.sources import sec_filing_url
+from ..tools._util import FETCH, window_start
 
 router = APIRouter(prefix="/api")
+log = logging.getLogger("routes.data")
 
 
 @router.get("/health")
@@ -70,9 +73,42 @@ async def sparklines(symbols: str = Query(...)):
                                  for s, r in zip(syms, res)}})
 
 
+async def _ttm(symbol: str) -> dict | None:
+    """Twelve-month margins from the SEC filings; a slow or failing EDGAR must
+    not take a quote panel down with it."""
+    try:
+        return await asyncio.wait_for(edgar.ttm(symbol), 12)
+    except Exception as e:
+        log.warning("ttm %s failed: %s", symbol, e)
+        return None
+
+
+def _ttm_margins(o: dict, tt: dict | None) -> bool:
+    """Overwrite quote-page margins (fractions, as the client expects) with the
+    filings' twelve-month ones. True when it did."""
+    if not tt:
+        return False
+    for k in ("gross", "operating", "net"):
+        if f"{k}_margin_pct" in tt:
+            o[f"{k}_margin"] = tt[f"{k}_margin_pct"] / 100
+    o["margin_period"] = f"12 months to {_day(tt['end'])}"
+    return True
+
+
+def _day(iso: str) -> str:
+    from ..tools.sources import long_date
+    return long_date(iso)
+
+
+def _ttm_source(symbol: str, tt: dict) -> dict:
+    forms = " and ".join(sorted({q["form"] for q in tt["quarters"] if q.get("form")}))
+    return {"label": f"SEC EDGAR · {symbol.upper()} {forms} filings (margins, 4 quarters to {_day(tt['end'])})",
+            "url": tt["quarters"][-1].get("url")}
+
+
 @router.get("/overview/{symbol}")
 async def overview(symbol: str):
-    i, q = await asyncio.gather(yahoo.info(symbol), yahoo.quote(symbol))
+    i, q, tt = await asyncio.gather(yahoo.info(symbol), yahoo.quote(symbol), _ttm(symbol))
     q = q or {}
     keys = {"marketCap": "market_cap", "trailingPE": "pe", "forwardPE": "forward_pe",
             "priceToBook": "price_to_book", "profitMargins": "net_margin",
@@ -89,23 +125,42 @@ async def overview(symbol: str):
               "change_pct": q.get("regularMarketChangePercent"),
               "high_52w": q.get("fiftyTwoWeekHigh"), "low_52w": q.get("fiftyTwoWeekLow"),
               "market_state": q.get("marketState")})
+    if _ttm_margins(o, tt):
+        o["sources"] = [_ttm_source(symbol, tt)] + _sources(symbol, ("quote", "leverage_liquidity"))
+    else:
+        o["sources"] = _sources(symbol, ("profitability", "quote"))
     return clean(o)
+
+
+def _sources(symbol: str, tools) -> list[dict]:
+    """The pages a panel's numbers can be checked on - same labels and links
+    the agent cites, so the two never disagree about where a figure is from."""
+    from ..tools.sources import source_for
+    out, seen = [], set()
+    for t in tools:
+        label, url = source_for(t, symbol.upper())
+        if url and url not in seen:
+            seen.add(url); out.append({"label": label, "url": url})
+    return out
 
 
 @router.get("/financials/{symbol}")
 async def financials(symbol: str):
-    rev, ni, oi, gp, cal, ed = await asyncio.gather(
+    rev, ni, oi, gp, cal, ed, tt = await asyncio.gather(
         edgar.concept(symbol, "revenue", 8), edgar.concept(symbol, "net_income", 8),
         edgar.concept(symbol, "operating_income", 8),
         edgar.concept(symbol, "gross_profit", 8),
         yahoo.attr(symbol, "calendar", 21600),
-        yahoo.attr(symbol, "earnings_dates", 21600))
+        yahoo.attr(symbol, "earnings_dates", 21600), _ttm(symbol))
     by: dict[str, dict] = {}
     for label, rows in (("revenue", rev), ("net_income", ni),
                         ("operating_income", oi), ("gross_profit", gp)):
         for r in rows:
-            by.setdefault(r["end"], {"end": r["end"], "form": r.get("form"),
-                                     "filed": r.get("filed")})[label] = r["val"]
+            row = by.setdefault(r["end"], {"end": r["end"], "form": r.get("form"),
+                                           "filed": r.get("filed")})
+            row[label] = r["val"]
+            if not row.get("url") and r.get("accn"):
+                row["url"] = sec_filing_url(r.get("cik"), r.get("accn"))     # the filing itself
     quarters = sorted(by.values(), key=lambda d: d["end"])[-8:]
     for qq in quarters:
         if qq.get("revenue") and qq.get("operating_income"):
@@ -142,9 +197,14 @@ async def financials(symbol: str):
             break
     beats = sum(1 for t in track if t["result"] == "beat")
 
-    return clean({"symbol": symbol.upper(), "source": "SEC EDGAR XBRL",
-                  "note": "each row is one ~91-day quarter; cumulative rollups filtered out",
-                  "quarters": quarters,
+    latest = quarters[-1] if quarters else {}
+    fsrc = ([{"label": f"SEC EDGAR · {symbol.upper()} {latest.get('form') or 'filing'} for the quarter "
+                       f"ended {_day(latest['end'])}", "url": latest["url"]}] if latest.get("url") else []) \
+        + _sources(symbol, ("next_earnings",))
+    if tt:
+        tt = {**tt, "period": f"12 months to {_day(tt['end'])}"}
+    return clean({"symbol": symbol.upper(), "source": "SEC EDGAR XBRL", "sources": fsrc,
+                  "quarters": quarters, "ttm": tt,
                   "upcoming": upcoming,
                   "track_record": track,
                   "beats": beats, "reports": len(track)})
@@ -198,6 +258,7 @@ async def analysts(symbol: str):
             if cur else [])
     return clean({
         "symbol": symbol.upper(),
+        "sources": _sources(symbol, ("analyst_ratings", "price_targets", "rating_changes")),
         "consensus": {k: i.get(k) for k in
                       ("recommendationKey", "recommendationMean", "numberOfAnalystOpinions")
                       if i.get(k) is not None},
@@ -232,7 +293,9 @@ async def events(symbol: str):
     return clean({"symbol": symbol.upper(),
                   "next_earnings": str(d)[:10] if d else None,
                   "eps_estimate": cal.get("Earnings Average"),
-                  "surprise_history": hist, "filings": fil})
+                  "surprise_history": hist, "filings": fil,
+                  "sources": _sources(symbol, ("next_earnings",))
+                             + _sources(symbol, ("recent_filings",))})
 
 
 def _require_account():
@@ -999,6 +1062,15 @@ async def indices():
 
 # ════════════════════ multi-ticker comparison ════════════════════
 
+def _window(b: list[dict], period: str) -> list[dict]:
+    import pandas as pd
+    if not b:
+        return b
+    start = window_start(pd.to_datetime([x["t"] for x in b], unit="s"), period)
+    t0 = int(start.timestamp()) if start is not None else b[0]["t"]
+    return [x for x in b if x["t"] >= t0]
+
+
 @router.get("/compare")
 async def compare(symbols: str = Query(..., min_length=1), period: str = "6mo"):
     """Any basket of tickers, side by side: normalised price paths, the
@@ -1011,13 +1083,15 @@ async def compare(symbols: str = Query(..., min_length=1), period: str = "6mo"):
 
     quotes, *series = await asyncio.gather(
         yahoo.quotes(syms),
-        *(yahoo.bars(s, period, "1d") for s in syms),
+        *(yahoo.bars(s, FETCH.get(period, period), "1d") for s in syms),
         return_exceptions=True)
     quotes = quotes if isinstance(quotes, dict) else {}
-    bars = {s: (b if isinstance(b, list) else []) for s, b in zip(syms, series)}
+    # the same window the agent's returns use, so a chart ends on the cited figure
+    bars = {s: _window(b, period) if isinstance(b, list) else [] for s, b in zip(syms, series)}
 
     infos = await asyncio.gather(*(yahoo.info(s) for s in syms), return_exceptions=True)
     infos = {s: (i if isinstance(i, dict) else {}) for s, i in zip(syms, infos)}
+    ttms = dict(zip(syms, await asyncio.gather(*(_ttm(s) for s in syms))))
 
     # normalise every path to 100 at the first shared date, so a $40 stock and a
     # $900 stock are actually comparable
@@ -1063,6 +1137,7 @@ async def compare(symbols: str = Query(..., min_length=1), period: str = "6mo"):
             "beta": i.get("beta"), "sector": i.get("sector"), "industry": i.get("industry"),
             "high_52w": q.get("fiftyTwoWeekHigh"), "low_52w": q.get("fiftyTwoWeekLow"),
         })
+        _ttm_margins(rows[-1], ttms.get(s))
 
     # how much of a basket this really is - correlation across the set
     corr = []

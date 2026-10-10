@@ -560,6 +560,132 @@ async def suite_regressions():
         {k: v for k, v in fd2.items() if k != "MARKET"},
         "the writer may send specialists to the names a screen turned up")
 
+    # ── citations: each figure links the record it came from ──
+    from app.graph.build import cite
+    def tr(tool, tk, data, url):
+        return ToolResult(tool=tool, ticker=tk, data=data,
+                          prov=Provenance(source="s", label=f"{tool} {tk}", url=url))
+    nv = DomainFinding(domain="relations", ticker="NVDA", narrative="x", evidence=[
+        tr("peer_performance", "NVDA", {"name": "NVIDIA", "excess": -13.1, "peers": [{"t": "AMD", "excess": 107.6}]},
+           "https://example.com/nvda")])
+    am = DomainFinding(domain="relations", ticker="AMD", narrative="x", evidence=[
+        tr("peer_performance", "AMD", {"name": "Advanced Micro Devices", "excess": 107.6}, "https://example.com/amd")])
+    ns = DomainFinding(domain="street", ticker="NVDA", narrative="x", evidence=[
+        tr("news", "NVDA", {"headlines": [{"title": "Nvidia signs $8.2 billion deal", "url": "https://news.example/a",
+                                           "publisher": "Wire"}]}, "https://example.com/news")])
+    ans = ("AMD has delivered a 107.6% beta-adjusted excess return, while NVDA posted -13.1%. "
+           "NVDA also signed an $8.2 billion deal.")
+    segs, srcs = cite(ans, [nv, am, ns])
+    by = {x["n"]: x for x in srcs}
+    figs = {sg["f"]: [by[n]["url"] for n in sg["s"]] for sg in segs if "f" in sg}
+    add("cite_nearest_company", figs.get("107.6%") == ["https://example.com/amd"]
+        and figs.get("-13.1%") == ["https://example.com/nvda"], figs,
+        "REGRESSION: NVDA's peer table holds AMD's number too, and AMD's figure cited NVDA")
+    add("cite_headline_figure", figs.get("$8.2 billion") == ["https://news.example/a"] or
+        figs.get("$8.2") == ["https://news.example/a"], figs,
+        "a figure quoted from an article cites the article, not the news feed")
+    add("cite_segments_rebuild_answer", "".join(sg.get("t", sg.get("f", "")) for sg in segs) == ans,
+        "segments concatenate back to the answer", "the cited answer must say exactly what the answer says")
+    add("cite_urls_are_http", all((x["url"] or "https://").startswith("https://") for x in srcs),
+        [x["url"] for x in srcs][:4], "a source link is only ever an http(s) page")
+
+    # ── per-field sources: each number cites the page that shows THAT number ──
+    from app.graph.build import unverified_figures
+    vm = DomainFinding(domain="fundamentals", ticker="NVDA", narrative="x", evidence=[
+        tr("valuation_multiples", "NVDA", {"pe_forward": 14.43, "market_cap": 5.55e12,
+            "_src": {"pe_forward": {"label": "analysis", "url": "https://finance.yahoo.com/quote/NVDA/analysis/"},
+                     "note": {"label": "x", "url": "https://www.sec.gov/Archives/edgar/data/1045810/0001045810-26-000075"}}},
+           "https://finance.yahoo.com/quote/NVDA/")])
+    segs2, srcs2 = cite("NVDA trades at a forward P/E of 14.43 with a $5.55T market cap.", [vm])
+    by2 = {x["n"]: x["url"] for x in srcs2}
+    f2 = {sg["f"]: [by2[n] for n in sg["s"]] for sg in segs2 if "f" in sg}
+    add("cite_field_level_source", f2.get("14.43") == ["https://finance.yahoo.com/quote/NVDA/analysis/"]
+        and f2.get("$5.55T") == ["https://finance.yahoo.com/quote/NVDA/"], f2,
+        "REGRESSION: Yahoo's Statistics page shows a different forward P/E; ours is checkable on Analysis")
+    add("url_digits_never_ground", unverified_figures("Revenue was 1045810 dollars.", [vm]) == [1045810.0],
+        unverified_figures("Revenue was 1045810 dollars.", [vm]),
+        "digits inside a stored link (a CIK, an accession number) must not make an invented figure look grounded")
+
+    # ── year-to-date is measured from last year's final close ──
+    import datetime as _dt
+    from app.providers import yahoo as _yh
+    from app.tools import _util as _tu
+    def _bar(d, c):
+        return {"t": int(_dt.datetime(*d, 5, tzinfo=_dt.timezone.utc).timestamp()), "c": c}
+    fake = [_bar((2025, 12, 30), 187.10), _bar((2025, 12, 31), 186.06),
+            _bar((2026, 1, 2), 188.41), _bar((2026, 10, 9), 229.50)]
+    real_bars = _yh.bars
+    async def _fake_bars(sym, period="1y", interval="1d"):
+        return fake if period == "1y" else fake[2:]     # Yahoo's own "ytd" opens Jan 2
+    _yh.bars = _fake_bars
+    try:
+        ys = await _tu.closes("NVDA", "ytd")
+    finally:
+        _yh.bars = real_bars
+    add("ytd_from_prior_year_close", float(ys.iloc[0]) == 186.06 and len(ys) == 3,
+        f"ytd base {float(ys.iloc[0])}, {len(ys)} closes",
+        "REGRESSION: YTD started at the year's first close and dropped that day's move (NVDA 21.8% vs Yahoo's 23.35%)")
+
+    # ── twelve-month margins are added up from four consecutive quarterly filings ──
+    from app.providers import edgar as _ed
+    def _q(end, val):
+        return {"end": end, "val": val, "form": "10-Q", "accn": "0000000000-26-000001", "cik": 1}
+    ends = ["2025-10-26", "2026-01-25", "2026-04-26", "2026-07-26"]
+    fake_c = {"revenue": [_q(e, v) for e, v in zip(ends, (57.006e9, 68.127e9, 81.615e9, 96.221e9))],
+              "operating_income": [_q(e, v) for e, v in zip(ends, (36.01e9, 44.299e9, 53.536e9, 63.734e9))],
+              "net_income": [_q(e, v) for e, v in zip(ends, (31.91e9, 42.96e9, 58.321e9, 59.688e9))],
+              "gross_profit": [], "cost_of_revenue": [_q(e, v) for e, v in zip(ends, (15.157e9, 17.034e9, 20.458e9, 24.079e9))]}
+    real_concept, real_stale = _ed.concept, _ed.stale_days
+    async def _fake_concept(t, m, limit=8):
+        return fake_c.get(m, [])[-limit:]
+    _ed.concept, _ed.stale_days = _fake_concept, (lambda rows: 30)
+    try:
+        tt = await _ed.ttm("NVDA")
+        fake_c["revenue"] = fake_c["revenue"][:2] + fake_c["revenue"][3:]       # a missing quarter
+        gap = await _ed.ttm("NVDA")
+    finally:
+        _ed.concept, _ed.stale_days = real_concept, real_stale
+    add("ttm_margins_from_four_filings",
+        bool(tt) and tt["operating_margin_pct"] == 65.21 and tt["net_margin_pct"] == 63.66
+        and tt["gross_margin_pct"] == 74.67 and len(tt["quarters"]) == 4,
+        {k: (tt or {}).get(k) for k in ("operating_margin_pct", "net_margin_pct", "gross_margin_pct")},
+        "REGRESSION: Yahoo's 'ttm' operating margin (66.24%) was one quarter; the filings' 12 months give 65.21% "
+        "(gross from revenue minus cost of revenue when no GrossProfit tag)")
+    add("ttm_refuses_a_gap", gap is None, gap and gap.get("quarters"),
+        "three quarters plus one from a year earlier is not twelve months")
+
+    # ── charts appear only when the answer cites figures a chart makes clearer ──
+    from app.graph.charts import pick as _pick
+    def _run(evs, answer):
+        fs = [DomainFinding(domain="fundamentals", ticker=e.ticker, narrative="x", evidence=[e]) for e in evs]
+        return grounding_check(AgentRun(question="q", answer=answer, findings=fs))
+    pf = lambda tk, g, o, n: tr("profitability", tk, {"gross_margin": g, "operating_margin": o, "net_margin": n}, f"https://www.sec.gov/{tk}")
+    cmp_run = _run([pf("NVDA", 74.67, 65.21, 63.66), pf("AMD", 53.2, 15.71, 15.58)],
+                   "NVDA keeps 65.21% of sales as operating profit, AMD 15.71%.")
+    ch = cmp_run.charts
+    add("chart_for_a_comparison", len(ch) == 1 and ch[0]["kind"] == "bars"
+        and [r["label"] for r in ch[0]["rows"]] == ["NVDA", "AMD"] and ch[0]["rows"][0]["operating_margin"] == 65.21,
+        ch, "two companies' cited margins get one bar chart, with the cited values")
+    no_cite = _run([pf("NVDA", 74.67, 65.21, 63.66), pf("AMD", 53.2, 15.71, 15.58)],
+                   "Both companies are profitable chip designers.")
+    news = _run([tr("news", "NVDA", {"items": [{"title": "Nvidia unveils chip", "url": "https://x.com/a"}]}, "https://x.com")],
+                "Nvidia unveiled a new chip this week.")
+    add("no_chart_unless_needed", no_cite.charts == [] and news.charts == [],
+        [no_cite.charts, news.charts], "an answer that cites no comparable figure gets no chart")
+    ps = lambda tk, c: tr("price_series", tk, {"period": "1y", "change_pct": c, "start": 100.0, "end": 100 + c}, f"https://y.com/{tk}")
+    one = _run([ps("NVDA", 19.48)], "NVDA is up 19.48% over the past year.").charts
+    two = _run([ps("NVDA", 19.48), ps("AMD", 61.2)], "NVDA rose 19.48% while AMD rose 61.2%.").charts
+    add("chart_lines_for_returns", one and one[0]["symbols"] == ["NVDA", "SPY"] and one[0]["period"] == "1y"
+        and two and two[0]["symbols"] == ["NVDA", "AMD"], [one, two],
+        "one name's return is drawn against the S&P 500; several names against each other")
+    pp = tr("peer_performance", "AMD", {"period": "1y", "subject": {"ticker": "AMD", "return_pct": 182.97}}, "https://y.com/AMD")
+    mixed = _run([pf("NVDA", 74.67, 65.21, 63.66), pf("AMD", 53.2, 15.71, 15.58), ps("NVDA", 19.48), pp],
+                 "NVDA's operating margin is 65.21% and AMD's 15.71%; NVDA's net margin 63.66% vs 15.58%. "
+                 "Over the year NVDA rose 19.48% while AMD returned 182.97%.").charts
+    add("chart_returns_first", [c["kind"] for c in mixed] == ["lines", "bars"] and mixed[0]["symbols"] == ["NVDA", "AMD"],
+        [(c["kind"], c.get("symbols")) for c in mixed],
+        "REGRESSION: AMD's return came from peer_performance, so no price chart was drawn though the answer compared returns")
+
     import typing
     from app.graph.domains import DState
     meta = getattr(typing.get_type_hints(DState, include_extras=True)["steps"], "__metadata__", ())

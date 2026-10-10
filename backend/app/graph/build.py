@@ -878,10 +878,196 @@ def unverified_figures(answer: str, findings) -> list[float]:
     return bad
 
 
+def _value_set(nums) -> set[float]:
+    """Every rounding and unit-scaling a figure from these numbers could be
+    written as - the same variants the grounding check accepts."""
+    ev: set[float] = set()
+    for n in nums:
+        for v in (n, round(n, 2), round(n, 1), round(n)):
+            ev.add(float(v))
+        for unit in (1e3, 1e6, 1e9, 1e12):
+            if abs(n) >= unit:
+                ev.add(round(n / unit, 3)); ev.add(round(n / unit, 2)); ev.add(round(n / unit, 1))
+    return ev
+
+
+def _numeric_leaves(data) -> list[float]:
+    """Numbers held AS numbers - not ones quoted inside text, which belong to
+    the headline that quoted them."""
+    out: list[float] = []
+    def walk(v):
+        if isinstance(v, bool):
+            return
+        if isinstance(v, (int, float)):
+            out.append(float(v))
+        elif isinstance(v, dict):
+            for x in v.values(): walk(x)
+        elif isinstance(v, (list, tuple)):
+            for x in v: walk(x)
+    walk(data)
+    return out
+
+
+def _headlines(data) -> list[dict]:
+    """Headline objects inside a tool's data, wherever they sit."""
+    out = []
+    def walk(v):
+        if isinstance(v, dict):
+            if v.get("title") and v.get("url"):
+                out.append(v)
+            for x in v.values(): walk(x)
+        elif isinstance(v, list):
+            for x in v: walk(x)
+    walk(data)
+    return out
+
+
+_SENT_SPLIT = re.compile(r"(?<=[.!?])\s+")
+
+
+def cite(answer: str, findings) -> tuple[list[dict], list[dict]]:
+    """Link every figure in the answer to the evidence it came from.
+
+    Deterministic, no model: a figure is matched to the evidence records whose
+    numbers include it (at any rounding or unit the grounding check accepts).
+    When several match, the record for the company that SENTENCE is about wins
+    - "AMD's forward P/E of 40.68" cites AMD's statistics, not NVDA's. A figure
+    quoted from a headline cites that article. Returns the answer as segments
+    ({"t": text} / {"f": figure, "s": [source numbers]}) and the numbered
+    sources, cited ones first.
+    """
+    recs, names = [], {}
+    for f in findings:
+        for e in (f.evidence if hasattr(f, "evidence") else []):
+            d = e.data or {}
+            nm = d.get("name") or d.get("shortName")
+            if isinstance(nm, str) and e.ticker not in names:
+                names[e.ticker] = nm
+            for h in _headlines(d):
+                nums = []
+                for x in re.findall(r"-?\d[\d,]*(?:\.\d+)?", h["title"]):
+                    try:
+                        nums.append(float(x.replace(",", "")))
+                    except ValueError:
+                        pass
+                recs.append({"ticker": e.ticker, "domain": f.domain, "tool": e.tool,
+                             "values": _value_set(nums),
+                             "label": f"{h.get('publisher') or 'News'} · {h['title'][:110]}",
+                             "url": h["url"], "as_of": h.get("published"), "headline": True})
+            fsrc = d.get("_src") if isinstance(d.get("_src"), dict) else {}
+            for field, meta in fsrc.items():
+                if field in d and isinstance(meta, dict):
+                    recs.append({"ticker": e.ticker, "domain": f.domain, "tool": e.tool,
+                                 "values": _value_set(_numeric_leaves({field: d[field]})),
+                                 "label": meta.get("label") or e.tool, "url": meta.get("url"),
+                                 "as_of": e.prov.as_of.isoformat() if e.prov and e.prov.as_of else None,
+                                 "headline": False, "field": True})
+            rest = {k: v for k, v in d.items() if k not in fsrc and not str(k).startswith("_")}
+            recs.append({"ticker": e.ticker, "domain": f.domain, "tool": e.tool,
+                         "values": _value_set(_numeric_leaves(rest)),
+                         "label": (e.prov.label if e.prov else None) or e.tool,
+                         "url": e.prov.url if e.prov else None,
+                         "as_of": e.prov.as_of.isoformat() if e.prov and e.prov.as_of else None,
+                         "headline": False})
+
+    def where(sentence: str, tk: str) -> list[int]:
+        """Positions in the sentence where this ticker (or its company's first
+        name word) is named."""
+        s = sentence.lower()
+        pats = []
+        if tk and tk != "MARKET":
+            pats.append(rf"\b{re.escape(tk.lower())}\b")
+        nm = (names.get(tk) or "").lower().replace(",", "").split()
+        if nm and len(nm[0]) > 2:
+            pats.append(rf"\b{re.escape(nm[0])}")
+        return sorted(m.start() for p in pats for m in re.finditer(p, s))
+
+    # numbers that name rather than measure keep their positions, so offsets
+    # still point into the original answer
+    text = answer or ""
+    masked = text.replace("%", " ")
+    for pat in _NOISE:
+        masked = pat.sub(lambda m: " " * len(m.group()), masked)
+    sent_bounds, pos = [], 0
+    for part in _SENT_SPLIT.split(text):
+        start = text.find(part, pos); sent_bounds.append((start, start + len(part))); pos = start + len(part)
+
+    order: list[str] = []          # source keys in first-cited order
+    keyed: dict[str, dict] = {}
+    segs, last = [], 0
+    for m in _NUM.finditer(masked):
+        raw = float(m.group(1).replace(",", ""))
+        unit = (m.group(2) or "").lower()
+        if raw in IGNORE:
+            continue
+        cands = {raw} | ({raw * SCALE.get(unit, 1)} if unit else set())
+        hits = [r for r in recs if any(round(c, 2) in r["values"] or round(c, 1) in r["values"]
+                                       or round(c) in r["values"] for c in cands)]
+        if not hits:
+            continue
+        a0, b0 = next(((a, b) for a, b in sent_bounds if a <= m.start() < b), (0, len(text)))
+        sent, at = text[a0:b0], m.start() - a0
+        # "AMD has delivered 107.6% ... while NVDA posted -13.1%": both companies
+        # are named, and NVDA's peer table holds AMD's number too. The company
+        # named closest BEFORE the figure is the one it belongs to.
+        def dist(r):
+            ps = where(sent, r["ticker"])
+            before = [at - p for p in ps if p <= at]
+            return min(before) if before else (10_000 + min((p - at for p in ps), default=10_000))
+        about = [r for r in hits if where(sent, r["ticker"])]
+        if abs(raw) <= 1.5 and not about:
+            continue               # a 1.2 matches half the evidence; only cite it when the sentence says whose it is
+        pick = sorted(about, key=dist) if about else hits
+        # a field's own source first, then the record, then the article that quoted it
+        best = ([r for r in pick if r.get("field")][:1] or [r for r in pick if not r["headline"]][:1]
+                or [r for r in pick if r["headline"]][:1])
+        s0, e0 = m.start(1), m.end()
+        while e0 > s0 and text[e0 - 1] == " ":
+            e0 -= 1
+        if s0 > 0 and text[s0 - 1] == "$":
+            s0 -= 1
+        if e0 < len(text) and text[e0] in "%×x" and (e0 + 1 == len(text) or not text[e0 + 1].isalpha()):
+            e0 += 1
+        ns = []
+        for r in best:
+            k = (r["url"] or "") + "|" + r["label"]
+            if k not in keyed:
+                keyed[k] = r; order.append(k)
+            ns.append(order.index(k) + 1)
+        if s0 > last:
+            segs.append({"t": text[last:s0]})
+        segs.append({"f": text[s0:e0], "s": ns})
+        last = e0
+    if last < len(text):
+        segs.append({"t": text[last:]})
+
+    # everything consulted, cited first; headlines only when cited
+    for r in recs:
+        k = (r["url"] or "") + "|" + r["label"]
+        if k not in keyed and not r["headline"]:
+            keyed[k] = r; order.append(k)
+    cited = {n for sg in segs for n in sg.get("s", [])}
+    sources = [{"n": i + 1, "label": keyed[k]["label"], "url": keyed[k]["url"],
+                "ticker": keyed[k]["ticker"], "tool": keyed[k]["tool"], "domain": keyed[k]["domain"],
+                "as_of": keyed[k]["as_of"], "cited": i + 1 in cited}
+               for i, k in enumerate(order)]
+    return segs, sources
+
+
 def grounding_check(run: AgentRun) -> AgentRun:
-    """Post-hoc report. The writer already gated on this; this records it."""
+    """Post-hoc report. The writer already gated on this; this records it -
+    and links each figure to the evidence it came from."""
     run.ungrounded_numbers = unverified_figures(run.answer, run.findings)
     run.grounded = not run.ungrounded_numbers
+    try:
+        run.segments, run.sources = cite(run.answer, run.findings)
+    except Exception:              # citations are an aid; never fail a run over them
+        run.segments, run.sources = [], []
+    try:
+        from .charts import pick
+        run.charts = pick(run)
+    except Exception:              # so are charts
+        run.charts = []
     return run
 
 
