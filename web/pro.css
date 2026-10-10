@@ -1,9 +1,8 @@
 /* ═══════════════════════════════════════════════════════════════════════
    Monsoon Pro - a flat research-terminal skin over the same markup.
 
-   Everything here is scoped to html[data-ui="pro"], so Classic is untouched
-   and the two can be compared on the same live data (top-bar switch, or
-   ?ui=pro / ?ui=classic).
+   Scoped to html[data-ui="pro"], which index.html always sets. (It began as an
+   alternative to the glass "Classic" look and replaced it.)
 
    The system, in one breath: solid surfaces at three elevations, 1px hairline
    borders, small radii, one accent (violet) for interaction, green/red only
@@ -41,7 +40,6 @@ html[data-ui="pro"][data-nav="collapsed"]{--nav-w:60px}
 /* ── base ─────────────────────────────────────────────────────────────── */
 html[data-ui="pro"] body{background:var(--background);font-feature-settings:"cv11","ss01","tnum";
   letter-spacing:-.006em}
-html[data-ui="pro"] body::before,html[data-ui="pro"] body::after{display:none}
 html[data-ui="pro"] .mono{font-family:"Inter",-apple-system,system-ui,sans-serif;
   font-variant-numeric:tabular-nums;letter-spacing:-.01em}
 html[data-ui="pro"] ::-webkit-scrollbar-thumb{background:var(--border);border:3px solid transparent;background-clip:padding-box}
@@ -353,7 +351,6 @@ html[data-ui="pro"] .explain{margin-left:12px;margin-bottom:4px;white-space:nowr
 .qhead .px .c{font-size:14px;font-weight:650;margin-top:6px;font-variant-numeric:tabular-nums}
 .qhead .px .st{font-size:11px;color:var(--subtle-foreground);margin-top:4px}
 .qhead .acts{display:flex;gap:6px;margin-top:10px;justify-content:flex-end}
-html[data-ui="pro"] #showOverlay{display:none}
 .qstats{display:grid;grid-template-columns:repeat(auto-fit,minmax(128px,1fr));border:1px solid var(--border);
   border-top:0;border-radius:0 0 var(--radius) var(--radius);background:var(--card);margin-bottom:16px}
 .qstat{padding:10px 14px;border-right:1px solid var(--border-subtle);border-top:1px solid var(--border-subtle);min-width:0}
@@ -395,7 +392,6 @@ html[data-ui="pro"] #showOverlay{display:none}
   html[data-ui="pro"] .navitem{justify-content:center;padding:0}
   html[data-ui="pro"] .navbrand{justify-content:center;padding:4px 0 12px}
   html[data-ui="pro"] #mktstatus,html[data-ui="pro"] #tape{display:none}
-  html[data-ui="pro"] #uiswitch button{padding:4px 7px}
   .pd-hero{grid-template-columns:1fr;padding:18px}
   .pd-idx{grid-template-columns:repeat(2,1fr)}
   .pd-ix:nth-child(3n){border-right:1px solid var(--border-subtle)}
@@ -414,7 +410,7 @@ html[data-ui="pro"] #showOverlay{display:none}
    panel takes 400px from it, which used to clip the crumbs and the switches */
 html[data-ui="pro"] #shell{container-type:inline-size;container-name:shell}
 html[data-ui="pro"] .whoami{white-space:nowrap;flex:none}
-html[data-ui="pro"] #uiswitch,html[data-ui="pro"] #crumbs{flex:none}
+html[data-ui="pro"] #crumbs{flex:none}
 @container shell (max-width:1080px){
   html[data-ui="pro"] #mktstatus span{display:none}
   html[data-ui="pro"] #cmdk{width:auto}
@@ -450,3 +446,76 @@ html[data-ui="pro"] .psub .dot2{background:var(--primary)}
 html[data-ui="pro"] .psub.done .dot2{background:var(--pos)}
 
 html[data-ui="pro"] .scrb{background:var(--card);border-color:var(--border)}
+
+/* citations */
+html[data-ui="pro"] sup.cite{margin-left:1px;font-size:9.5px;font-weight:650;line-height:0;vertical-align:super}
+html[data-ui="pro"] sup.cite a,html[data-ui="pro"] sup.cite span{display:inline-block;min-width:13px;padding:0 3px;
+  margin-left:1px;border-radius:4px;text-align:center;text-decoration:none;color:var(--primary);
+  background:var(--accent);font-variant-numeric:tabular-nums}
+html[data-ui="pro"] sup.cite a:hover{background:var(--primary);color:#fff}
+.srcs{margin-top:12px;padding-top:10px;border-top:1px solid var(--border-subtle)}
+.srch{font-size:11px;font-weight:650;color:var(--muted-foreground);margin-bottom:6px}
+.srcs ol{list-style:none;margin:0;padding:0;display:grid;gap:5px}
+.srcs li{display:grid;grid-template-columns:18px 1fr;gap:7px;font-size:11.5px;line-height:1.45}
+.srcs .sn{font-size:10px;font-weight:700;color:var(--primary);background:var(--accent);border-radius:4px;
+  text-align:center;height:16px;line-height:16px;font-variant-numeric:tabular-nums}
+.srcs a{color:var(--foreground);text-decoration:none;overflow-wrap:anywhere}
+.srcs a:hover{color:var(--primary);text-decoration:underline}
+.srcs .sd{display:block;font-size:10.5px;color:var(--subtle-foreground)}
+.srcs details{margin-top:8px}
+.srcs summary{font-size:11px;color:var(--subtle-foreground);cursor:pointer;margin-bottom:6px}
+.tsrc{list-style:none;margin:4px 0 10px;padding:0;display:grid;gap:5px}
+.tsrc li{display:flex;align-items:center;gap:8px;font-size:12px}
+.tsrc a{color:var(--primary);text-decoration:none;overflow-wrap:anywhere}
+.tsrc a:hover{text-decoration:underline}
+
+/* ── info tips: explanations behind an ⓘ instead of grey captions ── */
+.itip{display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;margin-left:5px;
+  padding:0;border:0;border-radius:50%;background:transparent;color:var(--muted-foreground);cursor:help;
+  vertical-align:-3px;flex:none;transition:color .15s,background .15s}
+.itip svg{width:15px;height:15px}
+.itip:hover,.itip[aria-expanded="true"]{color:var(--primary);background:var(--accent)}
+.itip:focus-visible,.srcbtn:focus-visible{outline:2px solid var(--primary);outline-offset:1px}
+.tipbox{position:fixed;z-index:9999;max-width:min(320px,calc(100vw - 16px));padding:11px 13px;
+  background:var(--popover);color:var(--foreground);border:1px solid var(--border);border-radius:10px;
+  box-shadow:var(--shadow-pop);font-size:12.5px;line-height:1.55;font-weight:450;letter-spacing:0;
+  text-transform:none;opacity:0;visibility:hidden;transform:translateY(-3px);
+  transition:opacity .14s,transform .14s,visibility 0s .14s;pointer-events:none}
+.tipbox.on{opacity:1;visibility:visible;transform:none;transition:opacity .14s,transform .14s;pointer-events:auto}
+.tipbox p{margin:0}
+.tipbox p+p{margin-top:7px}
+.tipbox .tiph{font-weight:650;margin-bottom:5px}
+.tipbox p+.tiph{margin-top:9px}
+.tipbox .tipl{list-style:none;margin:0;padding:0;display:grid;gap:6px}
+.tipbox .tipl a{color:var(--primary);text-decoration:none;overflow-wrap:anywhere}
+.tipbox .tipl a:hover{text-decoration:underline}
+.tipbox kbd{font-family:"JetBrains Mono",monospace;font-size:11px;padding:0 5px;border-radius:4px;
+  border:1px solid var(--border);background:var(--card-hi)}
+/* "Sources · 3" at the foot of a tab: one tidy control instead of a line of links */
+.psrc{margin-top:12px;display:flex}
+.srcbtn{display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 11px 0 8px;border-radius:999px;
+  border:1px solid var(--border);background:var(--card);color:var(--foreground);font:inherit;font-size:12px;
+  font-weight:550;cursor:pointer;transition:border-color .15s,background .15s}
+.srcbtn svg{width:15px;height:15px;color:var(--primary)}
+.srcbtn:hover,.srcbtn[aria-expanded="true"]{border-color:var(--accent-line);background:var(--accent)}
+/* a count beside a heading: real data, so it reads as text, not as a footnote */
+.cnt{font-size:12px;font-weight:600;color:var(--foreground);font-variant-numeric:tabular-nums}
+.esres{margin-top:12px;font-size:13px;line-height:1.7;color:var(--foreground)}
+.scrh{display:flex;align-items:center}
+
+/* ── charts inside an answer ── */
+.achart{margin:14px 0 4px;padding:12px 12px 6px;border:1px solid var(--border);border-radius:var(--radius-sm);
+  background:var(--card)}
+.achart figcaption{display:flex;align-items:center;font-size:12.5px;font-weight:650;margin-bottom:6px}
+.acm{min-height:150px}
+
+/* ── margins from the filings ── */
+.mgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-bottom:14px}
+.mg{padding:12px 14px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--card-hi)}
+.mg .k{font-size:12px;font-weight:550;color:var(--muted-foreground)}
+.mg .v{font-size:22px;font-weight:650;margin-top:3px}
+.mtable{width:100%}
+.mtable tr.tot td{font-weight:700;border-top:1px solid var(--border)}
+html[data-ui="pro"] a.badge{text-decoration:none}
+html[data-ui="pro"] a.src{text-decoration:none;color:var(--muted-foreground)}
+html[data-ui="pro"] a.src:hover{color:var(--primary);border-color:var(--accent-line)}

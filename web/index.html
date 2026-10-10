@@ -10,15 +10,14 @@
 <meta property="og:description" content="Live quotes, SEC financials and a research agent that checks every figure it quotes.">
 <meta property="og:type" content="website">
 <script>
-  /* Classic or Pro, decided before first paint so neither flashes the other.
-     ?ui=pro / ?ui=classic switches and is remembered. */
+  /* Theme and sidebar state before first paint, so neither flashes. The
+     data-ui attribute is what pro.css is scoped to; it is always "pro" now. */
+  document.documentElement.dataset.ui = "pro";
   try {
-    var q = new URLSearchParams(location.search).get("ui");
-    if (q === "pro" || q === "classic") localStorage.setItem("monsoon.ui", q);
-    document.documentElement.dataset.ui = localStorage.getItem("monsoon.ui") || "classic";
+    localStorage.removeItem("monsoon.ui");           // the Classic/Pro switch is gone
     document.documentElement.dataset.theme = localStorage.getItem("monsoon.theme") || "dark";
     if (localStorage.getItem("monsoon.nav") === "collapsed") document.documentElement.dataset.nav = "collapsed";
-  } catch (e) { document.documentElement.dataset.ui = "classic"; }
+  } catch (e) { document.documentElement.dataset.theme = "dark"; }
 </script>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='6' fill='%237c6cf7'/%3E%3Cg fill='none' stroke='white' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 4.6c3.2 3.6 5 5.9 5 8.2a5 5 0 1 1-10 0c0-2.3 1.8-4.6 5-8.2Z'/%3E%3Cpath d='M9.6 13.6l1.6-1.8 1.5 1.4 1.8-2.2'/%3E%3C/g%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -370,27 +369,7 @@ pre{font-family:"JetBrains Mono",monospace;font-size:10.5px;line-height:1.65;col
    an ambient colour field sits under everything and the panels float on top.
    Each surface = translucent tint + backdrop blur/saturate + a specular rim
    (bright top inset edge, faint bottom) + a soft drop shadow for lift. */
-body::before{
-  content:"";position:fixed;inset:-20%;z-index:-2;pointer-events:none;
-  background:
-    radial-gradient(56vw 56vw at 8% 0%,   rgba(163,132,255,.95), transparent 64%),
-    radial-gradient(52vw 52vw at 96% 6%,  rgba(72,158,255,.78),  transparent 66%),
-    radial-gradient(60vw 60vw at 80% 100%,rgba(206,178,255,.72), transparent 64%),
-    radial-gradient(48vw 48vw at 14% 96%, rgba(120,94,245,.85),  transparent 66%),
-    radial-gradient(46vw 46vw at 52% 46%, rgba(104,150,235,.46), transparent 68%);
-  filter:blur(34px) saturate(165%);
-  animation:drift 26s ease-in-out infinite alternate;
-}
-body::after{  /* fine grain so large blurs don't band */
-  content:"";position:fixed;inset:0;z-index:-1;pointer-events:none;opacity:.035;
-  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)'/%3E%3C/svg%3E");
-}
-@keyframes drift{
-  0%{transform:translate3d(0,0,0) scale(1)}
-  50%{transform:translate3d(2%,-2%,0) scale(1.06)}
-  100%{transform:translate3d(-2%,2%,0) scale(1.02)}
-}
-@media (prefers-reduced-motion:reduce){body::before{animation:none}}
+/* (the ambient glass background that lived here went with the Classic look) */
 body{background:#070810}
 
 /* the material */
@@ -863,10 +842,6 @@ details.raw summary{cursor:pointer;font-size:11px;color:var(--subtle-foreground)
 }
 
 /* ═══════════ shared: interface switch, notices, password sheet, ⌘K ═══════════ */
-html:not([data-ui="pro"]) .pro-only{display:none !important}
-html[data-ui="pro"] .classic-only{display:none !important}
-#uiswitch{padding:3px;gap:2px}
-#uiswitch button{padding:4px 10px;font-size:11px;font-weight:600}
 #toasts{position:fixed;right:18px;bottom:18px;z-index:120;display:flex;flex-direction:column;gap:8px;
   pointer-events:none}
 .toast{pointer-events:auto;min-width:240px;max-width:380px;padding:11px 14px;border-radius:12px;font-size:12.5px;
@@ -1274,9 +1249,6 @@ select.inp option{background:#141824;color:var(--foreground)}
         <span>Search tickers or ask anything</span><kbd>⌘K</kbd></button>
       <div id="mktstatus" class="pro-only" role="status"></div>
       <div id="pfsummary"></div>
-      <span class="badge ghost classic-only">RESEARCH ONLY</span>
-      <div id="uiswitch" class="seg" role="group" aria-label="Interface">
-        <button type="button" data-ui="classic">Classic</button><button type="button" data-ui="pro">Pro</button></div>
       <button id="themebtn" class="btn btn-sm btn-ghost pro-only" type="button" aria-label="Switch light or dark" title="Light / dark">
         <svg class="ico sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>
         <svg class="ico moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg></button>
@@ -1305,7 +1277,6 @@ select.inp option{background:#141824;color:var(--foreground)}
         <button id="send" class="btn btn-primary" type="submit" aria-label="Ask" title="Ask">
           <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg></button>
       </form>
-      <div id="foot">Informational only · not investment advice<span class="kbdhint"> · <kbd>/</kbd> to ask from anywhere</span></div>
     </div>
   </aside>
 </div>

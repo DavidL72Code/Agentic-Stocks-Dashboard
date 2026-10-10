@@ -69,7 +69,7 @@ def present(data: Any, key: str = "") -> Any:
     if isinstance(data, dict):
         out = {}
         for k, v in data.items():
-            if k in NOISE_KEYS:
+            if k in NOISE_KEYS or str(k).startswith("_"):
                 continue
             r = present(v, k)
             if r not in (None, [], {}, ""):

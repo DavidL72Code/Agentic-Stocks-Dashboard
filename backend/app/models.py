@@ -18,6 +18,8 @@ class Provenance(BaseModel):
     source: str
     as_of: datetime = Field(default_factory=_now)
     is_stale: bool = False
+    label: str | None = None   # what a reader would call it: "SEC EDGAR · NVDA 10-Q"
+    url: str | None = None     # the page the figures can be checked on
 
 
 class ToolResult(BaseModel):
@@ -50,7 +52,11 @@ class ToolResult(BaseModel):
                     except ValueError:
                         pass
             elif isinstance(v, dict):
-                for x in v.values(): walk(x)
+                # "_" keys are bookkeeping (per-field sources): the digits in a
+                # URL or an accession number must never ground a figure
+                for k, x in v.items():
+                    if not str(k).startswith("_"):
+                        walk(x)
             elif isinstance(v, (list, tuple)):
                 for x in v: walk(x)
 
@@ -102,6 +108,12 @@ class AgentRun(BaseModel):
     steps: list[RunStep] = []
     grounded: bool | None = None
     ungrounded_numbers: list[float] = []
+    # where each figure came from: the answer as text and cited-figure
+    # segments, and the numbered sources those cite (see graph.build.cite)
+    segments: list[dict] = []
+    sources: list[dict] = []
+    # charts that illustrate the cited figures, when one helps (graph.charts)
+    charts: list[dict] = []
     # non-empty when the run answered from a fallback because a step failed;
     # the client shows it, so a degraded answer is never silently passed off
     # as a full one

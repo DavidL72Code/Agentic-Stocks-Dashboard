@@ -27,6 +27,7 @@ TAGS = {
     "net_income": ["NetIncomeLoss"],
     "operating_income": ["OperatingIncomeLoss"],
     "gross_profit": ["GrossProfit"],
+    "cost_of_revenue": ["CostOfRevenue", "CostOfGoodsAndServicesSold"],
     "eps": ["EarningsPerShareDiluted"],
     "assets": ["Assets"],
     "liabilities": ["Liabilities"],
@@ -70,14 +71,15 @@ def _quarterly(units: list[dict], derive_q4: bool = True) -> list[dict]:
             a = annual.get(e)
             if a is None or u.get("filed", "") > a.get("filed", ""):
                 annual[e] = {"end": e, "start": s, "val": u["val"],
-                             "form": u.get("form"), "filed": u.get("filed")}
+                             "form": u.get("form"), "filed": u.get("filed"), "accn": u.get("accn")}
             continue
         if not (QUARTER_DAYS[0] <= span <= QUARTER_DAYS[1]):
             continue                              # <-- the double-counting guard
         prev = out.get(e)
         if prev is None or u.get("filed", "") > prev.get("filed", ""):
             out[e] = {"end": e, "start": s, "val": u["val"],
-                      "form": u.get("form"), "filed": u.get("filed"), "days": span}
+                      "form": u.get("form"), "filed": u.get("filed"), "days": span,
+                      "accn": u.get("accn")}
     if derive_q4:
         for e, a in annual.items():
             if e in out:
@@ -87,7 +89,7 @@ def _quarterly(units: list[dict], derive_q4: bool = True) -> list[dict]:
                 continue
             last = max(q["end"] for q in inside)
             out[e] = {"end": e, "start": last, "val": a["val"] - sum(q["val"] for q in inside),
-                      "form": a["form"], "filed": a["filed"],
+                      "form": a["form"], "filed": a["filed"], "accn": a.get("accn"),
                       "days": (date.fromisoformat(e) - date.fromisoformat(last)).days,
                       "derived": "fiscal year less three reported quarters"}
     return sorted(out.values(), key=lambda r: r["end"])
@@ -129,7 +131,7 @@ async def concept(ticker: str, metric: str, limit: int = 8) -> list[dict]:
             usd = js.get("units", {}).get("USD")
             units = usd or js.get("units", {}).get("USD/shares")
             q = _quarterly(units, derive_q4=bool(usd)) if units else []
-            for r in q: r["tag"] = tag
+            for r in q: r["tag"] = tag; r["cik"] = cik
             return q
         tags = TAGS.get(metric, [metric])
         series = [q for q in await asyncio.gather(*(one(t) for t in tags)) if q]
@@ -137,7 +139,7 @@ async def concept(ticker: str, metric: str, limit: int = 8) -> list[dict]:
             return []
         newest = max(q[-1]["end"] for q in series)
         return next(q for q in series if q[-1]["end"] == newest)
-    val, _ = await cached(("edgar", ticker.upper(), metric, "v3"), 86400, load)
+    val, _ = await cached(("edgar", ticker.upper(), metric, "v4"), 86400, load)
     return val[-limit:]
 
 
@@ -148,6 +150,55 @@ def stale_days(rows: list[dict]) -> int | None:
     if not rows:
         return None
     return (date.today() - date.fromisoformat(rows[-1]["end"])).days
+
+
+async def ttm(ticker: str) -> dict | None:
+    """The last twelve months, added up from the last four quarterly filings.
+
+    Quote pages disagree on "ttm" margins - NVDA, Oct 2026: Yahoo's "Operating
+    Margin (ttm)" of 66.24% is really the latest QUARTER (63.73 / 96.22), the
+    filings give 65.21% over four quarters, Finnhub 65.17%. Adding the four
+    10-Q/10-K quarters ourselves gives one number, the same everywhere, that a
+    reader can rebuild from the filings each row links. None when the four
+    quarters aren't consecutive and current - a gap would make it 15 months.
+    """
+    rev, gp, oi, ni = await asyncio.gather(*(concept(ticker, m, 8) for m in
+                                             ("revenue", "gross_profit", "operating_income", "net_income")))
+    if len(rev) < 4 or (stale_days(rev) or 0) > 200:
+        return None
+    last4 = rev[-4:]
+    ends = [date.fromisoformat(r["end"]) for r in last4]
+    if any(not (75 <= (b - a).days <= 105) for a, b in zip(ends, ends[1:])):
+        return None
+    def match(rows: list[dict]) -> list[float] | None:
+        by = {r["end"]: r["val"] for r in rows}
+        vals = [by.get(r["end"]) for r in last4]
+        return vals if all(v is not None for v in vals) else None
+    g, o, n = match(gp), match(oi), match(ni)
+    if g is None:                  # many issuers file cost of revenue, not gross profit
+        cr = match(await concept(ticker, "cost_of_revenue", 8))
+        if cr is not None:
+            g = [r["val"] - c for r, c in zip(last4, cr)]
+    from ..tools.sources import sec_filing_url
+    quarters = []
+    for i, r in enumerate(last4):
+        q = {"end": r["end"], "form": r.get("form"), "filed": r.get("filed"),
+             "url": sec_filing_url(r.get("cik"), r.get("accn")), "revenue": r["val"]}
+        for k, v in (("gross_profit", g), ("operating_income", o), ("net_income", n)):
+            if v is not None:
+                q[k] = v[i]
+        if r.get("derived"):
+            q["derived"] = r["derived"]
+        quarters.append(q)
+    total = sum(r["val"] for r in last4)
+    out = {"start": last4[0].get("start"), "end": last4[-1]["end"], "cik": last4[-1].get("cik"),
+           "quarters": quarters, "revenue": total}
+    for k, v, m in (("gross_profit", g, "gross_margin_pct"), ("operating_income", o, "operating_margin_pct"),
+                    ("net_income", n, "net_margin_pct")):
+        if v is not None and total:
+            out[k] = sum(v)
+            out[m] = round(sum(v) / total * 100, 2)
+    return out
 
 
 # Why an 8-K was filed. EDGAR lists the item numbers; these are the ones that
@@ -169,15 +220,17 @@ async def filings(ticker: str, limit: int = 8, since: str | None = None) -> list
         js = await _get(SUBMISSIONS.format(cik=cik))
         r = js.get("filings", {}).get("recent", {})
         out = []
-        for d, f, p, it in zip(r.get("filingDate", []), r.get("form", []),
-                               r.get("primaryDocument", []), r.get("items", [""] * 10**4)):
-            row = {"date": d, "form": f, "doc": p}
+        from ..tools.sources import sec_doc_url
+        for d, f, p, it, ac in zip(r.get("filingDate", []), r.get("form", []),
+                                   r.get("primaryDocument", []), r.get("items", [""] * 10**4),
+                                   r.get("accessionNumber", [""] * 10**4)):
+            row = {"date": d, "form": f, "doc": p, "url": sec_doc_url(cik, ac, p)}
             reasons = [ITEMS_8K[x.strip()] for x in (it or "").split(",") if x.strip() in ITEMS_8K]
             if reasons:
                 row["reasons"] = reasons
             out.append(row)
         return out          # EDGAR "recent" is up to ~1000 rows; Form 4s crowd it
-    val, _ = await cached(("edgar", ticker.upper(), "filings2"), 86400, load)
+    val, _ = await cached(("edgar", ticker.upper(), "filings3"), 86400, load)
     if since:
         val = [x for x in val if x["date"] >= since]
     return val[:limit]
