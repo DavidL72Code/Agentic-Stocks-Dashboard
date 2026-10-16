@@ -277,6 +277,25 @@ def new_id() -> str:
     return uuid.uuid4().hex[:12]
 
 
+class UsernameTaken(Exception):
+    """A username already exists.
+
+    Raised instead of letting the driver's own error escape. sqlite3 signals a
+    uniqueness violation with sqlite3.IntegrityError; libsql/Turso raises a
+    plain ValueError whose message mentions SQLITE_CONSTRAINT. The register
+    route caught only the first, so on Turso a duplicate username returned a
+    500 instead of "that username is taken" - a user-visible bug that no local
+    test could reproduce. Driver differences belong here, not in a route.
+    """
+
+
+def _is_unique_violation(e: Exception) -> bool:
+    if isinstance(e, sqlite3.IntegrityError):
+        return True
+    msg = str(e).upper()
+    return "UNIQUE CONSTRAINT" in msg or "SQLITE_CONSTRAINT" in msg
+
+
 # ───────────────────────── users ─────────────────────────
 def ensure_user(uid: str = LOCAL_USER_ID, *, email=None, name=None,
                 provider="local", provider_id=None) -> str:
@@ -306,17 +325,22 @@ def user_by_username(username: str) -> dict | None:
 
 def create_password_user(username: str, password_hash: str, *,
                          name: str | None = None, email: str | None = None) -> str:
-    """Raises sqlite3.IntegrityError if the username is taken - the unique
-    index is the authority, not a prior SELECT, so two simultaneous signups
-    cannot both succeed."""
+    """Raises UsernameTaken if the username exists - the unique index is the
+    authority, not a prior SELECT, so two simultaneous signups cannot both
+    succeed."""
     uid = new_id()
     c = conn()
-    with c:
-        c.execute("INSERT INTO users(id,email,name,provider,provider_id,created_at,"
-                  "username,password_hash) VALUES(?,?,?,?,?,?,?,?)",
-                  (uid, email, name or username, "password", uid, time.time(),
-                   username, password_hash))
-        c.execute("INSERT OR IGNORE INTO prefs(user_id,seeded) VALUES(?,1)", (uid,))
+    try:
+        with c:
+            c.execute("INSERT INTO users(id,email,name,provider,provider_id,created_at,"
+                      "username,password_hash) VALUES(?,?,?,?,?,?,?,?)",
+                      (uid, email, name or username, "password", uid, time.time(),
+                       username, password_hash))
+            c.execute("INSERT OR IGNORE INTO prefs(user_id,seeded) VALUES(?,1)", (uid,))
+    except Exception as e:
+        if _is_unique_violation(e):
+            raise UsernameTaken(username) from e
+        raise
     return uid
 
 

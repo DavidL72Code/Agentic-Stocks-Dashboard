@@ -97,6 +97,10 @@ async def suite_agent():
                 fails.append(f"ran needless domain {bad}")
         if c.get("expect_min_domains") and len(domains) < c["expect_min_domains"]:
             fails.append(f"only {len(domains)} domains")
+        used = {t for f in d.get("findings", []) for t in (f.get("tools_used") or [])}
+        for want in (c.get("expect_tools") or []):
+            if want not in used:
+                fails.append(f"did not run {want}")
         for want in (c.get("expect_tickers") or []):
             if want not in d.get("tickers", []):
                 fails.append(f"dropped ticker {want}")

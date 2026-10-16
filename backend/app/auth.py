@@ -182,7 +182,7 @@ async def register(body: Credentials, request: Request):
     pw_hash = passwords.hash_password(body.password)
     try:
         uid = db.create_password_user(username, pw_hash, name=body.name or username)
-    except sqlite3.IntegrityError:
+    except db.UsernameTaken:
         raise HTTPException(409, "That username is taken.")
 
     passwords.record_failure(ipkey)          # counts signups, not failures

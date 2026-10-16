@@ -56,6 +56,11 @@ What to say:
   next earnings date and expected EPS, the beat/miss record, the direction of
   margins and growth, leverage. Say what would change it. Never forecast a
   price, never say buy, sell or hold.
+- If you have turning_points (past lows and rebounds), compare today with the
+  most recent past low: how far each fell, whether the market fell too, how
+  oversold it was, what the turn looked like and how far it rebounded. Name
+  which of those conditions are present today and which are missing. This
+  is history, not a forecast - say "last time ...; today ...".
 - No investment advice. Factual only.
 - If you are the screener, the 1-3 sentence and four-figure limits do not
   apply. Write up to 6 sentences: first the criteria in plain words, then one

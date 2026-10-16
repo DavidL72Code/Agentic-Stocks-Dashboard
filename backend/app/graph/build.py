@@ -33,6 +33,13 @@ Rules:
   think" about a ticker, that is a broad read: include `macro` alongside the
   company-level domains, because the market backdrop is part of the answer. A
   broad read typically wants market + street + fundamentals + macro.
+- If the question asks whether a stock will GO BACK UP, BOUNCE, RECOVER, has
+  BOTTOMED, or about its TREND or what it NEEDS to turn, the market task MUST
+  name `turning_points`: the stock's own past lows - how far it fell, what
+  turned it, how far it came back - are the evidence for that question, and
+  today's snapshot alone is not. Add `news_history` to the street task so the
+  big move days come with their headlines, and `next_earnings` for the next
+  catalyst.
 - Fundamentals update quarterly, so they cannot explain a single day's move.
 - `relations` is for questions about how one ticker affects ANOTHER (read-across,
   peers, correlation). If used, set "other" in args to the second ticker.
@@ -100,7 +107,7 @@ Rules:
   few words rather than skipping it.
 - Prefer a cross-domain observation if the evidence supports one.
 - If a specialist reports data is unavailable, say so plainly. Do not guess.
-- 2-5 sentences (up to 8 when presenting screen results). Plain prose, no headers.
+- 2-5 sentences (up to 8 for screen results, up to 7 when comparing past lows with today). Plain prose, no headers.
 
 How to write it:
 - Short sentences. Aim for 20 words, never more than 30. If a sentence needs an
@@ -123,6 +130,20 @@ balanced read of the evidence, not a recommendation:
 - end with what would change the picture - the next datapoint that matters
 - NEVER say buy, sell, hold, accumulate, trim, overweight, underweight, or give
   a price target of your own. You summarise evidence; you do not advise.
+
+When a turning_points finding is present (past lows and rebounds), history IS
+the answer to "will it go back up?" - lead with it, not with today's sentiment:
+- Name the last comparable low: when, how far it fell, and how far it came back.
+- Say what that turn looked like: whether the whole market had fallen too and
+  then recovered, how oversold it was, any turn-day headline, and how soon it
+  got back above its 50-day average.
+- Then set TODAY against it: which of those conditions are present now and
+  which are missing (a stock-specific drop vs a market-wide one, no heavy
+  selling volume yet, still far below the 50-day average). Missing conditions
+  plus the next catalyst ARE what it needs to bounce - say so plainly.
+- Frame it as "last time ...; today ...". Never predict a price or say it will
+  or will not rise. If there are only one or two past lows, say it is a small
+  sample. Up to 7 sentences for this.
 
 When a screener finding is present:
 - If the question also asks about the market and a macro finding is present,
@@ -166,6 +187,15 @@ Reply with ONLY JSON: {"answer": "..."}"""
 # Questions that cannot be answered honestly without a peer comparison.
 # "how is it trading" is included; "what is the price" deliberately is not -
 # that is a lookup, not a judgement about performance.
+# "is this a good company", "can I trust management", "is it well run" - the
+# answer needs the filing record and the share count, not just a price chart.
+# Same reasoning as PERF_RE: asked nicely in the prompt, a small model complies
+# about half the time, so the guarantee lives in code.
+QUALITY_RE = re.compile(
+    r"\b(good company|bad company|well[- ]run|trust\w*|trustworth\w*|"
+    r"management|governance|scandal\w*|dilut\w*|fraud\w*|shady|legit|"
+    r"quality|worth (buying|owning)|should i (buy|own))\b", re.I)
+
 PERF_RE = re.compile(
     r"\b(perform\w*|doing|compare[sd]?|comparison|versus|vs\.?|against|"
     r"out ?perform\w*|under ?perform\w*|beat\w*|lag\w*|better|worse|"

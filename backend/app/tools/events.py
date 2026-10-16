@@ -75,3 +75,76 @@ async def ex_dividend(ticker: str, **_):
     if not d:
         return empty("ex_dividend", ticker, f"{ticker} pays no dividend")
     return ok("ex_dividend", ticker, d)
+
+
+# Filing events that bear on how a company is run, as opposed to how it trades.
+# Every one is a fact in an SEC filing, not an opinion about management.
+_RED_FORMS = {"NT 10-K": "filed its annual report late",
+              "NT 10-Q": "filed a quarterly report late",
+              "NT 20-F": "filed its annual report late"}
+_RED_ITEMS = {"prior financials unreliable": "restated or withdrew prior financials",
+              "auditor change": "changed auditor",
+              "delisting notice": "received a delisting or listing-standard notice",
+              "unregistered share sale": "sold unregistered shares",
+              "change in control": "change in control"}
+_CHURN_ITEM = "executive or director change"
+
+
+@tool("events",
+      "GOVERNANCE FLAGS from SEC filings: late reports, restatements, auditor "
+      "changes, delisting notices, executive churn. Use for questions about "
+      "whether management is trustworthy or well run", derived=True)
+async def governance_flags(ticker: str, years: int = 5, **_):
+    """What "is management trustworthy" can honestly be grounded in.
+
+    These are filing FACTS, each with a date and an SEC link: a restatement
+    (8-K item 4.02) means the company told the SEC its own past numbers could
+    not be relied on. An auditor change right after one is a different story
+    from a routine rotation. Late filings and delisting notices are similarly
+    hard evidence.
+
+    What this deliberately does NOT do is score or rank "trust", and it does
+    not look for scandals - there is no structured feed for those, and an
+    opinion dressed as a metric is worse than no metric. Absence of flags is
+    reported as exactly that: nothing filed, not a clean bill of health.
+    """
+    since = f"{datetime.now(timezone.utc).year - years}-01-01"
+    f = await edgar.filings(ticker, limit=4000, since=since)
+    if not f:
+        return empty("governance_flags", ticker, "no SEC filings (non-US filer?)")
+
+    events, churn = [], 0
+    for row in f:
+        if row["form"] in _RED_FORMS:
+            events.append({"date": row["date"], "what": _RED_FORMS[row["form"]],
+                           "form": row["form"], "url": row.get("url")})
+        for reason in row.get("reasons", []):
+            if reason in _RED_ITEMS:
+                events.append({"date": row["date"], "what": _RED_ITEMS[reason],
+                               "form": row["form"], "url": row.get("url")})
+            elif reason == _CHURN_ITEM:
+                churn += 1
+
+    events.sort(key=lambda e: e["date"], reverse=True)
+    counts: dict[str, int] = {}
+    for e in events:
+        counts[e["what"]] = counts.get(e["what"], 0) + 1
+
+    if events:
+        reading = (f"{len(events)} governance event(s) in SEC filings since {since[:4]}: "
+                   + "; ".join(f"{v}x {k}" for k, v in counts.items()))
+    else:
+        reading = (f"no late filings, restatements, auditor changes or delisting "
+                   f"notices filed since {since[:4]}")
+    if churn:
+        reading += f". {churn} executive/director change filing(s) over the window"
+
+    return ok("governance_flags", ticker, {
+        "window_from": since, "events": events[:12], "counts": counts,
+        "exec_change_filings": churn,
+        "filings_scanned": len(f), "reading": reading,
+        "note": ("filing facts only. No scandal search and no trust score - "
+                 "there is no structured source for either, and an opinion "
+                 "presented as a metric is worse than none. No flags means "
+                 "nothing was filed, not that nothing happened."),
+    }, source="sec-edgar")

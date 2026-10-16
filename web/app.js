@@ -12,6 +12,23 @@ const mo = (el, kf, op) => { try {
     a?.finished?.then(() => { for (const n of (el.length != null ? el : [el]))
       n?.style?.removeProperty?.("transform"); }).catch(()=>{});
     return a; } catch { return null; } };
+
+/* ── motion: short and purposeful - a quarter-second or less, transform and
+   opacity only, nothing when the system asks for reduced motion (mo() checks) ── */
+const EASE = [.22, 1, .36, 1];
+const fadeIn = (el, y = 6, d = .22) => mo(el, { opacity: [0, 1], y: [y, 0] }, { duration: d, easing: EASE });
+/* one after another, but the whole ripple stays under ~0.3s however many rows */
+const rippleIn = (els, step = .03, d = .24) => { const n = els?.length || 0; if (!n) return null;
+  return mo(els, { opacity: [0, 1], y: [6, 0] }, { duration: d, delay: stag(Math.min(step, .3 / n)), easing: EASE }); };
+/* a price that just changed glows green or red for a moment: the live-feed cue */
+function flashTick(el, up) {
+  if (!el || REDUCED || !animate) return;
+  try {
+    const a = animate(el, { backgroundColor: [cssv(up ? "--pos-flash" : "--neg-flash"), "rgba(0,0,0,0)"] },
+                      { duration: .9, easing: "ease-out" });
+    a?.finished?.then(() => el.style.removeProperty("background-color")).catch(() => {});
+  } catch {}
+}
 const stag = n => { try { return stagger ? stagger(n) : 0; } catch { return 0; } };
 
 const $ = id => document.getElementById(id);
@@ -76,15 +93,26 @@ function tipShow(btn, pin) {
   if (TIP.at && TIP.at !== btn) TIP.at.setAttribute("aria-expanded", "false");
   TIP.at = btn; TIP.pinned = !!pin;
   TIP.el.innerHTML = btn.dataset.tip;
+  const opening = !TIP.el.classList.contains("on");
   TIP.el.classList.add("on");
   const r = btn.getBoundingClientRect(), w = TIP.el.offsetWidth, h = TIP.el.offsetHeight;
   const x = Math.min(Math.max(8, r.left + r.width / 2 - w / 2), innerWidth - w - 8);
   const y = r.bottom + 8 + h > innerHeight - 8 ? Math.max(8, r.top - h - 8) : r.bottom + 8;
   TIP.el.style.left = x + "px"; TIP.el.style.top = y + "px";
   btn.setAttribute("aria-expanded", "true");
+  if (opening) {
+    TIP.el.style.transformOrigin = y < r.top ? "50% 100%" : "50% 0";
+    TIP.anims = [mo(TIP.el, { opacity: [0, 1] }, { duration: .12 }),
+                 mo(TIP.el, { scale: [.95, 1], y: [y < r.top ? 4 : -4, 0] }, { type: "spring", stiffness: 520, damping: 30 })];
+    TIP.anims[0]?.finished?.then(() => TIP.el.style.removeProperty("opacity")).catch(() => {});
+    rippleIn(TIP.el.querySelectorAll(".tipl li"), .03, .2);
+  }
 }
 function tipHide() {
   clearTimeout(TIP.t);
+  // closing mid-spring: stop it and drop its inline styles, so the CSS fade-out plays
+  (TIP.anims || []).forEach(a => { try { a?.stop?.(); } catch {} }); TIP.anims = [];
+  TIP.el?.style.removeProperty("opacity"); TIP.el?.style.removeProperty("transform");
   TIP.el?.classList.remove("on"); TIP.at?.setAttribute("aria-expanded", "false");
   TIP.at = null; TIP.pinned = false;
 }
@@ -448,10 +476,8 @@ function afterRender(root) {
   if (ah) ah.onclick = () => { openAgent(true); syncAsk(); $("ask").focus(); };
   S.pending.forEach(fn => { try { fn(); } catch(e){ console.warn(e); } });
   S.pending = [];
-  mo(root, { opacity:[0,1], y:[10,0] }, { duration:.34, easing:[.22,1,.36,1] });
-  mo(root.querySelectorAll(".panel,.tile"),
-     { opacity:[0,1], y:[10,0], scale:[.99,1] },
-     { duration:.4, delay:stag(.03), easing:[.22,1,.36,1] });
+  fadeIn(root, 6, .22);
+  rippleIn(root.querySelectorAll(".panel,.tile"), .025, .26);
 }
 
 /* ═══════════════ VIEW: dashboard ═══════════════ */
@@ -901,6 +927,8 @@ async function renderTab() {
   // a slower earlier tab must not paint over the one you clicked since
   if (want.tab !== S.tab || want.cur !== S.cur || !el.isConnected) return;
   el.innerHTML = html;
+  fadeIn(el, 6, .22);
+  rippleIn(el.querySelectorAll(".mg, .mtable tbody tr"), .03, .22);
   const dom = TAB_DOMAIN[S.tab], have = S.tabAgent[S.cur + ":" + dom];
   const slot = $("explainslot");
   if (slot) {
@@ -1632,6 +1660,7 @@ function mountCharts(root) {
       } else throw new Error("unknown chart");
       if (!el.isConnected) return;
       el.innerHTML = ""; draw(); CHART_SEEN.add(key);
+      if (animate) mo(el, { opacity: [0, 1] }, { duration: .3, easing: EASE });
     } catch { el.closest(".achart")?.remove(); }     // a chart is support; no chart beats a broken one
   });
 }
@@ -1682,7 +1711,8 @@ function progressHTML(turn) {
         <div class="pd2">${L.route === "done" ? `sent it to ${specs.length} specialist${specs.length === 1 ? "" : "s"}${L.resolved ? ` · read as “${esc(L.resolved)}”` : ""}`
                                                : "working out which specialists the question needs…"}</div></div></li>
       <li class="${specSt}"><span class="pi"></span><div><div class="pt">Specialist agents${specs.length ? ` <span class="pn">${specs.filter(x => x.stage === "done" || x.stage === "skip").length}/${specs.length}</span>` : ""}</div>
-        ${specs.length ? specs.map(sp => `<div class="psub ${sp.stage === "done" ? "done" : sp.stage === "skip" ? "skip" : "run"}">
+        ${specs.length ? specs.map(sp => `<div class="psub ${sp.stage === "done" ? "done" : sp.stage === "skip" ? "skip" : "run"}"
+            data-k="sp:${esc(sp.domain)}:${esc(sp.ticker || "")}:${sp.round || 1}">
             <span class="dot2"></span><span class="who">${esc(DOMAIN_LABEL[sp.domain] || sp.domain)}${sp.ticker && sp.ticker !== "MARKET" ? ` · ${esc(sp.ticker)}` : ""}${sp.round > 1 ? ` <i>follow-up</i>` : ""}</span>
             <span class="what">${specLine(sp)}</span></div>`).join("")
           : `<div class="pd2">each pulls its own data in parallel</div>`}</div></li>
@@ -1694,7 +1724,7 @@ function progressHTML(turn) {
         <div class="pd2">${L.verify === "repair" ? `${L.unsupported ? `${L.unsupported} figure${L.unsupported === 1 ? "" : "s"} not in the evidence · ` : ""}repairing…`
           : L.verify ? "matching every figure to the data the specialists fetched…" : "every figure gets checked against the evidence"}</div></div></li>
     </ol></div>
-    ${L.draft ? `<div class="answer draft"><div class="dlab">${L.verify ? "Draft · checking figures…" : "Writing…"}</div>
+    ${L.draft ? `<div class="answer draft" data-k="draft"><div class="dlab">${L.verify ? "Draft · checking figures…" : "Writing…"}</div>
       <div class="dtext" data-draft>${paras(L.draft)}<span class="caret"></span></div></div>` : ""}`;
 }
 
@@ -1847,11 +1877,23 @@ function paintTurn(turn) {
   const i = T.turns.indexOf(turn);
   const node = document.querySelector(`#thread [data-turn="${i}"]`);
   if (!node) return renderThread();
+  const seen = new Set([...node.querySelectorAll("[data-k]")].map(x => x.dataset.k));
+  const wasRunning = !!node.querySelector(".prog");
   const tmp = document.createElement("div");
   tmp.innerHTML = turnHTML(turn, i);
   const fresh = tmp.firstElementChild;
   node.replaceWith(fresh);
   wireThread(fresh);
+  // a specialist joining, or the draft starting, slides in; the finished
+  // answer fades up where the timeline was, its sources following
+  if (wasRunning) {
+    const added = [...fresh.querySelectorAll("[data-k]")].filter(x => !seen.has(x.dataset.k));
+    if (added.length) rippleIn(added);
+    if (!fresh.querySelector(".prog")) {
+      fadeIn(fresh.querySelector(".answer, .anote, .aerr"), 8, .26);
+      rippleIn(fresh.querySelectorAll(".srcs li"), .03, .22);
+    }
+  }
   const sc = $("rscroll"); sc.scrollTop = sc.scrollHeight;
 }
 
@@ -1879,6 +1921,7 @@ async function streamAsk(question, opts = {}) {
                  live: { specs: [], route: "run" } };
   const history = historyFor();
   T.turns.push(turn); renderThread(); busy(true);
+  fadeIn(document.querySelector("#thread .turn:last-child"), 8, .24);
   const ctl = T.ctl = new AbortController();
   try {
     const body = { question, history };
@@ -2044,14 +2087,19 @@ function marketStatus() {
   el.innerHTML = `<span class="dot"></span><b>${label}</b><span>· ${sub} · ${clock} ET</span>`;
 }
 
+const TAPE_LAST = {};
 async function loadTape() {
   const el = $("tape"); if (!el) return;
   try { await loadMarket(); } catch { return; }
   el.innerHTML = TAPE.map(([sym, lbl]) => { const q = MKT.q[sym]; if (!q || q.price == null) return "";
     const d = sym === "EURUSD=X" ? 4 : sym === "^TNX" ? 2 : q.price > 1000 ? 0 : 2;
-    return `<div class="tp-item" style="cursor:default"><span class="tl">${esc(lbl)}</span>
-      <span class="tv">${num(q.price, d)}${sym === "^TNX" ? "%" : ""}</span>
+    return `<div class="tp-item" style="cursor:default" data-tsym="${esc(sym)}"><span class="tl">${esc(lbl)}</span>
+      <span class="tv tick">${num(q.price, d)}${sym === "^TNX" ? "%" : ""}</span>
       <span class="tc ${sgn(q.change_pct)}">${pct(q.change_pct)}</span></div>`; }).join("");
+  for (const [sym] of TAPE) { const q = MKT.q[sym]; if (!q || q.price == null) continue;
+    const was = TAPE_LAST[sym]; TAPE_LAST[sym] = q.price;
+    if (was != null && was !== q.price)
+      flashTick(el.querySelector(`[data-tsym="${CSS.escape(sym)}"] .tv`), q.price > was); }
   marketStatus();
 }
 
@@ -2114,6 +2162,12 @@ function paintMarketMap(el) {
   }
   el.innerHTML = html;
   el.querySelectorAll("[data-go]").forEach(c => c.onclick = () => location.hash = "#/t/" + c.dataset.go);
+  if (!el.dataset.shown) {
+    el.dataset.shown = "1";
+    const cells = el.querySelectorAll(".mm-cell");
+    mo(cells, { opacity: [0, 1], scale: [.94, 1] },
+       { duration: .26, delay: stag(Math.min(.006, .32 / Math.max(1, cells.length))), easing: EASE });
+  }
 }
 
 function moversHTML(kind) {
@@ -2230,6 +2284,7 @@ async function viewDashboardPro(nav) {
   // indices
   api("/api/indices").then(d => { if (!live() || !$("pdidx")) return;
     $("pdidx").innerHTML = idxCellsHTML(d);
+    rippleIn($("pdidx").children);
     const by = Object.fromEntries(d.indices.map(i => [i.symbol, i]));
     $$("[data-ixp]").forEach(m => { const i = by[m.dataset.ixp]; if (i?.history?.length)
       CH.indexSpark(m, i.history, i.change_pct >= 0, i.kind !== "index"); });
@@ -2243,10 +2298,12 @@ async function viewDashboardPro(nav) {
       const mm = $("mmap"); paintMarketMap(mm);
       if (mm) new ResizeObserver(() => { if ($("mmap") === mm) paintMarketMap(mm); }).observe(mm);
       const paintMovers = k => { $("movers").innerHTML = moversHTML(k);
+        rippleIn($$("#movers .mv-row"), .03, .2);
         $$("#movers [data-go]").forEach(r => r.onclick = () => location.hash = "#/t/" + r.dataset.go); };
       paintMovers("gainers");
       $$("#mvseg button").forEach(b => b.onclick = () => { $$("#mvseg button").forEach(x => x.classList.toggle("on", x === b)); paintMovers(b.dataset.mv); });
       $("sectors").innerHTML = sectorsHTML();
+      fadeIn($("sectors"), 4, .22);
       paintWatch(); loadTape();
     }).catch(e => { if ($("mmap")) $("mmap").innerHTML = `<div class="pd-empty">Couldn't load prices: ${esc(e.message)}</div>`; });
 
@@ -2255,6 +2312,7 @@ async function viewDashboardPro(nav) {
     const rows = wl.map(x => ({ sym: x, held: held.has(x), ...quoteRow(x) })).filter(r => r.price != null);
     const body = $("wlbody"); if (!body) return;
     body.innerHTML = wlRows(rows) || `<tr><td colspan="7"><div class="empty">Prices are unavailable right now.</div></td></tr>`;
+    rippleIn(body.querySelectorAll("tr"), .025, .22);
     $$("#wlbody [data-spark]").forEach(el => { const val = S.sparks[el.dataset.spark] || [];
       if (val.length > 1) CH.sparkline(el, val, val.at(-1) >= val[0]); });
     $$("#wlbody [data-go]").forEach(el => { el.onclick = () => location.hash = "#/t/" + el.dataset.go;
@@ -2266,12 +2324,13 @@ async function viewDashboardPro(nav) {
 
   api("/api/calendar/earnings?days=7&limit=8").then(d => { if (live() && $("earnings")) {
     $("earnings").innerHTML = earningsHTML(d);
+    fadeIn($("earnings"), 4, .22);
     $$("#earnings [data-go]").forEach(r => r.onclick = () => location.hash = "#/t/" + r.dataset.go); } })
     .catch(() => { if ($("earnings")) $("earnings").innerHTML = earningsHTML({ items: [], unavailable: "Earnings calendar unavailable." }); });
 
   // market news and today's flagged moves, straight from the data plane (no model call)
   api("/api/brief").then(b => { if (!live()) return;
-    if ($("mnews")) $("mnews").innerHTML = newsHTML(b.market_headlines || []);
+    if ($("mnews")) { $("mnews").innerHTML = newsHTML(b.market_headlines || []); fadeIn($("mnews"), 4, .22); }
     const sigs = (b.signals || []).slice(0, 4);
     if (sigs.length && $("pdsig")) { $("pdsig").innerHTML = signalStrip({ ...b, signals: sigs });
       $$("#pdsig [data-go]").forEach(el => el.onclick = () => location.hash = "#/t/" + el.dataset.go); }
@@ -2305,7 +2364,7 @@ async function fillQuoteHeader(sym) {
   head.innerHTML = `<img src="${logo(sym)}" alt="">
     <div class="id"><div class="sym">${esc(sym)} ${ov.sector ? `<span class="badge ghost">${esc(ov.sector)}</span>` : ""}</div>
       <div class="nm">${esc(q.name || ov.name || "")}${ov.industry ? " · " + esc(ov.industry) : ""}</div></div>
-    <div class="px"><div class="p">${usdp(q.price ?? ov.price)}</div>
+    <div class="px"><div class="p tick">${usdp(q.price ?? ov.price)}</div>
       <div class="c ${sgn(q.change_pct)}">${q.change != null ? `${q.change >= 0 ? "+" : "−"}${num(Math.abs(q.change))} ` : ""}(${pct(q.change_pct)})</div>
       <div class="st">${stLabel}${last.t ? " · " + new Date(last.t * 1000).toLocaleDateString(undefined, { month: "short", day: "numeric" }) : ""}</div>
       <div class="acts"><button class="btn btn-sm" id="qwatch">${inWl ? "✓ Watching" : "+ Watchlist"}</button>
@@ -2574,14 +2633,25 @@ function patchPrices() {
     if (px && px.textContent !== num(q.price)) {
       const was = parseFloat(px.textContent.replace(/,/g,""));
       px.textContent = num(q.price);
-      tr.classList.remove("flash-up","flash-dn"); void tr.offsetWidth;
-      if (!isNaN(was)) tr.classList.add(q.price >= was ? "flash-up" : "flash-dn");
+      if (!isNaN(was)) flashTick(px, q.price >= was);
     }
     if (ch) { ch.textContent = pct(q.change_pct); ch.className = `mono chg ${sgn(q.change_pct)}`; }
   });
 }
+/* the open ticker's price in the quote header, kept live the same way */
+async function patchQuoteHead() {
+  const sym = S.cur, head = $("qhead"); if (!sym || !head) return;
+  const q = (await api(`/api/quotes?symbols=${encodeURIComponent(sym)}`).catch(() => null))?.quotes?.[0];
+  if (!q || q.price == null || S.cur !== sym) return;
+  const p = head.querySelector(".px .p"), c = head.querySelector(".px .c"); if (!p) return;
+  const was = parseFloat(p.textContent.replace(/[$,]/g, "")), now = usdp(q.price);
+  if (p.textContent !== now) { p.textContent = now; if (!isNaN(was)) flashTick(p, q.price >= was); }
+  if (c) { c.className = `c ${sgn(q.change_pct)}`;
+    c.textContent = `${q.change != null ? `${q.change >= 0 ? "+" : "−"}${num(Math.abs(q.change))} ` : ""}(${pct(q.change_pct)})`; }
+}
 setInterval(async () => {
   if (document.hidden) return;
+  if (S.route === "ticker") patchQuoteHead();
   const syms = S.wl.length ? S.wl : (S.route === "dashboard" ? POPULAR : []);
   if (!syms.length) return;
   const d = await api(`/api/quotes?symbols=${syms.join(",")}`).catch(()=>null);

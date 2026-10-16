@@ -19,6 +19,7 @@ quarterly charts carry only what to fetch: the client loads the price paths
 and filings from the cached /api/compare and /api/financials endpoints.
 """
 from __future__ import annotations
+import re
 from collections import Counter
 
 PERIOD = {"1mo": "the past month", "3mo": "the past 3 months", "6mo": "the past 6 months",
@@ -59,6 +60,15 @@ def _cited(run) -> Counter:
 
 def _src(e) -> dict:
     return {"label": e.prov.label if e.prov else e.tool, "url": e.prov.url if e.prov else None}
+
+
+def _named(text: str, ticker: str, name: str | None) -> bool:
+    """Does the answer mention this company, by ticker or the first word of its name?"""
+    t = text or ""
+    if re.search(rf"\b{re.escape(ticker)}\b", t):
+        return True
+    first = (name or "").replace(",", "").split()[:1]
+    return bool(first) and len(first[0]) > 3 and re.search(rf"\b{re.escape(first[0])}", t, re.I) is not None
 
 
 def _rs_period(d: dict) -> str:
@@ -107,9 +117,26 @@ def pick(run) -> list[dict]:
                 if t not in by_p.setdefault(p, []):
                     by_p[p].append(t)
         period, names = max(by_p.items(), key=lambda kv: len(kv[1]))
+        # "MSFT rose 11.3% while Alphabet rose 11.1%": Alphabet's return came
+        # from MSFT's peer table, not a tool of its own - draw the peers the
+        # answer names, from the same window
+        via: dict[str, object] = {}          # a peer's return -> the table it came from
+        for e in ev.get("peer_performance", {}).values():
+            if (e.data.get("period") or "3mo") != period:
+                continue
+            for p in e.data.get("peers") or []:
+                tk = p.get("ticker")
+                if tk and tk not in names and isinstance(p.get("return_pct"), (int, float)) \
+                        and _named(run.answer, tk, p.get("name")):
+                    names.append(tk); via[tk] = e
         names = names[:MAX_NAMES]
         one = len(names) == 1
-        srcs = [_src(next(ev[tool][t] for tool in RETURN_TOOLS if t in ev.get(tool, {}))) for t in names]
+        srcs, seen = [], set()
+        for t in names:
+            e = via.get(t) or next((ev[tool][t] for tool in RETURN_TOOLS if t in ev.get(tool, {})), None)
+            s_ = _src(e) if e is not None else None
+            if s_ and (s_["url"], s_["label"]) not in seen:
+                seen.add((s_["url"], s_["label"])); srcs.append(s_)
         cands.append((LINES_FIRST + ret_n, {
             "kind": "lines", "period": period,
             "symbols": names + (["SPY"] if one else []),

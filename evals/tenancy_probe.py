@@ -17,6 +17,10 @@ import json, os, sys
 sys.path.insert(0, os.getcwd())
 sys.path.insert(0, os.path.join(os.getcwd(), "backend"))
 
+from evals._isolation import require_throwaway_db   # noqa: E402
+
+require_throwaway_db()          # dies rather than writing into a real database
+
 from fastapi.testclient import TestClient              # noqa: E402
 from backend.app.main import app                       # noqa: E402
 from backend.app import db                             # noqa: E402
@@ -214,7 +218,7 @@ def main() -> int:
                  "c.execute('SELECT user_id,ticker FROM positions')));"
                  "print(db.positions_scope_mismatches())")
         r = subprocess.run([sys.executable, "-c", probe],
-                           env={**os.environ, "DB_PATH": old},
+                           env={**os.environ, "TURSO_DATABASE_URL": "", "TURSO_AUTH_TOKEN": "", "DB_PATH": old},
                            capture_output=True, text=True, cwd=os.getcwd())
         lines = [x for x in r.stdout.strip().splitlines() if x]
     want = "[('u1', 'KO'), ('u1', 'PEP'), ('u2', 'XOM')]"
