@@ -12,6 +12,10 @@ import json, os, subprocess, sys, time
 sys.path.insert(0, os.getcwd())
 sys.path.insert(0, os.path.join(os.getcwd(), "backend"))
 
+from evals._isolation import require_throwaway_db   # noqa: E402
+
+require_throwaway_db()          # dies rather than writing into a real database
+
 from fastapi.testclient import TestClient            # noqa: E402
 from backend.app.main import app                     # noqa: E402
 from backend.app import db                           # noqa: E402

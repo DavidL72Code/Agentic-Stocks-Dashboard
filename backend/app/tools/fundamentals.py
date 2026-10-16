@@ -149,6 +149,64 @@ async def dividend_economics(ticker: str, **_):
 
 @tool("fundamentals", "shares outstanding and buyback/dilution trend")
 async def share_count(ticker: str, **_):
+    """Snapshot only. The TREND is `dilution`, which reads the SEC series -
+    this description used to promise a trend it never returned."""
     i = await yahoo.info(ticker)
     d = {k: i[k] for k in ("sharesOutstanding", "floatShares", "impliedSharesOutstanding") if i.get(k)}
     return ok("share_count", ticker, d) if d else fail("share_count", ticker, "unavailable")
+
+
+@tool("fundamentals",
+      "DILUTION: diluted share count from SEC filings over time, and stock "
+      "compensation as a share of revenue. Answers whether management keeps "
+      "issuing stock, or is buying it back", derived=True)
+async def dilution(ticker: str, **_):
+    """Dilution is the quiet one. A company can grow revenue every year and
+    still leave you worse off per share if the count climbs faster, so the
+    count is read straight from the filings rather than inferred.
+
+    Stock-based compensation comes too, as a share of revenue: it is where most
+    issuance originates, and a double-digit ratio means a meaningful slice of
+    the business is being paid to staff rather than owners.
+    """
+    raw = await edgar.concept(ticker, "shares_diluted", limit=12)
+    if len(raw) < 2:
+        return empty("dilution", ticker, "no diluted share count in SEC filings")
+    # a split multiplies the reported count overnight; comparing across one
+    # reports a 10-for-1 as 900% dilution
+    rows, split_ratio = edgar.split_adjust(raw)
+
+    first, last = rows[0], rows[-1]
+    change = pct(last["val"], first["val"])
+    yoy = None
+    prior = edgar.year_ago(rows)
+    if prior:
+        yoy = pct(last["val"], prior["val"])
+
+    sbc_rows = await edgar.concept(ticker, "ShareBasedCompensation", limit=5)
+    rev_rows = await edgar.concept(ticker, "revenue", limit=5)
+    sbc_pct = None
+    if sbc_rows and rev_rows and rev_rows[-1].get("val"):
+        sbc_pct = round(sbc_rows[-1]["val"] / rev_rows[-1]["val"] * 100, 1)
+
+    direction = ("buying back" if (yoy if yoy is not None else change) < -0.5
+                 else "diluting" if (yoy if yoy is not None else change) > 0.5
+                 else "flat")
+    bits = [f"diluted share count {direction}"]
+    if yoy is not None:
+        bits.append(f"{yoy:+.1f}% year over year")
+    bits.append(f"{change:+.1f}% across {len(rows)} filed quarters")
+    if sbc_pct is not None:
+        bits.append(f"stock comp {sbc_pct}% of revenue")
+
+    return ok("dilution", ticker, {
+        "direction": direction,
+        "latest_diluted_shares": last["val"], "as_of": last["end"],
+        "change_pct_over_window": change, "yoy_pct": yoy,
+        "quarters": [{"end": r["end"], "shares": round(r["val"])} for r in rows],
+        "split_adjusted": bool(split_ratio), "split_ratio": split_ratio,
+        "stock_comp_pct_of_revenue": sbc_pct,
+        "reading": "; ".join(bits),
+        "note": ("a rising count dilutes existing holders even when revenue grows"
+                 + ("; series rescaled across a stock split" if split_ratio else "")),
+    }, source="derived")

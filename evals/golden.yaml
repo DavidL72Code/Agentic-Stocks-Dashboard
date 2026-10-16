@@ -35,6 +35,14 @@ agent:
     forbid_advice: true
     why: "a broad view must include the backdrop and must not advise"
 
+  - id: rebound_uses_history
+    q: "From the overall trend, do you think APLD will go back up?"
+    expect_domains: [market]
+    expect_tools: [turning_points]
+    must_be_grounded: true
+    forbid_advice: true
+    why: "'will it go back up' is answered from the stock's own past lows and what turned them, not today's snapshot alone"
+
   - id: read_across
     q: "If AMD moves hard, does NVDA follow?"
     expect_domains: [relations]

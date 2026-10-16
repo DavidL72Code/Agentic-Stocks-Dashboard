@@ -366,6 +366,56 @@ async def suite_regressions():
             f"{sub['beta_adjusted_excess_pct']} vs recomputed {expect}",
             "excess = return - beta * market return")
 
+    # trend / levels / dilution / governance
+    tr = getattr(await TOOLS_FOR_PERF["trend"].fn("NVDA"), "data", {}) or {}
+    add("trend_reads_several_windows", len(tr.get("windows") or {}) >= 3,
+        f"{sorted((tr.get('windows') or {}))} windows",
+        "one window cannot say whether a dip is a pullback or a continuation")
+    add("trend_states_agreement", "short_vs_long_agree" in tr, tr.get("reading", "")[:70],
+        "short and long term must be compared explicitly, not inferred")
+
+    lv = getattr(await TOOLS_FOR_PERF["levels"].fn("NVDA"), "data", {}) or {}
+    near = lv.get("nearest") or {}
+    add("levels_counts_tests", (near.get("tests") or 0) >= 2,
+        f"nearest tested {near.get('tests')}x, held {near.get('held')}",
+        "a level needs more than one touch before a hold rate means anything")
+    add("levels_has_baseline", lv.get("baseline_hold_rate_pct") is not None,
+        f"baseline {lv.get('baseline_hold_rate_pct')}%",
+        "REGRESSION: in an uptrend almost any level 'holds' - without the "
+        "non-level baseline the hit rate is unreadable")
+    add("levels_hold_rate_is_arithmetic",
+        near.get("tests") == (near.get("held", 0) + near.get("broke", 0)),
+        f"{near.get('held')}+{near.get('broke')} == {near.get('tests')}", "")
+
+    dl = getattr(await TOOLS_FOR_PERF["dilution"].fn("NVDA"), "data", {}) or {}
+    add("dilution_split_adjusts", dl.get("split_adjusted") is True
+        and abs(dl.get("change_pct_over_window", 999)) < 100,
+        f"split x{dl.get('split_ratio')}, window {dl.get('change_pct_over_window')}%",
+        "REGRESSION: NVDA's 10-for-1 split read as +872% dilution when it was "
+        "buying back")
+    add("dilution_direction_matches_yoy",
+        dl.get("direction") in ("buying back", "diluting", "flat"),
+        f"{dl.get('direction')} on yoy {dl.get('yoy_pct')}%", "")
+
+    gv = getattr(await TOOLS_FOR_PERF["governance_flags"].fn("PLTR"), "data", {}) or {}
+    add("governance_reads_filings", (gv.get("filings_scanned") or 0) > 50,
+        f"{gv.get('filings_scanned')} filings scanned", "")
+    add("governance_events_are_dated_and_linked",
+        all(e.get("date") and e.get("url") for e in (gv.get("events") or [])),
+        f"{len(gv.get('events') or [])} events, each with a date and SEC link",
+        "a governance claim must be checkable, not asserted")
+    add("governance_makes_no_trust_score",
+        not any(k in gv for k in ("score", "rating", "trust", "grade")),
+        "no score field", "a judgement dressed as a metric is worse than none")
+
+    from app.graph.build import QUALITY_RE as _Q
+    qcases = [("Is NVDA a good company?", True), ("Can I trust PLTR management?", True),
+              ("Any scandals at BA?", True), ("What is the price of NVDA?", False),
+              ("When does NVDA report?", False)]
+    qwrong = [q for q, w in qcases if bool(_Q.search(q)) != w]
+    add("quality_question_detected", not qwrong, qwrong or f"all {len(qcases)} correct",
+        "a 'good company' question must pull the filing record and share count")
+
     # the peer comparison must be GUARANTEED, not left to the router's mood
     from app.graph.build import PERF_RE as _PERF
     cases = [("How is NVDA performing?", True), ("How is NVDA doing?", True),
@@ -682,9 +732,29 @@ async def suite_regressions():
     mixed = _run([pf("NVDA", 74.67, 65.21, 63.66), pf("AMD", 53.2, 15.71, 15.58), ps("NVDA", 19.48), pp],
                  "NVDA's operating margin is 65.21% and AMD's 15.71%; NVDA's net margin 63.66% vs 15.58%. "
                  "Over the year NVDA rose 19.48% while AMD returned 182.97%.").charts
+    peer_tab = tr("peer_performance", "MSFT", {"period": "ytd", "subject": {"ticker": "MSFT", "return_pct": 11.3},
+        "peers": [{"ticker": "GOOGL", "name": "Alphabet Inc.", "return_pct": 11.1},
+                  {"ticker": "AAPL", "name": "Apple Inc.", "return_pct": 24.17}]}, "https://y.com/MSFT")
+    peers = _run([peer_tab], "Microsoft returned 11.3% this year against 11.1% for Alphabet.").charts
+    add("chart_includes_named_peers", peers and peers[0]["symbols"] == ["MSFT", "GOOGL"], peers and peers[0].get("symbols"),
+        "REGRESSION: the answer compared MSFT with Alphabet (from MSFT's peer table) but the chart drew MSFT vs the S&P 500")
     add("chart_returns_first", [c["kind"] for c in mixed] == ["lines", "bars"] and mixed[0]["symbols"] == ["NVDA", "AMD"],
         [(c["kind"], c.get("symbols")) for c in mixed],
         "REGRESSION: AMD's return came from peer_performance, so no price chart was drawn though the answer compared returns")
+
+    # ── past lows: the zigzag finds a real drop and its rebound, ignores noise ──
+    import numpy as _np, pandas as _pd
+    from app.tools.history import _pivots, _threshold
+    idx = _pd.bdate_range("2025-01-01", periods=200)
+    path = _np.concatenate([_np.linspace(100, 100, 20), _np.linspace(100, 50, 40),   # -50% into day 59
+                            _np.linspace(50, 100, 60), _np.linspace(100, 96, 80)])  # +100%, then a 4% dip
+    px = _pd.Series(path * (1 + 0.004 * _np.sin(_np.arange(200))), index=idx)        # daily wiggle
+    piv = _pivots(px, 30)
+    lows = [t for k, t in piv if k == "trough"]
+    add("history_finds_the_low", len(lows) == 1 and abs((lows[0] - idx[59]).days) <= 3
+        and 12 <= _threshold(px) <= 35, {"pivots": [(k, str(t.date())) for k, t in piv], "threshold": round(_threshold(px), 1)},
+        "REGRESSION: 'will APLD go back up' ignored its own March low and +142% rebound; the tool must find "
+        "one big low at the bottom of a 50% fall, and not call a 4% dip a turning point")
 
     import typing
     from app.graph.domains import DState
@@ -739,7 +809,7 @@ def suite_claim():
                     "ms": 0, "why": why})
 
     with tempfile.TemporaryDirectory() as tmp:
-        env = {**os.environ, "DB_PATH": os.path.join(tmp, "t.db"),
+        env = {**os.environ, "TURSO_DATABASE_URL": "", "TURSO_AUTH_TOKEN": "", "DB_PATH": os.path.join(tmp, "t.db"),
                "STORE_PATH": os.path.join(tmp, "none.json"), "AUTH_ENABLED": "true"}
         r = subprocess.run([sys.executable, "-c", CLAIM_PROBE], env=env,
                            capture_output=True, text=True, timeout=180,
@@ -776,8 +846,13 @@ def _subprocess_suite(script: str, fallback_id: str, why: str, args=()):
 
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     with tempfile.TemporaryDirectory() as tmp:
-        env = {**os.environ, "DB_PATH": os.path.join(tmp, "t.db"),
-               "STORE_PATH": os.path.join(tmp, "none.json"), "AUTH_ENABLED": "true"}
+        # Turso WINS over DB_PATH in db.conn(), so setting DB_PATH alone did not
+        # isolate anything - every probe was writing users, portfolios and
+        # positions into the live hosted database. Clear the Turso vars so the
+        # child really does get a local throwaway file.
+        env = {**os.environ, "TURSO_DATABASE_URL": "", "TURSO_AUTH_TOKEN": "", "DB_PATH": os.path.join(tmp, "t.db"),
+               "STORE_PATH": os.path.join(tmp, "none.json"), "AUTH_ENABLED": "true",
+               "TURSO_DATABASE_URL": "", "TURSO_AUTH_TOKEN": ""}
         r = subprocess.run([sys.executable, script, *args], env=env, cwd=root,
                            capture_output=True, text=True, timeout=900)
     line = next((l for l in r.stdout.splitlines() if l.startswith("@@")), None)
@@ -820,7 +895,7 @@ def suite_login():
 
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     with tempfile.TemporaryDirectory() as tmp:
-        env = {**os.environ, "DB_PATH": os.path.join(tmp, "t.db"),
+        env = {**os.environ, "TURSO_DATABASE_URL": "", "TURSO_AUTH_TOKEN": "", "DB_PATH": os.path.join(tmp, "t.db"),
                "STORE_PATH": os.path.join(tmp, "none.json"), "AUTH_ENABLED": "true"}
         r = subprocess.run([sys.executable, "evals/login_probe.py"], env=env, cwd=root,
                            capture_output=True, text=True, timeout=300)

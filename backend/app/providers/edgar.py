@@ -32,7 +32,40 @@ TAGS = {
     "assets": ["Assets"],
     "liabilities": ["Liabilities"],
     "cash": ["CashAndCashEquivalentsAtCarryingValue"],
+    # Issuers differ on which of these they file, so try them all - the
+    # current-series rule in concept() picks the right one.
+    "shares_diluted": ["WeightedAverageNumberOfDilutedSharesOutstanding",
+                       "WeightedAverageNumberOfDilutedSharesOutstandingAdjustment",
+                       "WeightedAverageNumberOfShareOutstandingBasicAndDiluted",
+                       "WeightedAverageNumberOfSharesOutstandingBasic",
+                       "CommonStockSharesOutstanding", "CommonStockSharesIssued"],
 }
+
+
+def split_adjust(rows: list[dict]) -> tuple[list[dict], float | None]:
+    """Rescale a share-count series across stock splits.
+
+    A 10-for-1 split multiplies the reported count by ten overnight. Comparing
+    across it says NVDA "diluted 872%" when it was actually buying back - the
+    exact trap that makes raw share counts untrustworthy. Any step of 1.5x or
+    more between consecutive filings is treated as a split and everything
+    before it is rescaled onto the later basis.
+    """
+    if len(rows) < 2:
+        return rows, None
+    out = [dict(r) for r in rows]
+    ratio_total = 1.0
+    for i in range(len(out) - 1, 0, -1):
+        a, b = out[i - 1]["val"], out[i]["val"]
+        if not a or not b:
+            continue
+        r = b / a
+        if r >= 1.5 or r <= 0.67:
+            for j in range(i):
+                out[j]["val"] = out[j]["val"] * r
+                out[j]["split_adjusted"] = True
+            ratio_total *= r
+    return out, (round(ratio_total, 2) if ratio_total != 1.0 else None)
 QUARTER_DAYS = (80, 100)     # a 10-Q period is ~91 days; reject 6/9/12-month rollups
 
 
@@ -129,7 +162,11 @@ async def concept(ticker: str, metric: str, limit: int = 8) -> list[dict]:
             except Exception:
                 return []
             usd = js.get("units", {}).get("USD")
-            units = usd or js.get("units", {}).get("USD/shares")
+            # "shares" was missing, so every share-count tag came back empty and
+            # dilution was unmeasurable. Share counts are also a LEVEL, not a
+            # flow, so no Q4 is derived from them by subtraction.
+            shares = js.get("units", {}).get("shares")
+            units = usd or js.get("units", {}).get("USD/shares") or shares
             q = _quarterly(units, derive_q4=bool(usd)) if units else []
             for r in q: r["tag"] = tag; r["cik"] = cik
             return q

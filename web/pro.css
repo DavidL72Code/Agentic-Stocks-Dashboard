@@ -18,6 +18,7 @@ html[data-ui="pro"]{
   --b0:#6a5cd6; --b1:#8b7cf6; --b2:#a99ff9; --b3:#ffffff;
   --accent:rgba(124,108,247,.13); --accent-line:rgba(124,108,247,.38);
   --pos:#1fae78; --neg:#ec6a6a; --pos-bg:rgba(31,174,120,.12); --neg-bg:rgba(236,106,106,.12);
+  --pos-flash:rgba(31,174,120,.34); --neg-flash:rgba(236,106,106,.34);
   --warn:#e7a51c;
   --radius:10px; --radius-sm:7px; --radius-xs:6px;
   --shadow-pop:0 18px 48px -18px rgba(0,0,0,.75),0 2px 6px -2px rgba(0,0,0,.4);
@@ -31,6 +32,7 @@ html[data-ui="pro"][data-theme="light"]{
   --primary:#6553f0; --primary-hi:#5543e6; --b0:#5543e6; --b1:#6553f0; --b2:#5b4ae8;
   --accent:rgba(101,83,240,.09); --accent-line:rgba(101,83,240,.32);
   --pos:#0c8a5b; --neg:#d23f3f; --pos-bg:rgba(12,138,91,.09); --neg-bg:rgba(210,63,63,.09);
+  --pos-flash:rgba(12,138,91,.24); --neg-flash:rgba(210,63,63,.24);
   --warn:#b7790b;
   --shadow-pop:0 16px 40px -16px rgba(15,23,42,.22),0 2px 6px -2px rgba(15,23,42,.12);
   color-scheme:light;
@@ -479,9 +481,10 @@ html[data-ui="pro"] sup.cite a:hover{background:var(--primary);color:#fff}
 .tipbox{position:fixed;z-index:9999;max-width:min(320px,calc(100vw - 16px));padding:11px 13px;
   background:var(--popover);color:var(--foreground);border:1px solid var(--border);border-radius:10px;
   box-shadow:var(--shadow-pop);font-size:12.5px;line-height:1.55;font-weight:450;letter-spacing:0;
-  text-transform:none;opacity:0;visibility:hidden;transform:translateY(-3px);
-  transition:opacity .14s,transform .14s,visibility 0s .14s;pointer-events:none}
-.tipbox.on{opacity:1;visibility:visible;transform:none;transition:opacity .14s,transform .14s;pointer-events:auto}
+  text-transform:none;opacity:0;visibility:hidden;
+  transition:opacity .12s,visibility 0s .12s;pointer-events:none}
+/* opening is Motion's job (a small spring, in app.js); closing is a quick fade */
+.tipbox.on{opacity:1;visibility:visible;transition:none;pointer-events:auto}
 .tipbox p{margin:0}
 .tipbox p+p{margin-top:7px}
 .tipbox .tiph{font-weight:650;margin-bottom:5px}
@@ -502,6 +505,16 @@ html[data-ui="pro"] sup.cite a:hover{background:var(--primary);color:#fff}
 .cnt{font-size:12px;font-weight:600;color:var(--foreground);font-variant-numeric:tabular-nums}
 .esres{margin-top:12px;font-size:13px;line-height:1.7;color:var(--foreground)}
 .scrh{display:flex;align-items:center}
+
+/* ── motion that CSS does better: hover feedback on things you can click ── */
+.tick{border-radius:4px;padding:0 3px;margin:0 -3px}
+.ptl .pi{transition:background-color .2s,border-color .2s}
+.sugg,.tchip,.srcbtn,.mv-row,.wtable tbody tr{transition:transform .16s cubic-bezier(.22,1,.36,1),background-color .16s,border-color .16s,box-shadow .16s}
+.sugg:hover,.tchip:hover{transform:translateY(-1px)}
+.mv-row:hover{transform:translateX(2px)}
+.mm-cell{transition:filter .15s,box-shadow .15s}
+.mm-cell:hover{box-shadow:0 6px 18px -6px rgba(0,0,0,.55)}
+@media (prefers-reduced-motion:reduce){.sugg:hover,.tchip:hover,.mv-row:hover{transform:none}}
 
 /* ── charts inside an answer ── */
 .achart{margin:14px 0 4px;padding:12px 12px 6px;border:1px solid var(--border);border-radius:var(--radius-sm);
