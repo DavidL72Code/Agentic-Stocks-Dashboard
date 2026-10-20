@@ -2,9 +2,11 @@
 import * as CH from "./charts.js";
 
 let animate = null, stagger = null;
-try { const m = await import("https://cdn.jsdelivr.net/npm/motion@11.18.2/+esm");
-      animate = m.animate; stagger = m.stagger; }
-catch (e) { console.warn("motion unavailable", e); }
+/* loaded alongside the app, not before it: an awaited import here held every
+   request and the first paint until the library arrived */
+import("https://cdn.jsdelivr.net/npm/motion@11.18.2/+esm")
+  .then(m => { animate = m.animate; stagger = m.stagger; })
+  .catch(e => console.warn("motion unavailable", e));
 const REDUCED = (() => { try { return matchMedia("(prefers-reduced-motion: reduce)").matches; } catch { return false; } })();
 const mo = (el, kf, op) => { try {
     if (REDUCED || !animate || !el || (el.length === 0)) return null;
@@ -57,11 +59,30 @@ const IC = {
   arrow:`<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>`,
   refresh:`<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.6-6.4"/><path d="M21 3v6h-6"/></svg>`,
   spark:`<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M10.5 3.2l1.75 4.8 4.8 1.75-4.8 1.75-1.75 4.8-1.75-4.8L4 9.75l4.75-1.75z"/><path d="M17.8 14.4l.85 2.3 2.3.85-2.3.85-.85 2.3-.85-2.3-2.3-.85 2.3-.85z"/></svg>`,
+  check:`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>`,
   info:`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 11v5.5"/><path d="M12 7.6v.01"/></svg>`,
   chev:`<svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>`,
 };
 
 const DISCLAIMER = "Informational only, not financial advice. Monsoon summarises public data and cannot account for your circumstances.";
+
+/* ── suggestion chips: small, two on show, the rest one tap away ──
+   Four full-width question buttons took 180-230px of every panel they sat in.
+   `attr` is the data attribute the caller wires ("ask" or "s"). */
+function chipList(list, { show = 2, attr = "ask", cls = "" } = {}) {
+  const items = (list || []).filter(Boolean);
+  if (!items.length) return "";
+  const chip = (q, i) => `<button type="button" class="chip${i >= show ? " extra" : ""}" data-${attr}="${esc(q)}" title="${esc(q)}">${esc(q)}</button>`;
+  const more = items.length - show;
+  return `<div class="chips ${cls}">${items.map(chip).join("")}${more > 0
+    ? `<button type="button" class="chip chipmore" data-chipmore aria-expanded="false">+${more} more</button>` : ""}</div>`;
+}
+document.addEventListener("click", e => {
+  const b = e.target.closest?.("[data-chipmore]"); if (!b) return;
+  const box = b.closest(".chips"), open = !box.classList.contains("open");
+  box.classList.toggle("open", open); b.setAttribute("aria-expanded", String(open));
+  b.textContent = open ? "Show less" : `+${box.querySelectorAll(".chip.extra").length} more`;
+});
 
 /* ── info tips: the explanation lives behind an ⓘ, not as grey text on the page ──
    Small translucent captions under every heading made each panel read like a
@@ -105,7 +126,6 @@ function tipShow(btn, pin) {
     TIP.anims = [mo(TIP.el, { opacity: [0, 1] }, { duration: .12 }),
                  mo(TIP.el, { scale: [.95, 1], y: [y < r.top ? 4 : -4, 0] }, { type: "spring", stiffness: 520, damping: 30 })];
     TIP.anims[0]?.finished?.then(() => TIP.el.style.removeProperty("opacity")).catch(() => {});
-    rippleIn(TIP.el.querySelectorAll(".tipl li"), .03, .2);
   }
 }
 function tipHide() {
@@ -181,7 +201,18 @@ function wakingBanner(on) {
   } else if (!on && el) { el.remove(); }
 }
 
-async function api(path, opts) {
+/* Identical GETs in flight share one request. The dashboard and the tape both
+   asked for the same 68-symbol quote batch at load, and the research page
+   fetched the same overview twice and the same month of bars three times. */
+const INFLIGHT = new Map();
+function api(path, opts) {
+  if (opts) return apiRetry(path, opts);
+  const hit = INFLIGHT.get(path); if (hit) return hit;
+  const p = apiRetry(path).finally(() => INFLIGHT.delete(path));
+  INFLIGHT.set(path, p);
+  return p;
+}
+async function apiRetry(path, opts) {
   const started = Date.now();
   let wait = 1500;
   // A POST that times out at the proxy may already have run on the server:
@@ -372,7 +403,7 @@ function buildChart() {
   chart = LightweightCharts.createChart(el, {
     width: el.clientWidth||800, height: el.clientHeight||340,
     layout:{background:{color:"transparent"},textColor:ink,fontSize:11,
-            fontFamily:"Inter, system-ui, sans-serif"},
+            fontFamily:"Geist, ui-sans-serif, system-ui, sans-serif"},
     grid:{vertLines:{color:"transparent"},horzLines:{color:grid}},
     rightPriceScale:{borderColor:edge,scaleMargins:{top:.1,bottom:.26}},
     timeScale:{borderColor:edge,rightOffset:3,barSpacing:9,
@@ -383,7 +414,7 @@ function buildChart() {
     handleScale:false, handleScroll:false });
   cs = chart.addCandlestickSeries({upColor:CH.C.pos,downColor:CH.C.neg,
     borderUpColor:CH.C.pos,borderDownColor:CH.C.neg,
-    wickUpColor:"rgba(25,158,112,.65)",wickDownColor:"rgba(230,103,103,.65)"});
+    wickUpColor:CH.C.pos,wickDownColor:CH.C.neg});
   vs = chart.addHistogramSeries({priceScaleId:"",priceFormat:{type:"volume"}});
   vs.priceScale().applyOptions({scaleMargins:{top:.84,bottom:0}});
   maA = chart.addLineSeries({color:CH.C.s3,lineWidth:2,priceLineVisible:false,lastValueVisible:false,crosshairMarkerVisible:false});
@@ -476,30 +507,38 @@ function afterRender(root) {
   if (ah) ah.onclick = () => { openAgent(true); syncAsk(); $("ask").focus(); };
   S.pending.forEach(fn => { try { fn(); } catch(e){ console.warn(e); } });
   S.pending = [];
-  fadeIn(root, 6, .22);
-  rippleIn(root.querySelectorAll(".panel,.tile"), .025, .26);
+  // no entrance sequence: "a product loads into a task" (Impeccable, operate mode)
 }
 
 /* ═══════════════ VIEW: dashboard ═══════════════ */
-const SIG_ICON = { threshold:"‼", move:"↕", volume:"◫", high:"▲", low:"▼",
-                   earnings:"◷", peer_gap:"⇄", peer_move:"⇢" };
+/* drawn icons, one stroke weight - unicode arrows and symbols render differently
+   on every platform and read as decoration (Impeccable bans them as icons) */
+const svgI = d => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`;
+const SIG_ICON = {
+  threshold: svgI('<path d="M12 3.5 2.5 20h19L12 3.5z"/><path d="M12 10v4.5M12 17.4v.1"/>'),
+  move: svgI('<path d="M8 20V4M4 8l4-4 4 4M16 4v16M12 16l4 4 4-4"/>'),
+  volume: svgI('<path d="M4 20v-8M10 20V5M16 20v-6M21 20H3"/>'),
+  high: svgI('<path d="M3 17l6-6 4 4 8-8"/><path d="M15 7h6v6"/>'),
+  low: svgI('<path d="M3 7l6 6 4-4 8 8"/><path d="M15 17h6v-6"/>'),
+  earnings: svgI('<rect x="3.5" y="5" width="17" height="15.5" rx="2.5"/><path d="M16 3v4M8 3v4M3.5 10.5h17"/>'),
+  peer_gap: svgI('<path d="M4 8h15M15 4l4 4-4 4M20 16H5M9 12l-4 4 4 4"/>'),
+  peer_move: svgI('<circle cx="6" cy="12" r="2.6"/><path d="M9.5 12H20M16 8l4 4-4 4"/>'),
+};
 let wlSort = { key:"change_pct", dir:-1 };
 
 function signalStrip(b) {
-  if (!b) return `<div class="panel"><div class="panel-b"><div class="skel" style="height:54px"></div></div></div>`;
+  if (!b) return `<section class="panel"><div class="panel-b"><div class="skel" style="height:54px"></div></div></section>`;
   const sigs = (b.signals||[]).slice(0,4);
-  return `<div class="panel">
-    <div class="panel-h"><h4>Daily overview</h4>
-      <span class="r"><span class="cnt">${sigs.length} flagged</span></span>
-      <a class="btn btn-sm btn-ghost" href="#/brief">Full brief</a></div>
-    <div class="panel-b" style="display:grid;gap:8px">
-      ${sigs.length ? sigs.map(g=>`<div class="sigline" data-go="${esc(g.ticker)}" tabindex="0">
-          <span class="sigicon ${g.kind}">${SIG_ICON[g.kind]||"•"}</span>
+  return `<section class="panel">
+    <div class="panel-h"><h4>Flagged today${tip(esc("Unusual moves, earnings and moves in related stocks, ranked by how unusual each is for that stock."))}</h4>
+      <span class="r"><a class="btn btn-sm btn-ghost" href="#/brief">Open the brief</a></span></div>
+    <div>${sigs.length ? sigs.map(g=>`<div class="sigline" data-go="${esc(g.ticker)}" tabindex="0">
+          <span class="sigicon ${g.kind}">${SIG_ICON[g.kind] || SIG_ICON.move}</span>
           <div><div class="h">${esc(g.headline)}${g.held?` <span class="badge brand">held</span>`:""}</div>
             <div class="d">${esc(g.detail)}</div></div>
-          <span class="sev mono">${g.severity}</span></div>${whyHTML(g.why)}`).join("")
-        : `<div class="empty" style="padding:18px">Nothing unusual today.</div>`}
-    </div></div>`;
+          <span class="sev mono" title="How unusual, 0-100">${g.severity}</span></div>${whyHTML(g.why)}`).join("")
+        : `<div class="empty">Nothing unusual today.</div>`}
+    </div></section>`;
 }
 
 function wlRows(rows) {
@@ -514,10 +553,10 @@ function wlRows(rows) {
       <div><div class="s">${r.sym}</div><div class="n">${esc(r.name||"")}</div></div></div></td>
     <td class="mono px" style="font-weight:600">${num(r.price)}</td>
     <td class="mono chg ${sgn(r.change_pct)}" style="font-weight:600">${pct(r.change_pct)}</td>
-    <td><div class="wspark" data-spark="${r.sym}" style="margin-left:auto"></div></td>
-    <td class="mono">${usd(r.market_cap)}</td>
-    <td class="mono">${num(r.pe,1)}</td>
-    <td>${r.held?`<span class="badge brand">held</span>`:""}</td></tr>`).join("");
+    <td class="hide-sm"><div class="wspark" data-spark="${r.sym}" style="margin-left:auto"></div></td>
+    <td class="mono hide-sm">${usd(r.market_cap)}</td>
+    <td class="mono hide-sm">${num(r.pe,1)}</td>
+    <td class="hide-sm">${r.held?`<span class="badge brand">held</span>`:""}</td></tr>`).join("");
 }
 
 /* what a guest (or an empty watchlist) sees instead of a table of headers */
@@ -741,7 +780,8 @@ const TABS = {
 /* ═══════════ research workspace ═══════════
    Any number of tickers open at once. Tick the ones you care about, press
    Analyze, and say what you want done with that selection. */
-const PANEL_COLORS = ["#3987e5","#d95926","#199e70","#c98500","#d55181","#9085e9"];
+/* series colours follow the theme: the dataviz palette's own light and dark steps */
+const PANEL_COLORS = new Proxy([], { get: (_, k) => CH.series()[k] ?? Array.prototype[k] });
 
 async function viewResearch(symbols, nav) {
   // A ticker you just added is one you mean to look at: it starts ticked.
@@ -761,57 +801,63 @@ async function viewResearch(symbols, nav) {
 
   const v = $("views");
   v.innerHTML = `<div class="page">
-    <div class="page-head">
-      <div><div class="ttl">Research</div>
-        <div class="sub" id="wsub">${symbols.length} open · tick what to analyse</div></div>
-      <div class="acts">
-        <div class="lookup">
-          <svg class="ico lupe" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4.3-4.3"/></svg>
-          <input id="tsearch" class="inp" placeholder="Add a ticker…" autocomplete="off" spellcheck="false">
-          <div id="tresults"></div>
-        </div>
-        <button class="btn btn-sm btn-brand" id="analyzeSel">${IC.refresh}Analyse selected</button>
-      </div></div>
-
+    <div class="wsbar">
+      <div id="panels" class="q-bar">${symbols.map(() => `<div class="skel" style="height:36px;width:118px"></div>`).join("")}</div>
+      <div class="lookup">
+        <svg class="ico lupe" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4.3-4.3"/></svg>
+        <input id="tsearch" class="inp" placeholder="Open another ticker" autocomplete="off" spellcheck="false" aria-label="Open another ticker">
+        <div id="tresults"></div>
+      </div>
+      <div class="grow"></div>
+      <button class="btn btn-sm" id="analyzeSel">${IC.spark}Ask about the selection</button>
+    </div>
+    <div class="sr-only" id="wsub" aria-live="polite"></div>
     <div id="composer"></div>
-    <div id="panels"><div class="skel" style="height:30px;width:260px;border-radius:7px"></div></div>
-    ${symbols.length > 1 ? `<div class="section" id="overlaywrap"></div>` : ""}
-    <div class="section" id="detailwrap"></div>
+    ${symbols.length > 1 ? `<div id="overlaywrap" style="margin-bottom:16px"></div>` : ""}
+    <div id="detailwrap"></div>
   </div>`;
 
   wireLookup(true);
   $("analyzeSel").onclick = openComposer;
 
   if (!symbols.length) {
-    $("panels").outerHTML = `<div class="empty">No tickers open. Add one with the search above.</div>`;
+    $("panels").outerHTML = `<div class="empty">No tickers open. Search for one above.</div>`;
     S.compare = null; syncSel(); afterRender(v); return;
   }
 
-  let cmp;
-  try { cmp = await api(`/api/compare?symbols=${symbols.map(encodeURIComponent).join(",")}&period=6mo`); }
-  catch (e) { if (nav === NAV.seq && $("panels")) $("panels").innerHTML = `<div class="empty">Couldn't load: ${esc(e.message)}</div>`; return; }
-  if (nav !== undefined && nav !== NAV.seq) return;            // you have already moved on
-  S.compare = cmp;
-
-  // the open tickers as a chip bar: click one for its detail, tick to include it
-  const pg = $("panels"); pg.className = ""; pg.innerHTML = qBarHTML(symbols, cmp);
-  $$("[data-qfocus]").forEach(c => c.onclick = async e => {
-    if (e.target.closest("input,[data-close]")) return;
-    if (S.cur === c.dataset.qfocus) return;
-    S.focus = S.cur = c.dataset.qfocus;
-    $$("[data-qfocus]").forEach(x => x.classList.toggle("on", x.dataset.qfocus === S.cur));
-    await renderDetail(); syncAsk(); });
-  if ($("showOverlay2")) $("showOverlay2").onclick = () => { renderOverlay(cmp, symbols);
-    $("overlaywrap")?.scrollIntoView({ behavior: "smooth", block: "start" }); };
-
-  $$("[data-pick]").forEach(c => c.onchange = () => {
-    c.checked ? S.picked.add(c.dataset.pick) : S.picked.delete(c.dataset.pick);
+  // The chip bar only needs each ticker's move today - one batched quote call,
+  // not the compare endpoint, which also fetches price paths, company profiles
+  // and SEC margins and held the whole page for ~1.8s on a cold cache.
+  const paintChips = cmp => {
+    const pg = $("panels"); if (!pg) return;
+    pg.className = ""; pg.innerHTML = qBarHTML(symbols, cmp);
+    $$("[data-qfocus]").forEach(c => c.onclick = async e => {
+      if (e.target.closest("input,[data-close]")) return;
+      if (S.cur === c.dataset.qfocus) return;
+      S.focus = S.cur = c.dataset.qfocus;
+      $$("[data-qfocus]").forEach(x => x.classList.toggle("on", x.dataset.qfocus === S.cur));
+      await renderDetail(); syncAsk(); });
+    if ($("showOverlay2")) $("showOverlay2").onclick = async () => {
+      const b = $("showOverlay2"); b.disabled = true;
+      try { S.compare = await api(`/api/compare?symbols=${symbols.map(encodeURIComponent).join(",")}&period=6mo`);
+            renderOverlay(S.compare, symbols); $("overlaywrap")?.scrollIntoView({ behavior: "smooth", block: "start" }); }
+      catch (e) { toast(`Couldn't compare: ${e.message}`, "error"); }
+      b.disabled = false; };
+    $$("[data-pick]").forEach(c => c.onchange = () => {
+      c.checked ? S.picked.add(c.dataset.pick) : S.picked.delete(c.dataset.pick);
+      syncSel(); });
+    $$("[data-close]").forEach(b => b.onclick = e => { e.stopPropagation();
+      const left = S.basket.filter(x => x !== b.dataset.close);
+      location.hash = "#/t/" + left.join(","); });
     syncSel();
-  });
-  $$("[data-close]").forEach(b => b.onclick = e => { e.stopPropagation();
-    const left = S.basket.filter(x => x !== b.dataset.close);
-    location.hash = "#/t/" + left.join(","); });
-  await renderDetail();
+  };
+  const chips = api(`/api/quotes?symbols=${symbols.map(encodeURIComponent).join(",")}`)
+    .then(d => { if (nav === undefined || nav === NAV.seq) { (d.quotes || []).forEach(q => S.q[q.symbol] = { ...S.q[q.symbol], ...q });
+      paintChips({ rows: (d.quotes || []).map(q => ({ symbol: q.symbol, change_pct: q.change_pct })) }); } })
+    .catch(() => paintChips(null));
+  S.compare = null;
+  await Promise.all([renderDetail(), chips]);
+  if (nav !== undefined && nav !== NAV.seq) return;
   syncSel();
   afterRender(v);
 }
@@ -819,8 +865,8 @@ async function viewResearch(symbols, nav) {
 function syncSel() {
   syncAsk();                       // the agent's "Looking at" follows every tick
   const n = S.picked.size;
-  $("wsub").textContent = `${S.basket.length} open · ${n} selected`;
-  const b = $("analyzeSel");
+  if ($("wsub")) $("wsub").textContent = `${S.basket.length} open, ${n} selected`;
+  const b = $("analyzeSel"); if (!b) return;
   b.disabled = n === 0 || !S.llm;
   b.title = !S.llm ? "Needs GEMINI_API_KEY" : n === 0 ? "Tick at least one ticker" : "";
 }
@@ -841,27 +887,37 @@ function renderOverlay(cmp, symbols) {
 
 async function renderDetail() {
   const w = $("detailwrap"); if (!w || !S.cur) return;
-  const q = (S.compare?.rows || []).find(r => r.symbol === S.cur) || {};
-  const open = (quoteRow(S.cur).market_state || "").toUpperCase() === "REGULAR";
+  const t = S.cur;
+  const asks = [`How is ${t} doing against its peers this year?`, `Is ${t} expensive for what it earns?`,
+                `From its history, could ${t} bounce from here?`, `What should I know before ${t}'s next earnings?`];
   w.innerHTML = `
-    <div class="qhead" id="qhead"><div class="skel" style="height:64px;width:100%"></div></div>
-    <div class="qstats" id="qstats"></div>
-    <div class="panel" id="chartpanel">
-      <div class="panel-h"><h4>Price</h4>
-        <div class="seg" id="tfseg" style="margin-left:auto">
-          ${Object.keys(TF).map(k=>`<button data-tf="${k}" class="${k===S.tf?"on":""}">${k}</button>`).join("")}
+    <header class="qhead" id="qhead"><div class="skel" style="height:58px;width:100%"></div></header>
+    <div class="rs-grid">
+      <div class="rs-main">
+        <section class="panel" id="chartpanel">
+          <div class="panel-h"><h4>Price</h4>
+            <span class="r"><span class="seg" id="tfseg" role="group" aria-label="Time range">
+              ${Object.keys(TF).map(k=>`<button data-tf="${k}" class="${k===S.tf?"on":""}">${k}</button>`).join("")}</span>
+            <button class="btn btn-sm ${S.show.MA?"on":""}" id="tgMA" aria-pressed="${S.show.MA}" title="50 and 200-day moving averages">Averages</button>
+            <button class="btn btn-sm ${S.show.Vol?"on":""}" id="tgVol" aria-pressed="${S.show.Vol}" title="Trading volume">Volume</button></span>
+          </div>
+          <div class="panel-b tight"><div class="ohlc" id="ohlc"></div><div id="chart"></div></div>
+        </section>
+        <div>
+          <div class="tabsrow"><div class="seg tabseg" role="tablist">
+            ${Object.keys(TABS).map(k=>`<button role="tab" aria-selected="${k===S.tab}" class="${k===S.tab?"on":""}" data-tab="${k}">${k[0].toUpperCase()+k.slice(1)}</button>`).join("")}
+          </div><span id="explainslot"></span></div>
+          <div id="tabbody"></div>
         </div>
-        <button class="btn btn-sm ${S.show.MA?"on":""}" id="tgMA" aria-pressed="${S.show.MA}" title="Moving averages">MA</button>
-        <button class="btn btn-sm ${S.show.Vol?"on":""}" id="tgVol" aria-pressed="${S.show.Vol}" title="Volume">Vol</button>
       </div>
-      <div class="panel-b tight"><div class="ohlc" id="ohlc"></div><div id="chart"></div></div>
-    </div>
-    <div class="section">
-      <div class="section-h"><div class="seg tabseg" role="tablist">
-        ${Object.keys(TABS).map(k=>`<button role="tab" aria-selected="${k===S.tab}" class="${k===S.tab?"on":""}" data-tab="${k}">${k[0].toUpperCase()+k.slice(1)}</button>`).join("")}
-      </div><span id="explainslot"></span></div>
-      <div id="tabbody"></div>
+      <aside class="rs-rail">
+        <section class="panel"><div class="panel-h"><h4>Key statistics</h4></div>
+          <div class="qstats" id="qstats">${Array(6).fill(`<div class="qstat"><div class="skel" style="height:14px;width:100%"></div></div>`).join("")}</div></section>
+        ${S.llm ? `<section class="panel"><div class="panel-h"><h4>Ask about ${esc(t)}</h4></div>
+          <div class="asklist">${chipList(asks, { show: 2 })}</div></section>` : ""}
+      </aside>
     </div>`;
+  w.querySelectorAll(".asklist [data-ask]").forEach(b => b.onclick = () => submitAsk(b.dataset.ask));
   try { chartRO?.disconnect(); chart?.remove(); } catch {}
   chart = null;
   buildChart(); drawChart(); prefetchFrames(S.cur);
@@ -898,7 +954,7 @@ function openComposer() {
     </div>
     <textarea id="cm_q" class="inp" rows="2"
       placeholder="What do you want to know about ${esc(picks.join(", "))}?"></textarea>
-    <div class="cm-sugg">${SUGGESTIONS.map(x=>`<button class="sugg" data-s="${esc(x)}">${esc(x)}</button>`).join("")}</div>
+    <div class="cm-sugg">${chipList(SUGGESTIONS, { show: 3, attr: "s" })}</div>
     <div class="cm-foot">
       <span></span>
       <button class="btn btn-primary btn-sm" id="cm_go">Run analysis ${IC.arrow}</button>
@@ -906,7 +962,7 @@ function openComposer() {
   mo(el.firstElementChild, {opacity:[0,1], y:[-8,0]}, {duration:.26, easing:[.22,1,.36,1]});
   const ta = $("cm_q"); ta.focus();
   $("cm_x").onclick = () => el.innerHTML = "";
-  $$(".sugg").forEach(b => b.onclick = () => { ta.value = b.dataset.s; ta.focus(); });
+  $$(".composer [data-s]").forEach(b => b.onclick = () => { ta.value = b.dataset.s; ta.focus(); });
   const run = () => {
     const q = ta.value.trim(); if (!q) { ta.focus(); return; }
     el.innerHTML = "";
@@ -927,8 +983,7 @@ async function renderTab() {
   // a slower earlier tab must not paint over the one you clicked since
   if (want.tab !== S.tab || want.cur !== S.cur || !el.isConnected) return;
   el.innerHTML = html;
-  fadeIn(el, 6, .22);
-  rippleIn(el.querySelectorAll(".mg, .mtable tbody tr"), .03, .22);
+  mo(el, { opacity: [0, 1] }, { duration: .16 });         // the switch, not a load sequence
   const dom = TAB_DOMAIN[S.tab], have = S.tabAgent[S.cur + ":" + dom];
   const slot = $("explainslot");
   if (slot) {
@@ -964,9 +1019,6 @@ async function renderTab() {
     es.disabled = false; es.textContent = `Test whether ${es.dataset.peer}'s earnings move ${S.cur}`;
   };
   S.pending.forEach(fn=>{ try{fn();}catch(e){console.warn(e);} }); S.pending=[];
-  mo(el, { opacity:[0,1], y:[8,0] }, { duration:.3, easing:[.22,1,.36,1] });
-  mo(el.querySelectorAll(".tile,.panel"), { opacity:[0,1], y:[8,0] },
-     { duration:.36, delay:stag(.025), easing:[.22,1,.36,1] });
 }
 
 
@@ -1196,8 +1248,6 @@ async function viewPortfolio(nav) {
           ["Avg pair correlation", co?num(co.average_pairwise):"—",
            co?`most alike ${co.most_correlated.pair} ${co.most_correlated.corr}`:""]])}
         </div></div>`;
-      mo(w.querySelectorAll(".tile"), {opacity:[0,1],y:[8,0]},
-         {duration:.36,delay:stag(.03),easing:[.22,1,.36,1]});
     }).catch(()=>{ const w=$("riskwrap"); if(w) w.innerHTML=""; });
 
   pfSummary(); afterRender(v);
@@ -1364,6 +1414,8 @@ function bsec(id, n, title, about, body, count) {
 
 function briefSummary(b) {
   const n = b.narrative || {};
+  if (b._pending && !n.summary) return `<div class="dlab"><span class="spin"></span>Writing today's summary from the data below…</div>
+    <div class="skel" style="height:14px;width:92%;margin-top:10px"></div><div class="skel" style="height:14px;width:78%;margin-top:8px"></div>`;
   if (n.summary) return `<p class="bsum">${esc(n.summary)}</p>`;
   if (b.error) return `<div class="bnote warn">${esc(b.error)}</div>`;
   return `<div class="bnote">No written summary today.</div>`;
@@ -1457,7 +1509,7 @@ function wireBrief(root, onGo) {
     // land below the sticky jump bar, whatever height it has at this width
     sec.style.scrollMarginTop = ((root.querySelector(".bjump")?.offsetHeight || 0) + 10) + "px";
     sec.scrollIntoView({ behavior: REDUCED ? "auto" : "smooth", block: "start" }); });
-  root.querySelectorAll("[data-signin]").forEach(b => b.onclick = () => { closeBrief(); openAuth("register"); });
+  root.querySelectorAll("[data-signin]").forEach(b => b.onclick = () => openAuth("register"));
   root.querySelectorAll("[data-go]").forEach(el => el.onclick = () => onGo(el.dataset.go));
 }
 
@@ -1485,46 +1537,43 @@ async function viewBrief(nav) {
       <div><div class="ttl">Daily brief</div><div class="sub" id="bsub">Loading…</div></div>
       <div class="acts"><button class="btn btn-sm btn-brand" id="askhere">Ask ${IC.arrow}</button></div>
     </div><div id="briefview"><div class="skel" style="height:200px"></div></div></div>`;
-  try {
-    const b = await loadBrief();
+  // the data-driven brief paints at once; the written summary (a model call)
+  // replaces it when it lands, instead of a blank page for ~7 seconds
+  const paint = b => {
     if ((nav !== undefined && nav !== NAV.seq) || !$("bsub")) return;
-    $("bsub").innerHTML = esc(longDate(b.date)) + tip(esc((b.llm_calls || b.error)
+    $("bsub").innerHTML = esc(longDate(b.date)) + tip(esc((b.llm_calls || b.error || b._pending)
       ? `Put together from ${b.checked.length ? b.checked.length + " of your tickers plus " : ""}market, interest-rate and sector data.`
       : "Set GEMINI_API_KEY to add the written summary."));
     $("briefview").innerHTML = briefInner(b);
     wireBrief($("briefview"), t => location.hash = "#/t/" + t);
+    markBriefSeen(b);
+  };
+  try {
+    if (S.brief) paint(S.brief);
+    else {
+      const base = await api("/api/brief");
+      paint({ ...base, _pending: S.llm });
+      if (S.llm) loadBrief().then(paint).catch(() => paint(base));
+    }
   } catch (e) {
     if ($("briefview")) $("briefview").innerHTML = `<div class="empty">Couldn't build the brief: ${esc(e.message)}</div>`;
   }
   afterRender(v);
 }
 
-/* first visit of the day -> show it as a sheet */
+/* A new brief is flagged with a dot on its tab - it used to open as a modal on
+   the first visit of the day, which is the interruption Impeccable means by
+   "modals are usually laziness". The dot uses the deterministic brief; the
+   written summary (a model call, ~7s) is made only when the Brief page opens. */
 const BRIEF_KEY = "monsoon.brief.seen";
 async function maybeShowBrief() {
-  let b; try { b = await loadBrief(); } catch { return; }
+  let b; try { b = await api("/api/brief"); } catch { return; }
   let seen = null; try { seen = localStorage.getItem(BRIEF_KEY); } catch {}
-  $("navdot").classList.toggle("on", seen !== b.date && b.signals.length > 0);
-  if (seen === b.date) return;
-  if (!b.signals.length && !b.since_last?.length && !b.narrative?.threads?.length) {  // nothing to say
-    try { localStorage.setItem(BRIEF_KEY, b.date); } catch {} return;
-  }
-  $("briefdate").textContent = longDate(b.date) + (b.checked.length
-    ? ` · ${b.signals.length} flagged · ${b.checked.length} tracked` : "");
-  $("briefnote").textContent = "";
-  $("briefbody").innerHTML = briefInner(b);
-  wireBrief($("briefbody"), t => { closeBrief(); location.hash = "#/t/" + t; });
-  $("briefsheet").classList.add("on");
-  mo($("briefbox"), { opacity:[0,1], scale:[.96,1], y:[16,0] },
-     { duration:.42, easing:[.22,1,.36,1] });
-  mo($("briefbody").querySelectorAll(".bsec"), { opacity:[0,1], y:[10,0] },
-     { duration:.36, delay:stag(.04), easing:[.22,1,.36,1] });
+  $("navdot").classList.toggle("on", seen !== b.date && (b.signals || []).length > 0);
 }
-function closeBrief() {
-  const b = S.brief;
-  if (b) try { localStorage.setItem(BRIEF_KEY, b.date); } catch {}
+function markBriefSeen(b) {
+  if (b?.date) try { localStorage.setItem(BRIEF_KEY, b.date); } catch {}
   $("navdot").classList.remove("on");
-  $("briefsheet").classList.remove("on");
 }
 
 /* ═══════════════ agent panel ═══════════════
@@ -1583,12 +1632,74 @@ function markFigures(raw) {
   for (const m of s.matchAll(FIG_RE)) {
     const prev = s[m.index - 1] || "";
     if (/[A-Za-z&]/.test(prev) || INDEX_BEFORE.test(s.slice(Math.max(0, m.index - 9), m.index))) continue;
+    // a bare year ("May 2026", "28th 2026,") names a date, it does not measure anything
+    if (/^(19|20)\d\d,?$/.test(m[0])) continue;
     out += esc(s.slice(last, m.index)) + `<span class="fig">${esc(m[0])}</span>`;
     last = m.index + m[0].length;
   }
   return out + esc(s.slice(last));
 }
-const paras = s => String(s||"").split(/\n{2,}/).map(p => `<p>${markFigures(p.trim())}</p>`).join("");
+/* ── plain words: a finance term explained where it appears ──
+   The first time an answer uses one of these it gets a dotted underline, and its
+   meaning opens on hover or tap - nobody has to leave the answer to look it up.
+   Order matters: "forward P/E" must be found before "P/E". */
+const GLOSSARY = [
+  [/\bforward (?:P\/E|price[- ]to[- ]earnings)\b/i, "Forward P/E", "The share price divided by the profit per share analysts expect next year. Lower can mean cheaper, if the forecast is right."],
+  [/\b(?:trailing )?P\/E(?: ratio)?\b|\bprice[- ]to[- ]earnings\b/i, "P/E (price-to-earnings)", "The share price divided by the profit per share over the last 12 months: what you pay for each $1 the company earned. It only works when the company makes a profit."],
+  [/\bprice[- ]to[- ]book\b/i, "Price-to-book", "The share price compared with what the company owns minus what it owes, per share."],
+  [/\bEPS\b|\bearnings per share\b/i, "Earnings per share (EPS)", "The company's profit divided by its number of shares. Negative means it lost money."],
+  [/\bmarket (?:cap(?:italization)?|value)\b/i, "Market value", "What all of the company's shares are worth together at today's price."],
+  [/\boperating margin\b/i, "Operating margin", "Of each $1 of sales, what is left after the costs of making the product and running the business."],
+  [/\bgross margin\b/i, "Gross margin", "Of each $1 of sales, what is left after the direct cost of what was sold."],
+  [/\b(?:net|profit) margin\b/i, "Net margin", "Of each $1 of sales, what is left as profit after every cost, including interest and tax."],
+  [/\bfree cash flow\b/i, "Free cash flow", "Cash left over after running the business and paying for new equipment."],
+  [/\bdebt[- ]to[- ]equity\b/i, "Debt-to-equity", "How much the company owes compared with what the owners' stake is worth on its books."],
+  [/\bdividend yield\b/i, "Dividend yield", "The yearly dividend as a share of the stock price."],
+  [/\bbeta\b/i, "Beta", "How much the stock tends to move when the whole market moves. A beta of 2 means about twice as much."],
+  [/\bRSI\b|\brelative strength index\b/i, "RSI", "A 0-100 gauge of recent buying versus selling. Below 30 often means the stock has been sold hard and may be oversold."],
+  [/\b(?:50|200)-day (?:moving )?average\b/i, "Moving average", "The average closing price over the last 50 or 200 trading days - a common way to see the trend. Trading above it is usually read as strength."],
+  [/\b52-week (?:high|low|range)\b/i, "52-week high and low", "The highest and lowest prices of the past year."],
+  [/\bshort interest\b/i, "Short interest", "Shares borrowed and sold by investors betting the price will fall."],
+  [/\bprice targets?\b/i, "Price target", "Where an analyst thinks the price will be in about a year. Often wrong; read it as an opinion."],
+  [/\boversold\b/i, "Oversold", "Fallen so fast that sellers may be running out. It does not mean the price must rise."],
+  [/\bvolatility\b/i, "Volatility", "How much the price swings up and down."],
+  [/\bS&P 500\b/, "S&P 500", "An index of 500 large US companies, the usual stand-in for 'the market'."],
+  [/\brevenue\b/i, "Revenue", "Money the company brought in from sales, before any costs."],
+  [/\bguidance\b/i, "Guidance", "The company's own forecast of its coming results."],
+  [/\bconsensus\b/i, "Consensus", "The average view of the analysts who cover the stock."],
+  [/\byear over year\b|\bYoY\b/i, "Year over year", "Compared with the same period a year earlier."],
+];
+function glossText(raw, seen) {
+  let s = String(raw ?? ""), out = "";
+  for (;;) {
+    let best = null;
+    GLOSSARY.forEach((g, i) => { if (seen?.has(i)) return; const m = g[0].exec(s);
+      if (m && (!best || m.index < best.m.index || (m.index === best.m.index && m[0].length > best.m[0].length))) best = { m, i }; });
+    if (!best) return out + markFigures(s);
+    const [, title, def] = GLOSSARY[best.i];
+    seen?.add(best.i);
+    out += markFigures(s.slice(0, best.m.index)) + `<span class="term" tabindex="0" data-tip="${esc(`<div class="tiph">${esc(title)}</div><p>${esc(def)}</p>`)}">${esc(best.m[0])}</span>`;
+    s = s.slice(best.m.index + best.m[0].length);
+  }
+}
+/* the answer's shape: a headline sentence, bullet points, "what would change
+   this" - written that way by the writer, laid out that way here */
+function shape(html) {
+  return html.split(/\n{2,}/).map(b => b.trim()).filter(Boolean).map((b, bi) => {
+    let out = "", list = [];
+    const flush = () => { if (list.length) out += `<ul class="apts">${list.map(x => `<li>${x}</li>`).join("")}</ul>`; list = []; };
+    for (const line of b.split("\n").map(l => l.trim()).filter(Boolean)) {
+      if (/^[-•]\s+/.test(line)) { list.push(line.replace(/^[-•]\s+/, "")); continue; }
+      flush();
+      const w = line.match(/^What would change (?:this|it|the picture):\s*/i);
+      out += w ? `<p class="watch"><b>What would change this</b>${line.slice(w[0].length)}</p>`
+               : `<p${bi === 0 && !out ? ' class="bl"' : ""}>${line}</p>`;
+    }
+    flush();
+    return out;
+  }).join("");
+}
+const paras = s => { const seen = new Set(); return shape(String(s || "").split(/(\n+)/).map(x => /^\n+$/.test(x) ? x : glossText(x, seen)).join("")); };
 
 /* ── citations: each figure links the page its number came from ──
    The server matches every figure in the answer to the evidence record that
@@ -1602,9 +1713,10 @@ function citedHTML(r) {
       const u = safeUrl(x.url);
       return u ? `<a href="${esc(u)}" target="_blank" rel="noopener" title="${esc(x.label)}">${n}</a>`
                : `<span title="${esc(x.label)}">${n}</span>`; }).join("")}</sup>`;
+  const seen = new Set();
   const html = r.segments.map(sg => sg.f != null
-      ? `<span class="fig">${esc(sg.f)}</span>${sup(sg.s || [])}` : markFigures(sg.t)).join("");
-  return html.split(/\n{2,}/).map(p => `<p>${p.trim()}</p>`).join("");
+      ? `<span class="fig">${esc(sg.f)}</span>${sup(sg.s || [])}` : glossText(sg.t, seen)).join("");
+  return shape(html);
 }
 function asOf(x) {
   const d = toDate(x.as_of); if (!d) return "";
@@ -1653,6 +1765,10 @@ function mountCharts(root) {
         const d = await chartGet(`/api/compare?symbols=${c.symbols.map(encodeURIComponent).join(",")}&period=${encodeURIComponent(c.period || "6mo")}`);
         if (!d.paths?.length) throw new Error("no price history");
         draw = () => CH.multiLine(el, d.paths, c.symbols, PANEL_COLORS, { height: 230, labels: c.labels, animate });
+      } else if (c.kind === "lows") {
+        const bars = await getBars(c.symbol, c.period || "2y", "1d");
+        if (!bars?.length) throw new Error("no price history");
+        draw = () => CH.lows(el, bars, c.lows || [], { height: 240, animate });
       } else if (c.kind === "revenue") {
         const d = await chartGet(`/api/financials/${encodeURIComponent(c.symbol)}`);
         if (!d.quarters?.length) throw new Error("no filings");
@@ -1704,23 +1820,24 @@ function progressHTML(turn) {
   const specSt = !specs.length ? "wait" : specsDone ? "done" : "run";
   const wrSt = L.writer === "done" || L.verify ? "done" : L.writer === "run" ? "run" : L.writer === "asked" ? "run" : "wait";
   const vSt = L.verify === "done" ? "done" : L.verify ? "run" : "wait";
+  const pill = k => ({ done: "Done", run: "Working", wait: "Waiting" })[k];
   return `<div class="prog">
     <div class="phead"><span class="spin"></span><b>${esc(phase)}</b><span class="el" data-el>${el}s</span></div>
     <ol class="ptl">
-      <li class="${routeSt}"><span class="pi"></span><div><div class="pt">Router agent</div>
+      <li class="${routeSt}"><span class="pi"></span><div><div class="pt" data-state="${pill(routeSt)}">Router agent</div>
         <div class="pd2">${L.route === "done" ? `sent it to ${specs.length} specialist${specs.length === 1 ? "" : "s"}${L.resolved ? ` · read as “${esc(L.resolved)}”` : ""}`
                                                : "working out which specialists the question needs…"}</div></div></li>
-      <li class="${specSt}"><span class="pi"></span><div><div class="pt">Specialist agents${specs.length ? ` <span class="pn">${specs.filter(x => x.stage === "done" || x.stage === "skip").length}/${specs.length}</span>` : ""}</div>
+      <li class="${specSt}"><span class="pi"></span><div><div class="pt" data-state="${pill(specSt)}">Specialist agents${specs.length ? ` <span class="pn">${specs.filter(x => x.stage === "done" || x.stage === "skip").length}/${specs.length}</span>` : ""}</div>
         ${specs.length ? specs.map(sp => `<div class="psub ${sp.stage === "done" ? "done" : sp.stage === "skip" ? "skip" : "run"}"
             data-k="sp:${esc(sp.domain)}:${esc(sp.ticker || "")}:${sp.round || 1}">
             <span class="dot2"></span><span class="who">${esc(DOMAIN_LABEL[sp.domain] || sp.domain)}${sp.ticker && sp.ticker !== "MARKET" ? ` · ${esc(sp.ticker)}` : ""}${sp.round > 1 ? ` <i>follow-up</i>` : ""}</span>
             <span class="what">${specLine(sp)}</span></div>`).join("")
           : `<div class="pd2">each pulls its own data in parallel</div>`}</div></li>
-      <li class="${wrSt}"><span class="pi"></span><div><div class="pt">Writer agent</div>
+      <li class="${wrSt}"><span class="pi"></span><div><div class="pt" data-state="${pill(wrSt)}">Writer agent</div>
         <div class="pd2">${L.writer === "asked" ? `found a gap · asked for ${esc(L.asked || "another specialist")}`
           : L.writer === "run" ? (L.writerMode === "edit" ? "editing the specialist's answer…" : `combining ${L.writerN || specs.length} findings into one answer…`)
           : wrSt === "done" ? "final answer drafted" : "will combine the findings into one answer"}</div></div></li>
-      <li class="${vSt}"><span class="pi"></span><div><div class="pt">Fact check</div>
+      <li class="${vSt}"><span class="pi"></span><div><div class="pt" data-state="${pill(vSt)}">Fact check</div>
         <div class="pd2">${L.verify === "repair" ? `${L.unsupported ? `${L.unsupported} figure${L.unsupported === 1 ? "" : "s"} not in the evidence · ` : ""}repairing…`
           : L.verify ? "matching every figure to the data the specialists fetched…" : "every figure gets checked against the evidence"}</div></div></li>
     </ol></div>
@@ -1800,8 +1917,9 @@ function turnHTML(turn, i) {
     const meta = r.cached ? `answered from the same question ${r.cached_age_s < 60 ? "just now" : Math.round(r.cached_age_s / 60) + "m ago"} · no new model calls`
       : ndom ? `${ndom} specialist${ndom>1?"s":""} · ${r.llm_calls} model calls · ${((turn.wall_ms||r.wall_ms||r.latency_ms)/1000).toFixed(1)}s` : "";
     body = `<div class="answer">
-      ${(r.tickers||[]).some(t => t !== "MARKET") || r.grounded ? `<div class="top">${tickerChips(r.tickers)}
-        ${r.grounded ? `<span class="ok" title="Every figure in this answer was matched to the data the specialists fetched">✓ figures checked</span>` : ""}</div>` : ""}
+      <div class="top"><span class="glab">Answer</span>${tickerChips(r.tickers)}
+        ${r.grounded ? `<span class="ok" title="Every figure in this answer was matched to the data the specialists fetched">${IC.check}Figures checked${
+          (r.sources || []).filter(x => x.cited).length ? ` · ${(r.sources || []).filter(x => x.cited).length} sources` : ""}</span>` : ""}</div>
       ${r.segments?.length ? citedHTML(r) : paras(r.answer)}${degraded}${warn}${gapLine}
       ${chartsHTML(r, i)}
       ${sourcesHTML(r)}
@@ -1824,10 +1942,10 @@ function renderThread(scroll = true) {
   const el = $("thread"); if (!el) return;
   if (!T.turns.length) {
     el.innerHTML = `<div class="intro">
-      <div class="ih">Ask the research agent</div>
-      ${S.llm && S.route !== "ticker" ? screenerHTML() : ""}
-      ${S.llm ? `<div class="isugg">${suggestions().map(q =>
-        `<button class="sugg" data-ask="${esc(q)}">${esc(q)}</button>`).join("")}</div>`
+      <div class="ih">What do you want to know?</div>
+      ${S.llm ? `<div class="isugg">${chipList(suggestions(), { show: 2 })}</div>` : ""}
+      ${S.llm && S.route !== "ticker" ? `<details class="scrd"><summary>${IC.chev}Find stocks by size, sector and style</summary>${screenerHTML()}</details>` : ""}
+      ${S.llm ? ""
         : `<div class="awarn">Agent disabled — set <span class="mono">GEMINI_API_KEY</span> and restart. The dashboard works without it.</div>`}
     </div>`;
   } else {
@@ -2016,7 +2134,7 @@ function openTrace(run) {
   }
   $("trace").classList.add("on");
   setTimeout(() => $("tclose").focus(), 30);
-  mo($("tbox"),{opacity:[0,1],scale:[.97,1],y:[10,0]},{duration:.3,easing:[.22,1,.36,1]});
+  mo($("tbox"), { opacity: [0, 1], x: [28, 0] }, { duration: .2, easing: EASE });   // a side sheet slides in
 }
 const closeTrace = () => $("trace").classList.remove("on");
 
@@ -2033,8 +2151,8 @@ function submitAsk(text) {
 const LIGHT = () => document.documentElement.dataset.theme === "light";
 const cssv = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
 function applyPalette() {
-  CH.setPalette({ pos: cssv("--pos"), neg: cssv("--neg"), faint: cssv("--border-subtle"),
-                  ink: cssv("--subtle-foreground") });
+  CH.setPalette({ light: LIGHT(), pos: cssv("--pos"), neg: cssv("--neg"), faint: cssv("--border-subtle"),
+                  ink: cssv("--subtle-foreground"), surface: cssv("--card") });
 }
 
 /* the market map's universe: large caps by sector, sized by cap, coloured by move */
@@ -2083,7 +2201,7 @@ function marketStatus() {
   else if (wk && m >= 960 && m < 1200) { cls = "ext"; label = "After hours"; sub = `opens in ${dur(nextOpen())}`; }
   else { label = wk && m >= 570 && m < 960 ? "Market closed today" : "Market closed"; sub = `opens in ${dur(nextOpen())}`; }
   const clock = et.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
-  el.className = "pro-only " + cls;
+  el.className = cls;
   el.innerHTML = `<span class="dot"></span><b>${label}</b><span>· ${sub} · ${clock} ET</span>`;
 }
 
@@ -2106,7 +2224,8 @@ async function loadTape() {
 /* ── colour for a move: diverging, clamped at ±3% ── */
 function moveColor(p) {
   const t = Math.max(-1, Math.min(1, (p || 0) / 3));
-  const mid = [59, 65, 80], up = [31, 157, 97], dn = [214, 64, 58];
+  // a neutral slate midpoint that still carries white labels; lighter on a white page
+  const mid = LIGHT() ? [104, 115, 131] : [56, 63, 78], up = LIGHT() ? [22, 138, 88] : [31, 157, 97], dn = LIGHT() ? [204, 66, 66] : [214, 64, 58];
   const to = t >= 0 ? up : dn, k = Math.abs(t);
   return `rgb(${mid.map((c, i) => Math.round(c + (to[i] - c) * k)).join(",")})`;
 }
@@ -2162,12 +2281,6 @@ function paintMarketMap(el) {
   }
   el.innerHTML = html;
   el.querySelectorAll("[data-go]").forEach(c => c.onclick = () => location.hash = "#/t/" + c.dataset.go);
-  if (!el.dataset.shown) {
-    el.dataset.shown = "1";
-    const cells = el.querySelectorAll(".mm-cell");
-    mo(cells, { opacity: [0, 1], scale: [.94, 1] },
-       { duration: .26, delay: stag(Math.min(.006, .32 / Math.max(1, cells.length))), easing: EASE });
-  }
 }
 
 function moversHTML(kind) {
@@ -2216,65 +2329,67 @@ function idxCellsHTML(d) {
   return d.indices.map(i => {
     if (i.kind === "sentiment") {
       const band = (CH.FNG_BANDS.find(b => i.level < b.to) || CH.FNG_BANDS.at(-1)).label;
-      return `<div class="pd-ix"><div class="l">Fear &amp; Greed</div>
-        <div class="v">${num(i.level, 0)} <span style="font-size:12px;font-weight:600;color:var(--muted-foreground);text-transform:capitalize">${esc(band)}</span></div>
-        <div class="c" style="color:var(--subtle-foreground);font-weight:500">${i.change != null ? `${i.change >= 0 ? "+" : ""}${num(i.change, 1)} vs yesterday` : ""}</div>
+      return `<div class="pd-ix"><div class="l">Fear &amp; Greed${tip(esc("CNN's 0-100 gauge of investor mood, built from seven market measures. Below 25 is extreme fear, above 75 extreme greed."))}</div>
+        <div class="v">${num(i.level, 0)}<small>${esc(band[0].toUpperCase() + band.slice(1))}</small></div>
+        <div class="c flat">${i.change != null ? `${i.change >= 0 ? "+" : ""}${num(i.change, 1)} vs yesterday` : ""}</div>
         <div class="fg"><i style="left:calc(${Math.max(0, Math.min(100, i.level))}% - 1.5px)"></i></div></div>`;
     }
     const neutral = i.kind !== "index";
     return `<div class="pd-ix"><div class="l">${esc(i.label)}</div>
       <div class="v">${i.kind === "rate" ? num(i.level) + "%" : num(i.level, i.level > 1000 ? 0 : 2)}</div>
-      <div class="c ${neutral ? "" : sgn(i.change_pct)}" ${neutral ? 'style="color:var(--muted-foreground)"' : ""}>${pct(i.change_pct)}</div>
+      <div class="c ${neutral ? "flat" : sgn(i.change_pct)}">${pct(i.change_pct)}</div>
       <div class="sp" data-ixp="${esc(i.symbol)}"></div></div>`;
   }).join("");
 }
 
 const HERO_KEY = "monsoon.pro.hero";
 async function viewDashboardPro(nav) {
-  crumbs([{label:"Dashboard"}]);
+  crumbs([{label:"Markets"}]);
   const v = $("views");
-  let heroOff = false; try { heroOff = localStorage.getItem(HERO_KEY) === "off"; } catch {}
   const demo = !S.wl.length;
+  const legend = `<span class="mm-legend" aria-label="Colour scale, minus 3 to plus 3 percent"><span>−3%</span>${[-3, -1.5, 0, 1.5, 3]
+    .map(x => `<i style="background:${moveColor(x)}"></i>`).join("")}<span>+3%</span></span>`;
   v.innerHTML = `<div class="page">
-    ${ME.guest && !heroOff ? `<div class="pd-hero">
-      <div><h1>Research any stock in plain English.</h1>
-        <p>Live quotes, SEC financials and analyst data, plus a research agent that sends your question to
-          specialists in parallel and checks every figure it quotes. No account needed.</p>
-        <form class="ask" id="heroask"><input class="inp" id="heroq" placeholder="e.g. Is NVDA expensive relative to what it earns?" autocomplete="off">
-          <button class="btn btn-primary" type="submit">Ask ${IC.arrow}</button></form>
-        <div class="chips">${suggestions().slice(0, 3).map(q => `<button class="sugg" data-ask="${esc(q)}">${esc(q)}</button>`).join("")}</div></div>
-      <button class="btn btn-sm btn-ghost x" id="herox" aria-label="Hide">${IC.x.replace("<svg", '<svg class="ico"')}</button></div>` : ""}
-    <div class="pd-idx" id="pdidx">${Array(6).fill(`<div class="pd-ix"><div class="skel" style="height:62px"></div></div>`).join("")}</div>
-    <div class="pd-grid">
-      <div class="pd-col">
-        <div class="pcard"><div class="pcard-h"><h4>Market map</h4>
-          <span class="r"><span class="mm-legend"><span>−3%</span><i style="background:${moveColor(-3)}"></i><i style="background:${moveColor(-1)}"></i><i style="background:${moveColor(0)}"></i><i style="background:${moveColor(1)}"></i><i style="background:${moveColor(3)}"></i><span>+3%</span></span></span></div>
-          <div class="mmap" id="mmap"><div class="skel" style="height:100%;border-radius:0"></div></div></div>
-        <div id="pdsig"></div>
-        <div class="pcard"><div class="pcard-h"><h4>${demo ? "Most watched" : "Watchlist"}${demo
+    <header class="mk-head">
+      <div><h1>Markets</h1><div class="dateline">${esc(longDate(new Date()))}</div></div>
+      <form class="quickask" id="heroask" role="search">
+        ${IC.spark.replace('class="ico"', "")}
+        <input id="heroq" placeholder="Ask about a stock or the market" autocomplete="off" aria-label="Ask the research agent">
+        <button class="btn btn-primary btn-sm" type="submit">Ask</button></form>
+    </header>
+    ${S.llm ? `<div class="asksugg">${chipList(suggestions(), { show: 3 })}</div>` : ""}
+
+    <section class="pd-idx" id="pdidx" aria-label="Indices">${Array(6).fill(`<div class="pd-ix"><div class="skel" style="height:14px;width:60%"></div>
+      <div class="skel" style="height:22px;width:70%;margin-top:10px"></div><div class="skel" style="height:30px;margin-top:10px"></div></div>`).join("")}</section>
+
+    <div class="mk-grid">
+      <div class="mk-col">
+        <section class="panel"><div class="panel-h"><h4>Market map${tip(esc("The largest US companies, grouped by sector. Each tile's size is the company's market value; its colour is today's move."))}</h4>
+          <span class="r">${legend}</span></div>
+          <div class="mmap" id="mmap"><div class="skel" style="height:100%;border-radius:0"></div></div></section>
+        <section class="panel"><div class="panel-h"><h4>${demo ? "Most watched" : "Watchlist"}${demo
             ? tip(esc(ME.guest ? "A sample of the most-watched stocks. Sign in to keep a list of your own."
                                : "A sample of the most-watched stocks. Add a ticker to start your own list.")) : ""}</h4>
-          <span class="r">
-            <input id="addinput" class="inp" style="width:150px;height:28px;padding:4px 9px" placeholder="Add ticker…"></span></div>
+          <span class="r"><input id="addinput" class="inp" style="width:150px;height:30px" placeholder="Add a ticker" aria-label="Add a ticker to your watchlist"></span></div>
           <table class="wtable wl"><thead><tr>
-            ${[["sym","Symbol"],["price","Last"],["change_pct","Change"],[null,"30-day"],["market_cap","Mkt cap"],["pe","P/E"],[null,""]]
-              .map(([k,label])=>`<th ${k?`data-sort="${k}" class="sortable${wlSort.key===k?" on":""}"`:""}>${label}</th>`).join("")}
-          </tr></thead><tbody id="wlbody"></tbody></table></div>
+            ${[["sym","Symbol"],["price","Last"],["change_pct","Change"],[null,"30 days"],["market_cap","Market cap"],["pe","P/E"],[null,""]]
+              .map(([k,label],i)=>`<th ${k?`data-sort="${k}" class="sortable${wlSort.key===k?" on":""}${i>=3?" hide-sm":""}"`:i>=3?'class="hide-sm"':""}>${label}</th>`).join("")}
+          </tr></thead><tbody id="wlbody">${Array(5).fill(`<tr><td colspan="7"><div class="skel" style="height:26px"></div></td></tr>`).join("")}</tbody></table></section>
+        <section class="panel"><div class="panel-h"><h4>Market news</h4></div>
+          <div class="newsgrid" id="mnews">${newsHTML(null)}</div></section>
       </div>
-      <div class="pd-col">
-        <div class="pcard"><div class="pcard-h"><h4>Top movers</h4>
+      <div class="mk-col">
+        <section class="panel"><div class="panel-h"><h4>Top movers${tip(esc("The biggest moves today among the companies on the market map."))}</h4>
           <span class="r"><span class="seg" id="mvseg"><button class="on" data-mv="gainers">Gainers</button><button data-mv="losers">Losers</button></span></span></div>
-          <div id="movers"><div class="skel" style="height:200px;margin:12px"></div></div></div>
-        <div class="pcard"><div class="pcard-h"><h4>Sectors${tip(esc("Today's move in each sector, measured by its SPDR sector fund (XLK for technology, XLF for financials, and so on)."))}</h4></div>
-          <div id="sectors" style="padding:6px 0"><div class="skel" style="height:200px;margin:12px"></div></div></div>
-        <div class="pcard"><div class="pcard-h"><h4>Earnings this week${tip(esc("Companies reporting results this week, largest first."))}</h4></div>
-          <div id="earnings">${earningsHTML(null)}</div></div>
-        <div class="pcard"><div class="pcard-h"><h4>Market news</h4></div>
-          <div id="mnews">${newsHTML(null)}</div></div>
+          <div id="movers"><div class="skel" style="height:220px;margin:10px 16px"></div></div></section>
+        <div id="pdsig"></div>
+        <section class="panel"><div class="panel-h"><h4>Sectors${tip(esc("Today's move in each sector, measured by its SPDR sector fund (XLK for technology, XLF for financials, and so on)."))}</h4></div>
+          <div id="sectors"><div class="skel" style="height:220px"></div></div></section>
+        <section class="panel"><div class="panel-h"><h4>Earnings this week${tip(esc("Companies reporting results this week, largest first."))}</h4></div>
+          <div id="earnings">${earningsHTML(null)}</div></section>
       </div>
     </div></div>`;
 
-  if ($("herox")) $("herox").onclick = () => { try { localStorage.setItem(HERO_KEY, "off"); } catch {} viewDashboardPro(); };
   if ($("heroask")) $("heroask").onsubmit = e => { e.preventDefault(); const q = $("heroq").value.trim(); if (q) submitAsk(q); };
   v.querySelectorAll("[data-ask]").forEach(b => b.onclick = () => submitAsk(b.dataset.ask));
   wireAdd();
@@ -2284,7 +2399,6 @@ async function viewDashboardPro(nav) {
   // indices
   api("/api/indices").then(d => { if (!live() || !$("pdidx")) return;
     $("pdidx").innerHTML = idxCellsHTML(d);
-    rippleIn($("pdidx").children);
     const by = Object.fromEntries(d.indices.map(i => [i.symbol, i]));
     $$("[data-ixp]").forEach(m => { const i = by[m.dataset.ixp]; if (i?.history?.length)
       CH.indexSpark(m, i.history, i.change_pct >= 0, i.kind !== "index"); });
@@ -2298,12 +2412,10 @@ async function viewDashboardPro(nav) {
       const mm = $("mmap"); paintMarketMap(mm);
       if (mm) new ResizeObserver(() => { if ($("mmap") === mm) paintMarketMap(mm); }).observe(mm);
       const paintMovers = k => { $("movers").innerHTML = moversHTML(k);
-        rippleIn($$("#movers .mv-row"), .03, .2);
         $$("#movers [data-go]").forEach(r => r.onclick = () => location.hash = "#/t/" + r.dataset.go); };
       paintMovers("gainers");
       $$("#mvseg button").forEach(b => b.onclick = () => { $$("#mvseg button").forEach(x => x.classList.toggle("on", x === b)); paintMovers(b.dataset.mv); });
       $("sectors").innerHTML = sectorsHTML();
-      fadeIn($("sectors"), 4, .22);
       paintWatch(); loadTape();
     }).catch(e => { if ($("mmap")) $("mmap").innerHTML = `<div class="pd-empty">Couldn't load prices: ${esc(e.message)}</div>`; });
 
@@ -2312,7 +2424,6 @@ async function viewDashboardPro(nav) {
     const rows = wl.map(x => ({ sym: x, held: held.has(x), ...quoteRow(x) })).filter(r => r.price != null);
     const body = $("wlbody"); if (!body) return;
     body.innerHTML = wlRows(rows) || `<tr><td colspan="7"><div class="empty">Prices are unavailable right now.</div></td></tr>`;
-    rippleIn(body.querySelectorAll("tr"), .025, .22);
     $$("#wlbody [data-spark]").forEach(el => { const val = S.sparks[el.dataset.spark] || [];
       if (val.length > 1) CH.sparkline(el, val, val.at(-1) >= val[0]); });
     $$("#wlbody [data-go]").forEach(el => { el.onclick = () => location.hash = "#/t/" + el.dataset.go;
@@ -2324,13 +2435,12 @@ async function viewDashboardPro(nav) {
 
   api("/api/calendar/earnings?days=7&limit=8").then(d => { if (live() && $("earnings")) {
     $("earnings").innerHTML = earningsHTML(d);
-    fadeIn($("earnings"), 4, .22);
     $$("#earnings [data-go]").forEach(r => r.onclick = () => location.hash = "#/t/" + r.dataset.go); } })
     .catch(() => { if ($("earnings")) $("earnings").innerHTML = earningsHTML({ items: [], unavailable: "Earnings calendar unavailable." }); });
 
   // market news and today's flagged moves, straight from the data plane (no model call)
   api("/api/brief").then(b => { if (!live()) return;
-    if ($("mnews")) { $("mnews").innerHTML = newsHTML(b.market_headlines || []); fadeIn($("mnews"), 4, .22); }
+    if ($("mnews")) $("mnews").innerHTML = newsHTML(b.market_headlines || []);
     const sigs = (b.signals || []).slice(0, 4);
     if (sigs.length && $("pdsig")) { $("pdsig").innerHTML = signalStrip({ ...b, signals: sigs });
       $$("#pdsig [data-go]").forEach(el => el.onclick = () => location.hash = "#/t/" + el.dataset.go); }
@@ -2343,9 +2453,9 @@ function qBarHTML(symbols, cmp) {
   return `<div class="q-bar">${symbols.map(t => { const r = by[t] || {};
     return `<div class="q-chip ${t === S.cur ? "on" : ""}" data-qfocus="${esc(t)}">
       ${symbols.length > 1 ? `<input type="checkbox" data-pick="${esc(t)}" aria-label="Include ${esc(t)} in analysis" ${S.picked.has(t) ? "checked" : ""}>` : ""}
-      <img src="${logo(t)}" alt="">${esc(t)}<span class="c ${sgn(r.change_pct)}">${pct(r.change_pct)}</span>
+      <img src="${logo(t)}" alt="">${esc(t)}${r.change_pct != null ? `<span class="c ${sgn(r.change_pct)}">${pct(r.change_pct)}</span>` : ""}
       <button class="xx" data-close="${esc(t)}" aria-label="Close ${esc(t)}" title="Close">${IC.x}</button></div>`; }).join("")}
-    ${symbols.length > 1 ? `<button class="btn btn-sm" id="showOverlay2">Compare performance</button>` : ""}</div>`;
+    ${symbols.length > 1 ? `<button class="btn btn-sm btn-ghost" id="showOverlay2">Compare their prices</button>` : ""}</div>`;
 }
 
 async function fillQuoteHeader(sym) {
@@ -2367,7 +2477,7 @@ async function fillQuoteHeader(sym) {
     <div class="px"><div class="p tick">${usdp(q.price ?? ov.price)}</div>
       <div class="c ${sgn(q.change_pct)}">${q.change != null ? `${q.change >= 0 ? "+" : "−"}${num(Math.abs(q.change))} ` : ""}(${pct(q.change_pct)})</div>
       <div class="st">${stLabel}${last.t ? " · " + new Date(last.t * 1000).toLocaleDateString(undefined, { month: "short", day: "numeric" }) : ""}</div>
-      <div class="acts"><button class="btn btn-sm" id="qwatch">${inWl ? "✓ Watching" : "+ Watchlist"}</button>
+      <div class="acts"><button class="btn btn-sm ${inWl ? "on" : ""}" id="qwatch">${inWl ? "Watching" : "Add to watchlist"}</button>
         <button class="btn btn-sm btn-primary" id="qask">${IC.spark} Ask about ${esc(sym)}</button></div></div>`;
   const lo = q.low_52w ?? ov.low_52w, hi = q.high_52w ?? ov.high_52w, px = q.price ?? ov.price;
   const pos52 = lo != null && hi != null && hi > lo && px != null ? (px - lo) / (hi - lo) * 100 : null;
@@ -2384,7 +2494,7 @@ async function fillQuoteHeader(sym) {
   ].join("");
   $("qwatch").onclick = async () => {
     if (S.wl.includes(sym)) return;
-    try { S.wl = (await jpost("/api/watchlist", { ticker: sym })).watchlist; $("qwatch").textContent = "✓ Watching";
+    try { S.wl = (await jpost("/api/watchlist", { ticker: sym })).watchlist; $("qwatch").textContent = "Watching"; $("qwatch").classList.add("on");
           toast(`${sym} added to your watchlist`, "ok"); }
     catch (err) { if (err.status === 401) needAccount(`Create an account to keep ${sym} on a watchlist.`, { kind: "watch", ticker: sym });
                   else toast(err.message, "error"); }
@@ -2497,13 +2607,6 @@ function toggleTheme() {
 }
 function rerender() { try { chartRO?.disconnect(); chart?.remove(); } catch {} chart = null; route(); }
 $("themebtn").onclick = toggleTheme;
-$("navcollapse").onclick = () => {
-  const c = document.documentElement.dataset.nav === "collapsed";
-  if (c) delete document.documentElement.dataset.nav; else document.documentElement.dataset.nav = "collapsed";
-  try { localStorage.setItem("monsoon.nav", c ? "open" : "collapsed"); } catch {}
-  setTimeout(() => { if (chart) { const el = $("chart"); if (el?.clientWidth) chart.applyOptions({ width: el.clientWidth }); }
-    const mm = $("mmap"); if (mm) paintMarketMap(mm); }, 60);
-};
 
 /* ── notices instead of alert() ── */
 function toast(msg, kind = "info", ms = 4200) {
@@ -2515,14 +2618,20 @@ function toast(msg, kind = "info", ms = 4200) {
 }
 
 /* ═══════════════ data + router ═══════════════ */
+/* Four requests used to run one after another here - watchlist, then its
+   quotes, then its sparklines, then the portfolio - and the page waited for all
+   of them. Now the two that do not depend on each other go together, and so do
+   the two that need the watchlist. */
 async function refreshAll() {
-  S.wl = (await api("/api/watchlist")).watchlist;
+  const [wl, pf] = await Promise.all([api("/api/watchlist"), api("/api/portfolio").catch(() => null)]);
+  S.wl = wl.watchlist; S.pf = pf;
   if (S.wl.length) {
-    const d = await api(`/api/quotes?symbols=${S.wl.join(",")}`);
+    const syms = S.wl.join(",");
+    const [d, sp] = await Promise.all([api(`/api/quotes?symbols=${syms}`),
+                                       api(`/api/sparklines?symbols=${syms}`).catch(() => null)]);
     d.quotes.forEach(q => S.q[q.symbol] = q);
-    S.sparks = (await api(`/api/sparklines?symbols=${S.wl.join(",")}`)).sparklines;
+    if (sp) S.sparks = sp.sparklines;
   }
-  S.pf = await api("/api/portfolio").catch(()=>null);
   pfSummary();
 }
 
@@ -2581,19 +2690,11 @@ $("authform").onsubmit = async e => {
 $("agenttoggle").onclick = () => openAgent(!document.getElementById("app").classList.contains("agent-open"));
 $("agentclose").onclick = () => openAgent(false);
 $("right").inert = true;                              // collapsed: out of the tab order
-$("rhead").querySelector(".t").insertAdjacentHTML("afterend", tip(
-  `<div class="tiph">How the agent works</div><p>A router sends your question to the specialists it needs (price, `
-  + `company finances, analysts and news, earnings, related stocks, the economy), and they work in parallel. Every `
-  + `figure in the answer is checked against the data they fetched and links the page it came from.</p>`
-  + `<p>${esc(DISCLAIMER)}</p><p>Press <kbd>/</kbd> to ask from anywhere.</p>`, "How the agent works"));
 $("agentnew").onclick = () => { if (T.ctl) T.ctl.abort(); T.turns = []; saveThread(); renderThread(); $("ask").focus(); };
 $("tclose").onclick = closeTrace;
-$("briefclose").onclick = closeBrief;
-$("briefopen").onclick = () => { closeBrief(); location.hash = "#/brief"; };
-$("briefsheet").onclick = e => { if (e.target.id === "briefsheet") closeBrief(); };
 $("trace").onclick = e => { if (e.target.id==="trace") closeTrace(); };
 addEventListener("keydown", e => {
-  if (e.key==="Escape") { closeTrace(); closeBrief(); closeAuth(); closeCmd(); closePw(); }
+  if (e.key==="Escape") { closeTrace(); closeAuth(); closeCmd(); closePw(); }
   if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") { e.preventDefault(); openCmd(); return; }
   // "/" opens the agent from anywhere that is not already a text field
   if (e.key === "/" && !/^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement?.tagName||"")) {
@@ -2612,13 +2713,13 @@ $("askform").onsubmit = e => { e.preventDefault();
   if (v) { submitAsk(v); $("ask").value = ""; growAsk(); } };
 
 api("/build").then(b => $("buildstamp").textContent = b.build.slice(-6)).catch(()=>{});
-await loadMe();
-await replayResume();
-const health = await api("/api/health").catch(()=>({}));
+// who you are and whether the agent is up, together - then your book
+const [, health] = await Promise.all([loadMe(), api("/api/health").catch(() => ({}))]);
 S.llm = !!health.llm_configured;
 if (!S.llm) $("rst").textContent = "no key";
 syncSwitch(); applyPalette();
-try { await refreshAll(); } catch (e) { console.warn("initial load", e); }   // still paint the view
+await replayResume().catch(() => false);          // a replayed "watch this" lands before the list is read
+await refreshAll().catch(e => console.warn("initial load", e));
 renderThread();
 await route();
 maybeShowBrief();

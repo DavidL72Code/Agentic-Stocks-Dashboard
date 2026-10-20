@@ -266,6 +266,15 @@ async def pairwise(base: str, new: str, llm) -> int:
     for c in CASES:
         if c["id"] not in A or c["id"] not in B:
             continue
+        # The judge penalises any claim not in that answer's evidence. A file
+        # collected before evidence was stored (the Oct 3 baseline) shows the
+        # judge an answer with NO evidence, so every figure in it reads as
+        # invented - that run went 11-0 for "new" and measured nothing.
+        missing = [side for side, r in (("base", A[c["id"]]), ("new", B[c["id"]]))
+                   if r.get("answer") and not r.get("findings")]
+        if missing:
+            print(f"  {c['id']:<18} SKIP  no stored evidence for {'/'.join(missing)} - not comparable")
+            continue
         q = c["q"] if not c.get("history") else (
             "\n".join(f"(earlier turn) user: {h['q']}\n(earlier turn) assistant: {h['a']}"
                        for h in c["history"]) + f"\n(now) user: {c['q']}")

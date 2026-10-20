@@ -114,6 +114,9 @@ class AgentRun(BaseModel):
     sources: list[dict] = []
     # charts that illustrate the cited figures, when one helps (graph.charts)
     charts: list[dict] = []
+    # terms a lay reader would not understand that survived the plain-language
+    # gate (graph.plain) - empty is the goal
+    jargon: list[str] = []
     # non-empty when the run answered from a fallback because a step failed;
     # the client shows it, so a degraded answer is never silently passed off
     # as a full one

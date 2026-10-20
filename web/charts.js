@@ -1,23 +1,38 @@
-/* Recharts islands. Colors come from the validated palette in index.html's token
-   layer (dataviz validator, dark mode, surface #0d0f14):
-     series  #9085e9 / #c98500 / #3987e5   — ALL PASS
-     pos/neg #199e70 / #e66767             — CVD ΔE 6.5, paired with ± signs
-   Every chart ships a hover tooltip, per the skill's interaction default. */
-import React from "https://esm.sh/react@18.3.1";
-import { createRoot } from "https://esm.sh/react-dom@18.3.1/client";
-import * as RC from "https://esm.sh/recharts@2.12.7?deps=react@18.3.1,react-dom@18.3.1";
+/* Recharts islands, loaded lazily.
 
-const h = React.createElement;
+   This module used to import React, ReactDOM and Recharts at the top, and
+   app.js imports this module - so the whole app waited on ~139 module files
+   from esm.sh (Recharts and every d3/lodash piece it pulls in) before it could
+   run a line or make a single API call. Now Recharts comes as ONE bundled file
+   (?bundle), fetched in parallel with the app's first requests, and each chart
+   draws as soon as it is there. Exported functions can be called right away;
+   they render when the library arrives.
+
+   Colors: the series slots are the dataviz reference palette (validated with
+   its validate_palette.js against this app's surfaces - dark #11161d all pass;
+   light #ffffff pass with the contrast relief, met by direct labels). pos/neg
+   and gridlines come from the page's tokens via setPalette. */
+let React = null, createRoot = null, RC = null, h = null;
+const ready = Promise.all([
+  import("https://esm.sh/react@18.3.1"),
+  import("https://esm.sh/react-dom@18.3.1/client"),
+  import("https://esm.sh/recharts@2.12.7?bundle&deps=react@18.3.1,react-dom@18.3.1"),
+]).then(([r, d, rc]) => { React = r.default || r; createRoot = d.createRoot; RC = rc; h = React.createElement; });
+ready.catch(e => console.warn("charts unavailable", e));
+const later = fn => (...a) => ready.then(() => fn(...a)).catch(() => {});
+
 const roots = new WeakMap();
-export const C = { s1:"#9085e9", s2:"#c98500", s3:"#3987e5",
-                   pos:"#199e70", neg:"#e66767", ink:"#8d95a4", faint:"#15181f" };
-const CLASSIC = { ...C };
-/* Pro (and its light theme) recolour the charts from the page's own tokens, so a
-   chart never keeps dark-theme gridlines on a white card. */
-export function setPalette(p) { Object.assign(C, CLASSIC, p || {}); }
+const DARK = { s1:"#3987e5", s2:"#d95926", s3:"#199e70", s4:"#c98500", s5:"#d55181", s6:"#9085e9" };
+const LIGHT = { s1:"#2a78d6", s2:"#eb6834", s3:"#1baf7a", s4:"#eda100", s5:"#e87ba4", s6:"#6250d6" };
+export const C = { ...DARK, pos:"#34c08a", neg:"#ef6b73", ink:"#808b99", faint:"#1b222b", surface:"#11161d" };
+export const series = () => [C.s1, C.s2, C.s3, C.s4, C.s5, C.s6];
+const FONT = "Geist, ui-sans-serif, system-ui, sans-serif";
+/* the page recolours the charts from its own tokens, so a chart never keeps
+   dark-theme gridlines on a white card */
+export function setPalette(p) { Object.assign(C, p?.light ? LIGHT : DARK, p || {}); }
 
 function mount(el, node) {
-  if (!el) return;
+  if (!el || !createRoot) return;
   let r = roots.get(el);
   if (!r) { r = createRoot(el); roots.set(el, r); }
   r.render(node);
@@ -33,7 +48,7 @@ const Tip = (label, value, sub) => h("div", { className: "rt-tip" },
   sub ? h("div", { className: "sub" }, sub) : null);
 
 /* ── sparkline: identity of one series, no axes, hover disabled (too small) ── */
-export function sparkline(el, values, positive) {
+const sparklineImpl = function (el, values, positive) {
   if (!el) return;
   const data = (values || []).map((v, i) => ({ i, v }));
   const col = positive ? C.pos : C.neg;
@@ -49,7 +64,7 @@ export function sparkline(el, values, positive) {
 }
 
 /* ── quarterly revenue: magnitude over time, one series, 4px rounded ends ── */
-export function revenue(el, quarters, opt = {}) {
+const revenueImpl = function (el, quarters, opt = {}) {
   const data = (quarters || []).map(q => ({
     q: q.end.slice(2, 7), rev: q.revenue, ni: q.net_income, margin: q.operating_margin, end: q.end }));
   mount(el, h(RC.ResponsiveContainer, { width: "100%", height: 200 },
@@ -60,7 +75,7 @@ export function revenue(el, quarters, opt = {}) {
       h(RC.CartesianGrid, { vertical: false, stroke: C.faint }),
       h(RC.XAxis, { dataKey: "q", tickLine: false, axisLine: false, dy: 6 }),
       h(RC.YAxis, { tickFormatter: abbr, tickLine: false, axisLine: false, width: 56 }),
-      h(RC.Tooltip, { cursor: { fill: "rgba(144,133,233,.07)" },
+      h(RC.Tooltip, { cursor: { fill: "var(--hover)" },
         content: ({ active, payload }) => active && payload?.[0]
           ? Tip(payload[0].payload.end, "$" + abbr(payload[0].payload.rev),
                 payload[0].payload.margin != null
@@ -71,7 +86,7 @@ export function revenue(el, quarters, opt = {}) {
 }
 
 /* ── earnings surprise: polarity around zero → diverging, two poles + zero line ── */
-export function surprise(el, history) {
+const surpriseImpl = function (el, history) {
   const data = (history || []).slice().reverse().map(r => ({
     d: r.date.slice(2), s: r.surprise_pct, a: r.actual, e: r.estimate }));
   mount(el, h(RC.ResponsiveContainer, { width: "100%", height: 170 },
@@ -79,8 +94,8 @@ export function surprise(el, history) {
       h(RC.CartesianGrid, { vertical: false, stroke: C.faint }),
       h(RC.XAxis, { dataKey: "d", tickLine: false, axisLine: false, dy: 6 }),
       h(RC.YAxis, { tickFormatter: v => v + "%", tickLine: false, axisLine: false, width: 48 }),
-      h(RC.ReferenceLine, { y: 0, stroke: "#2a303c" }),
-      h(RC.Tooltip, { cursor: { fill: "rgba(144,133,233,.07)" },
+      h(RC.ReferenceLine, { y: 0, stroke: "var(--border)" }),
+      h(RC.Tooltip, { cursor: { fill: "var(--hover)" },
         content: ({ active, payload }) => active && payload?.[0]
           ? Tip(payload[0].payload.d,
                 payload[0].payload.s == null ? "—" : (payload[0].payload.s >= 0 ? "+" : "") + payload[0].payload.s + "%",
@@ -91,7 +106,7 @@ export function surprise(el, history) {
 }
 
 /* ── analyst consensus: ordered categories → one stacked bar, 2px surface gaps ── */
-export function consensus(el, buckets) {
+const consensusImpl = function (el, buckets) {
   const rows = buckets.filter(b => b.n > 0);
   const total = rows.reduce((a, b) => a + b.n, 0) || 1;
   mount(el, h("div", null,
@@ -106,11 +121,11 @@ export function consensus(el, buckets) {
         style: { display: "flex", alignItems: "center", gap: 6, fontSize: 11 } },
         h("span", { style: { width: 8, height: 8, borderRadius: 3, background: b.color } }),
         h("span", { style: { color: "var(--muted-foreground)" } }, b.label),
-        h("b", { style: { fontFamily: "JetBrains Mono, monospace" } }, b.n))))));
+        h("b", { style: { fontFamily: FONT } }, b.n))))));
 }
 
 /* ── portfolio allocation: part-to-whole → donut with a hero number ── */
-export function allocation(el, positions, total) {
+const allocationImpl = function (el, positions, total) {
   const pal = [C.s1, C.s2, C.s3, "#b7adf7", "#7a6fd0", "#4d7fb8"];
   const data = (positions || []).map((p, i) => ({
     name: p.ticker, value: p.market_value, color: pal[i % pal.length] }));
@@ -129,7 +144,7 @@ export function allocation(el, positions, total) {
 
 
 /* ── index sparkline: a month of closes, no axes, just the shape ── */
-export function indexSpark(el, values, positive, neutral) {
+const indexSparkImpl = function (el, values, positive, neutral) {
   if (!el || !(values||[]).length) return;
   const data = values.map((v,i)=>({i,v}));
   const col = neutral ? "#8d95a4" : (positive ? C.pos : C.neg);
@@ -140,7 +155,7 @@ export function indexSpark(el, values, positive, neutral) {
         h("stop", { offset:"0%", stopColor:col, stopOpacity:.34 }),
         h("stop", { offset:"100%", stopColor:col, stopOpacity:0 }))),
       h(RC.YAxis, { hide:true, domain:["dataMin","dataMax"] }),
-      h(RC.Tooltip, { cursor:{stroke:"rgba(255,255,255,.2)"},
+      h(RC.Tooltip, { cursor:{stroke:"var(--border)"},
         content: ({active,payload}) => active && payload?.[0]
           ? Tip("Level", num2(payload[0].payload.v)) : null }),
       h(RC.Area, { type:"monotone", dataKey:"v", stroke:col, strokeWidth:1.5,
@@ -158,7 +173,7 @@ export const FNG_BANDS = [
 ];
 export const fngColor = s => (FNG_BANDS.find(b => s < b.to) || FNG_BANDS.at(-1)).color;
 
-export function fngGauge(el, score, history) {
+const fngGaugeImpl = function (el, score, history) {
   if (!el) return;
   const col = fngColor(score);
   // 180deg speedometer: extreme fear at the left stop, extreme greed at the right
@@ -189,19 +204,19 @@ export function fngGauge(el, score, history) {
     h("svg", { viewBox:`0 0 ${W} ${H}`, width:"100%", style:{maxWidth:"210px",display:"block"},
                role:"img", "aria-label":`Fear and greed index ${Math.round(clamped)}` },
       bands,
-      h("line", { x1:m1x, y1:m1y, x2:m2x, y2:m2y, stroke:"#0b0d13", strokeWidth:6, strokeLinecap:"round" }),
+      h("line", { x1:m1x, y1:m1y, x2:m2x, y2:m2y, stroke:"var(--card)", strokeWidth:6, strokeLinecap:"round" }),
       h("line", { x1:m1x, y1:m1y, x2:m2x, y2:m2y, stroke:"#fff", strokeWidth:2.5, strokeLinecap:"round" }),
       // end labels
-      h("text", { x:6, y:H-2, fill:"#8d95a6", fontSize:7.5, fontFamily:"Inter,sans-serif",
+      h("text", { x:6, y:H-2, fill:"var(--subtle-foreground)", fontSize:7.5, fontFamily:FONT,
                   letterSpacing:".06em" }, "EXTREME FEAR"),
-      h("text", { x:W-6, y:H-2, textAnchor:"end", fill:"#8d95a6", fontSize:7.5,
-                  fontFamily:"Inter,sans-serif", letterSpacing:".06em" }, "EXTREME GREED"),
+      h("text", { x:W-6, y:H-2, textAnchor:"end", fill:"var(--subtle-foreground)", fontSize:7.5,
+                  fontFamily:FONT, letterSpacing:".06em" }, "EXTREME GREED"),
       // the reading, centred in the dial with the band name under it
       h("text", { x:cx, y:cy-14, textAnchor:"middle", fill:col, fontSize:28, fontWeight:650,
-                  fontFamily:"JetBrains Mono,monospace", letterSpacing:"-.04em" },
+                  fontFamily:FONT, letterSpacing:"-.04em" },
         String(Math.round(clamped))),
-      h("text", { x:cx, y:cy, textAnchor:"middle", fill:"#adb4c2", fontSize:8,
-                  fontWeight:700, letterSpacing:".14em", fontFamily:"Inter,sans-serif" },
+      h("text", { x:cx, y:cy, textAnchor:"middle", fill:"var(--muted-foreground)", fontSize:8,
+                  fontWeight:700, letterSpacing:".14em", fontFamily:FONT },
         (FNG_BANDS.find(b=>clamped<b.to)||FNG_BANDS.at(-1)).label.toUpperCase()))));
 }
 
@@ -212,7 +227,7 @@ export function fngGauge(el, score, history) {
    since adjacent-pair CVD separation was validated for that sequence.
    Every line is also direct-labelled, which is the secondary encoding the
    skill requires when CVD separation sits in the warn band. */
-export function multiLine(el, paths, symbols, colors, opt = {}) {
+const multiLineImpl = function (el, paths, symbols, colors, opt = {}) {
   if (!el || !(paths || []).length) return;
   const data = paths.map(p => ({ ...p, d: new Date(p.t * 1000) }));
   const fmt = t => new Date(t * 1000).toLocaleDateString(undefined,
@@ -226,15 +241,15 @@ export function multiLine(el, paths, symbols, colors, opt = {}) {
                     axisLine: false, dy: 6, minTickGap: 48 }),
       h(RC.YAxis, { tickFormatter: v => v + "", tickLine: false, axisLine: false, width: 48,
                     domain: ["auto", "auto"] }),
-      h(RC.ReferenceLine, { y: 100, stroke: "#2a303c", strokeDasharray: "3 3" }),
+      h(RC.ReferenceLine, { y: 100, stroke: "var(--border)", strokeDasharray: "3 3" }),
       h(RC.Tooltip, {
-        cursor: { stroke: "rgba(255,255,255,.2)" },
+        cursor: { stroke: "var(--border)" },
         content: ({ active, payload, label }) => active && payload?.length
           ? h("div", { className: "rt-tip" },
               h("div", { className: "lab" }, fmt(label)),
               payload.slice().sort((a, b) => b.value - a.value).map(pl =>
                 h("div", { key: pl.dataKey, className: "sub",
-                           style: { color: pl.stroke, fontFamily: "JetBrains Mono, monospace" } },
+                           style: { color: pl.stroke, fontFamily: FONT } },
                   `${name(pl.dataKey)}  ${(pl.value - 100) >= 0 ? "+" : ""}${(pl.value - 100).toFixed(1)}%`)))
           : null }),
       h(RC.Legend, { verticalAlign: "top", height: 28, iconType: "plainline",
@@ -247,7 +262,7 @@ export function multiLine(el, paths, symbols, colors, opt = {}) {
           index === data.length - 1 && value != null
             ? h("text", { x: x + 6, y: y + 4, fill: (colors || [])[i % (colors || []).length],
                           fontSize: 10.5, fontWeight: 650,
-                          fontFamily: "JetBrains Mono, monospace" }, sym === "SPY" && opt.labels?.SPY ? "S&P" : sym)
+                          fontFamily: FONT }, sym === "SPY" && opt.labels?.SPY ? "S&P" : sym)
             : null })))));
 }
 
@@ -255,7 +270,7 @@ export function multiLine(el, paths, symbols, colors, opt = {}) {
    For an answer that compares names - margins, P/E, growth. The figures are
    printed on the bars so the chart reads without hovering, and they are the
    same numbers the answer cites. Negative values hang below a zero line. */
-export function bars(el, rows, series, unit, colors, opt = {}) {
+const barsImpl = function (el, rows, series, unit, colors, opt = {}) {
   if (!el || !(rows || []).length || !(series || []).length) return;
   const pal = colors && colors.length ? colors : [C.s1, C.s2, C.s3];
   const fmt = v => v == null ? "" : unit === "×" ? Number(v).toFixed(1) + "×"
@@ -273,7 +288,7 @@ export function bars(el, rows, series, unit, colors, opt = {}) {
       h(RC.YAxis, { tickFormatter: v => v + (unit === "×" ? "" : unit || ""), tickLine: false,
                     axisLine: false, width: 46 }),
       neg ? h(RC.ReferenceLine, { y: 0, stroke: "var(--border)" }) : null,
-      h(RC.Tooltip, { cursor: { fill: "rgba(144,133,233,.07)" },
+      h(RC.Tooltip, { cursor: { fill: "var(--hover)" },
         content: ({ active, payload, label }) => active && payload?.length
           ? h("div", { className: "rt-tip" }, h("div", { className: "lab" }, label),
               payload.map(pl => h("div", { key: pl.dataKey, className: "sub", style: { color: pl.fill } },
@@ -285,5 +300,71 @@ export function bars(el, rows, series, unit, colors, opt = {}) {
           isAnimationActive: anim, animationDuration: 520 },
         h(RC.LabelList, { dataKey: sr.key, position: "top", formatter: short,
           style: { fill: "var(--muted-foreground)", fontSize: 10.5, fontWeight: 600,
-                   fontFamily: "JetBrains Mono, monospace" } }))))));
+                   fontFamily: FONT } }))))));
 }
+
+/* ── past lows: the price over the window, each big low marked with how far it
+   fell into it and how far it came back - the history behind "will it bounce".
+   Dots carry a number and the figures sit in a key underneath: four lows in a
+   400px panel put their labels on top of each other. ── */
+const lowsImpl = function (el, bars, marks, opt = {}) {
+  if (!el || !(bars || []).length) return;
+  const data = bars.map(b => ({ t: b.t * 1000, c: b.c }));
+  const fmt = t => new Date(t).toLocaleDateString(undefined, { month: "short", year: "2-digit" });
+  const at = iso => { const ts = Date.parse(iso + "T12:00:00Z"); let best = data[0];
+    for (const d of data) if (Math.abs(d.t - ts) < Math.abs(best.t - ts)) best = d; return best; };
+  const ms = (marks || []).slice().sort((a, b) => a.date.localeCompare(b.date))
+    .map((m, i) => ({ ...m, n: i + 1, p: at(m.date) }));
+  const id = "lw" + Math.random().toString(36).slice(2, 8);
+  const anim = opt.animate !== false;
+  const mono = FONT;
+  const when = iso => new Date(iso + "T12:00:00Z").toLocaleDateString(undefined, { month: "short", year: "numeric" });
+  mount(el, h("div", null,
+    h(RC.ResponsiveContainer, { width: "100%", height: opt.height || 220 },
+      h(RC.AreaChart, { data, margin: { top: 14, right: 14, bottom: 0, left: -12 } },
+        h("defs", null, h("linearGradient", { id, x1: "0", y1: "0", x2: "0", y2: "1" },
+          h("stop", { offset: "0%", stopColor: C.s1, stopOpacity: .28 }),
+          h("stop", { offset: "100%", stopColor: C.s1, stopOpacity: 0 }))),
+        h(RC.CartesianGrid, { vertical: false, stroke: C.faint }),
+        h(RC.XAxis, { dataKey: "t", type: "number", scale: "time", domain: ["dataMin", "dataMax"],
+                      tickFormatter: fmt, tickLine: false, axisLine: false, dy: 6, minTickGap: 40 }),
+        h(RC.YAxis, { tickFormatter: v => "$" + v, tickLine: false, axisLine: false, width: 46,
+                      domain: ["auto", "auto"] }),
+        h(RC.Tooltip, { cursor: { stroke: "var(--border)" },
+          content: ({ active, payload }) => active && payload?.[0]
+            ? Tip(new Date(payload[0].payload.t).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" }),
+                  "$" + Number(payload[0].payload.c).toFixed(2)) : null }),
+        h(RC.Area, { type: "monotone", dataKey: "c", stroke: C.s1, strokeWidth: 1.8, fill: `url(#${id})`,
+                     dot: false, isAnimationActive: anim, animationDuration: 520 }),
+        ms.map(m => h(RC.ReferenceDot, { key: m.date, x: m.p.t, y: m.price ?? m.p.c, r: 7, fill: C.neg,
+          stroke: "var(--card)", strokeWidth: 2, isFront: true,
+          label: { value: String(m.n), position: "center", fill: "#fff", fontSize: 9, fontWeight: 750,
+                   fontFamily: mono } })),
+        h(RC.ReferenceDot, { x: data.at(-1).t, y: data.at(-1).c, r: 4.5, fill: C.s1,
+          stroke: "var(--card)", strokeWidth: 2, isFront: true }))),
+    lowKey(ms, when, data.at(-1).c)));
+}
+
+function lowKey(ms, when, last) {
+  const row = m => h("div", { key: m.date, className: "lk" },
+    h("span", { className: "lkn" }, m.n),
+    h("span", { className: "lkd" }, when(m.date)),
+    h("span", { className: "lkv" }, `−${Math.round(m.fell_pct)}%`,
+      h("span", { className: "lka" }, " → "), `+${Math.round(m.rebound_pct)}%`));
+  const today = h("div", { key: "now", className: "lk now" },
+    h("span", { className: "lkn" }),
+    h("span", { className: "lkd" }, "Today"),
+    h("span", { className: "lkv" }, "$" + Number(last).toFixed(2)));
+  return h("div", { className: "lowkey" }, ms.map(row), today);
+}
+
+export const sparkline = later(sparklineImpl);
+export const revenue = later(revenueImpl);
+export const surprise = later(surpriseImpl);
+export const consensus = later(consensusImpl);
+export const allocation = later(allocationImpl);
+export const indexSpark = later(indexSparkImpl);
+export const fngGauge = later(fngGaugeImpl);
+export const multiLine = later(multiLineImpl);
+export const bars = later(barsImpl);
+export const lows = later(lowsImpl);

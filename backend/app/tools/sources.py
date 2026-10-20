@@ -29,7 +29,7 @@ RECS_SRC: dict[str, str] = {}
 
 PRICE = {"quote", "range_52w"}
 HISTORY = {"price_series", "moving_averages", "rsi_momentum", "volatility", "volume_profile",
-           "drawdown", "relative_strength"}
+           "drawdown", "relative_strength", "turning_points"}
 INFO_TOOLS = {"profitability", "leverage_liquidity", "dividend_economics", "share_count",
               "ex_dividend", "short_interest"}
 COMPUTED = {"correlation", "event_study", "peer_performance", "peer_moves", "read_across",
@@ -97,6 +97,10 @@ def source_for(tool: str, ticker: str, source: str = "") -> tuple[str, str | Non
         return "Nasdaq stock screener, enriched with Yahoo Finance statistics", SCREENER
     if tool in ("positions", "day_pnl", "concentration", "correlation_matrix", "portfolio_beta"):
         return "Your holdings in Monsoon, priced from Yahoo Finance", None
+    if source == "derived" and t:
+        # a computed tool this map doesn't name yet still says what it was
+        # computed from, rather than showing the reader "derived · APLD"
+        return f"Computed here from Yahoo Finance price history · {t}", yf(t, "history/")
     return (source or "data") + (f" · {t}" if t else ""), None
 
 

@@ -81,6 +81,63 @@ async def _headlines(ticker: str, day, name_words: list[str]) -> list[str]:
     return [i["headline"][:160] for i in hits[:2]]
 
 
+def _mkt(x: float | None) -> str:
+    if x is None:
+        return ""
+    if x <= -5:
+        return f" while the S&P 500 fell {abs(x):.1f}%"
+    if x >= 2:
+        return f" while the S&P 500 rose {x:.1f}%"
+    return " while the S&P 500 was roughly flat"
+
+
+def _compare(e: dict, now: dict) -> dict:
+    """The last big low against today, as numbers and as the sentences an answer
+    to "will it go back up?" should be built from."""
+    from .sources import long_date
+    fell_then = e["spy_pct_same_window"] is not None and e["spy_pct_same_window"] <= -5
+    fell_now = now["spy_pct_same_window"] is not None and now["spy_pct_same_window"] <= -5
+    d = {"last_low_date": e["low_date"],
+         "then_fell_pct": abs(e["drop_pct"]), "then_rebound_pct": e["rebound_pct"],
+         "then_trading_days_low_to_50d_avg": e["trading_days_low_to_50d_avg"],
+         "then_spy_pct": e["spy_pct_same_window"], "market_fell_with_it_then": fell_then,
+         "then_rsi14": e["at_low_rsi14"], "then_volume_vs_50d_avg": e["at_low_volume_vs_50d_avg"],
+         "today_down_from_peak_pct": abs(now["drop_from_peak_pct"]),
+         "today_spy_pct": now["spy_pct_same_window"], "market_fell_with_it_today": fell_now,
+         "today_rsi14": now["rsi14"], "today_volume_vs_50d_avg": now["volume_vs_50d_avg"],
+         "today_below_50d_avg_pct": abs(now["pct_vs_50d_avg"]) if now["pct_vs_50d_avg"] < 0 else 0.0}
+    if e["spy_pct_same_window"] is not None and e["spy_pct_same_window"] <= -5:
+        d["then_spy_fell_pct"] = abs(e["spy_pct_same_window"])
+    # one point per sentence, at most two figures each - the writer puts one
+    # idea in a bullet, and a four-figure sentence was the one it dropped
+    d["last_time"] = (f"Last time it fell this hard, it dropped {abs(e['drop_pct']):.1f}% into "
+                      f"{long_date(e['low_date'])}, then climbed {e['rebound_pct']:.1f}% by "
+                      f"{long_date(e['rebound_peak_date'])}.")
+    sp = e["spy_pct_same_window"]
+    d["last_time_market"] = (f"That drop came with the whole market: the S&P 500 fell {abs(sp):.1f}% over the same stretch."
+                             if fell_then else
+                             "The rest of the market held up then, so that drop was the company's own." if sp is not None else "")
+    d["last_time_turn"] = (f"The turn showed when it climbed back above its 50-day average, "
+                           f"{e['trading_days_low_to_50d_avg']} trading days after the low."
+                           if e["trading_days_low_to_50d_avg"] is not None else "")
+    d["today"] = (f"Today it is down {abs(now['drop_from_peak_pct']):.1f}% from its "
+                  f"{long_date(now['from_peak_date'])} peak{_mkt(now['spy_pct_same_window'])}.")
+    d["today_trend"] = ((f"It is {abs(now['pct_vs_50d_avg']):.1f}% below its 50-day average"
+                         + (", at a 52-week low." if now["near_52w_low"] else "."))
+                        if not now["above_50d_avg"] else "It is back above its 50-day average.")
+    # what the bullets above do not already say (the market contrast and the
+    # 50-day turn are in `last_time_market` / `last_time_turn` / `today_trend`)
+    diff = []
+    if now["rsi14"] is not None and e["at_low_rsi14"] is not None and now["rsi14"] <= e["at_low_rsi14"]:
+        diff.append(f"It is at least as oversold as at that low (RSI {now['rsi14']} vs {e['at_low_rsi14']}).")
+    tv, ev_ = now["volume_vs_50d_avg"], e["at_low_volume_vs_50d_avg"]
+    if ev_ and tv and ev_ >= 1.5 and tv < ev_ * 0.8:
+        diff.append(f"Selling volume is lighter than at that low ({tv}x vs {ev_}x normal): no capitulation-style flush yet.")
+    d["market_backed_then_not_now"] = bool(fell_then and not fell_now)
+    d["then_vs_now"] = diff
+    return d
+
+
 @tool("market",
       "PAST LOWS AND REBOUNDS: each big drop over the window (default 2y) - how far it fell, whether "
       "the market fell too, how oversold it was at the bottom, how far it rebounded, and what the turn "
@@ -88,8 +145,10 @@ async def _headlines(ticker: str, day, name_words: list[str]) -> list[str]:
       "against today. Use for trend, outlook, 'will it go back up / bounce / recover', 'has it bottomed'",
       derived=True)
 async def turning_points(ticker: str, period: str = "2y", **_):
-    if period not in ("1y", "2y", "5y"):
-        period = "2y"                          # a few months holds no past lows worth comparing
+    if period != "5y":
+        # the router passes the question's window ("over the last year"), but a
+        # year or less holds one or two lows at most - history needs room
+        period = "2y"
     df, spy = await asyncio.gather(_frame(ticker, period), _frame("SPY", period))
     if len(df) < 120:
         return fail("turning_points", ticker, f"need more price history than {len(df)} days")
@@ -139,19 +198,19 @@ async def turning_points(ticker: str, period: str = "2y", **_):
             "trading_days_falling": int(c.index.get_loc(t) - c.index.get_loc(peak_t)),
             "spy_pct_same_window": spy_pct(peak_t, t),
             "at_low_rsi14": round(float(rs[t]), 1) if pd.notna(rs[t]) else None,
-            "at_low_pct_vs_200d_avg": _vs_ma(c, t, 200),
             "at_low_near_52w_low": bool(len(prior) and float(c[t]) <= float(prior.min()) * NEAR_LOW),
             "at_low_volume_vs_50d_avg": round(float(v[t]) / avg_v, 2) if avg_v else None,
-            "rebound_to": round(float(c[reb_t]), 2), "rebound_peak_date": str(reb_t.date()),
+            "rebound_peak_date": str(reb_t.date()),
             "rebound_pct": round((float(c[reb_t]) / float(c[t]) - 1) * 100, 1),
-            "return_20d_after_low_pct": fwd(t, 20), "return_60d_after_low_pct": fwd(t, 60),
             "back_above_50d_avg": str(back.index[0].date()) if len(back) else None,
             "trading_days_low_to_50d_avg": int(c.index.get_loc(back.index[0]) - i) if len(back) else None,
             "turn_days": turn_days,
         })
     # the zigzag can open on a trough whose fall began before the window: only
     # drops that were actually big count as past lows
-    episodes = [e for e in episodes if e["drop_pct"] <= -0.9 * th][-MAX_EPISODES:]
+    # newest first: the last low is the one to compare with, and a writer
+    # payload trimmed to three items must keep it
+    episodes = [e for e in episodes if e["drop_pct"] <= -0.9 * th][-MAX_EPISODES:][::-1]
 
     # today, against those lows
     last_t = c.index[-1]
@@ -183,13 +242,19 @@ async def turning_points(ticker: str, period: str = "2y", **_):
             picked.append(t); last_pick = t
     f20 = [x for x in (fwd(t, 20) for t in picked) if x is not None]
     f60 = [x for x in (fwd(t, 60) for t in picked) if x is not None]
-    base = {"times": len(picked), "dates": [str(t.date()) for t in picked][-6:],
+    base = {"times": len(picked), "dates": [str(t.date()) for t in picked][-3:],
             "higher_20d_later": sum(x > 0 for x in f20), "measured_20d": len(f20),
             "median_20d_pct": round(float(np.median(f20)), 1) if f20 else None,
             "higher_60d_later": sum(x > 0 for x in f60), "measured_60d": len(f60),
             "median_60d_pct": round(float(np.median(f60)), 1) if f60 else None}
 
+    # the comparison the answer turns on, side by side and already in words, so
+    # it survives any payload trim and a small writer model can't skip it.
+    # Sizes are positive ("fell 50.3%"), the way the sentences say them.
+    vs = _compare(episodes[0], now) if episodes else None
+
     return ok("turning_points", ticker, {
+        "last_low_vs_today": vs,
         "period": period, "big_drop_threshold_pct": round(th, 1),
         "past_lows": episodes, "now": now,
         "oversold_near_52w_low_history": base,

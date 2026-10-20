@@ -756,6 +756,79 @@ async def suite_regressions():
         "REGRESSION: 'will APLD go back up' ignored its own March low and +142% rebound; the tool must find "
         "one big low at the bottom of a 50% fall, and not call a 4% dip a turning point")
 
+    # ── plain language: a loss-maker's P/E never reaches the writer ──
+    from app.tools import fundamentals as _fu
+    real_quote = _fu.yahoo.quote
+    async def _q(t):
+        return {"trailingPE": None, "forwardPE": -24.54, "priceToBook": 3.57, "marketCap": 5.8e9, "epsForward": -0.78}
+    _fu.yahoo.quote = _q
+    try:
+        vm_loss = (await _fu.valuation_multiples("APLD")).data
+    finally:
+        _fu.yahoo.quote = real_quote
+    add("negative_pe_not_quoted", "pe_forward" not in vm_loss and "pe_forward_not_meaningful" in vm_loss
+        and vm_loss.get("expected_profitable_next_year") is False,
+        {k: v for k, v in vm_loss.items() if k != "_src"},
+        "REGRESSION: an answer quoted APLD's forward P/E of -24.5 as if it meant something; a company that "
+        "loses money has no meaningful P/E, so the tool says that instead of passing the number")
+    rev = DomainFinding(domain="fundamentals", ticker="NVDA", narrative="x", evidence=[
+        tr("income_statement", "NVDA", {"latest_revenue_usd": 96.221e9, "small_usd": 2.4e9}, "https://sec.gov/x")])
+    add("rounded_billions_grounded", unverified_figures("Sales reached $96B last quarter.", [rev]) == []
+        and unverified_figures("A $2B line.", [rev]) == [2.0],
+        [unverified_figures("Sales reached $96B last quarter.", [rev]), unverified_figures("A $2B line.", [rev])],
+        "plain answers round to whole billions ($96B for $96.2B); under $10B the rounding would be too loose")
+
+    neg = DomainFinding(domain="street", ticker="AAPL", narrative="x", evidence=[
+        tr("price_targets", "AAPL", {"upside_pct": -3.95, "drop_pct": -50.3}, "https://y.com/AAPL")])
+    add("plain_direction_grounded", unverified_figures("The average target sits about 4% below today's price.", [neg]) == []
+        and unverified_figures("It dropped 50.3% into March.", [neg]) == []
+        and unverified_figures("The average target is 4% above today's price.", [neg]) == [4.0],
+        [unverified_figures("The average target is 4% above today's price.", [neg])],
+        "plain answers state a fall as a size and a direction ('4% below' for -3.95); the size passes only beside "
+        "a downward word, so 'rose 4%' for a 4% fall is still caught")
+    from app.graph.plain import jargon as _jg, shaped as _shp
+    user_line = ("Nvidia outperformed its peer median with a 3.5% beta-adjusted excess return, whereas Applied Digital "
+                 "remains vulnerable to sharp swings tied to debt-funded AI infrastructure sentiment.")
+    add("jargon_caught", {"beta-adjusted excess return", "peer median", "sentiment"} <= {j["term"] for j in _jg(user_line)}
+        and _jg("Once you allow for its bigger swings, Nvidia did about 4 points better than similar companies.") == []
+        and not _shp("Does AMD move when NVDA reports?\n\n- They moved together on 5 of 9 days."),
+        [j["term"] for j in _jg(user_line)],
+        "REGRESSION: 'a 3.5% beta-adjusted excess return' shipped to readers who have never invested; the plain-language "
+        "gate must catch it, pass the plain version, and reject a headline that repeats the question")
+
+    from app.graph.plain import tidy as _tidy
+    q_back = "What do analysts think about AMD, and is it expensive?\n\n- Most analysts recommend buying.\n- It costs about 34 times next year's profit."
+    dup = "Microsoft reports on October 28th.\n\n- Most analysts recommend buying.\n- Microsoft reports on October 28th."
+    t1, t2 = _tidy(q_back), _tidy(dup)
+    add("tidy_headline_and_repeats", t1.startswith("Most analysts recommend buying.") and "?" not in t1
+        and t2.count("October 28th") == 1,
+        [t1.split("\n")[0], t2.count("October 28th")],
+        "REGRESSION: answers shipped with the question repeated as their headline, and a bullet repeating the headline")
+
+    from app.graph.build import ensure_history
+    tp_ev = tr("turning_points", "APLD", {"last_low_vs_today": {"then_fell_pct": 50.3,
+        "last_time": "Last time it fell this hard, it dropped 50.3% into March 30th 2026, then climbed 141.7% by May 28th 2026."}},
+        "https://y.com/APLD")
+    tp_f = [DomainFinding(domain="market", ticker="APLD", narrative="x", evidence=[tp_ev])]
+    vague = "APLD is far below its peak.\n\n- Past drops led to rebounds.\n- It is below its 50-day average."
+    fixed = ensure_history(vague, tp_f)
+    specific = "APLD is far below its peak.\n\n- It fell 50.3% into March, then climbed 141.7%."
+    add("rebound_names_last_low", fixed.split("\n")[2].startswith("- Last time it fell this hard")
+        and ensure_history(specific, tp_f) == specific and unverified_figures(fixed, tp_f) == [],
+        fixed.split("\n")[:4],
+        "REGRESSION: the writer paraphrased the March low away ('past drops led to rebounds') on about half the runs; "
+        "the last low's sentence goes in when no figure of it appears, and not twice")
+
+    from app.graph.build import REBOUND_RE
+    hits = ["tell me from overall trend do you think apld will go back up", "has NVDA bottomed?",
+            "what does AMD need to rebound", "can TSLA recover from here"]
+    misses = ["What is NVDA trading at today?", "What do analysts think about AMD?"]
+    add("rebound_questions_get_history", all(REBOUND_RE.search(q) for q in hits)
+        and not any(REBOUND_RE.search(q) for q in misses),
+        {"missed": [q for q in hits if not REBOUND_RE.search(q)], "false_hits": [q for q in misses if REBOUND_RE.search(q)]},
+        "REGRESSION: 'will APLD go back up' was answered without the stock's past lows; the code-level rule "
+        "must catch rebound/trend questions and leave plain price questions alone")
+
     import typing
     from app.graph.domains import DState
     meta = getattr(typing.get_type_hints(DState, include_extras=True)["steps"], "__metadata__", ())

@@ -14,6 +14,7 @@ import operator
 from typing import Annotated, Any, TypedDict
 
 from .. import llm
+from .plain import PLAIN_RULES
 from ..models import DomainFinding, RunStep, ToolFailure, ToolResult
 from ..tools import DOMAIN_DESC, TOOLS, catalog, domain_tools
 from .present import present
@@ -35,12 +36,10 @@ Reply with ONLY JSON:
 SYNTH_PROMPT = """You are the {domain} specialist. You cover ONLY: {desc}
 You are given every tool result you asked for, together.
 
-Write 1-3 sentences answering the question.
-
-THE HARD LIMIT: use at most FOUR figures in the whole answer, and never more
-than two in one sentence. You will be shown far more than four. Choosing which
-ones carry the answer is the job - quoting all of them is not analysis, it is
-transcription.
+Answer everything the question asks of your domain - as many sentences as that
+takes, and no padding. Never more than two figures in one sentence. You will be
+shown far more figures than you need: choosing the ones that answer the
+question is the job - quoting all of them is not analysis, it is transcription.
 
 What to say:
 - Look for CONJUNCTIONS across your tools. A relationship between two results
@@ -62,9 +61,8 @@ What to say:
   which of those conditions are present today and which are missing. This
   is history, not a forecast - say "last time ...; today ...".
 - No investment advice. Factual only.
-- If you are the screener, the 1-3 sentence and four-figure limits do not
-  apply. Write up to 6 sentences: first the criteria in plain words, then one
-  sentence per name (up to five) as "Company (TICKER) ..." with at most two
+- If you are the screener: first the criteria in plain words, then one
+  sentence per name the screen returned as "Company (TICKER) ..." with at most two
   figures - the one the screen ranked on, plus a risk where the data shows one
   (operating losses, a large drawdown, a tiny market cap). Never call a name
   good, attractive or a pick: these are names that MEET THE CRITERIA.
@@ -188,7 +186,7 @@ def build_domain(domain: str):
             payload["tool_results"] = {k: present_short(v) for k, v in payload["tool_results"].items()}
             body = json.dumps(payload, default=str)[:12000]
         try:
-            r = await llm.call(SYNTH_PROMPT.format(domain=domain, desc=desc), body,
+            r = await llm.call(SYNTH_PROMPT.format(domain=domain, desc=desc) + PLAIN_RULES, body,
                                role="specialist")
             j = llm.parse_json(r.text) or {}
             text = str(j.get("finding") or r.text).strip()

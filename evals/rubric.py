@@ -94,8 +94,8 @@ def structure(text: str, question: str) -> dict:
     score, notes = 5, []
     if len(sents) < 2:
         score -= 2; notes.append("single sentence")
-    if len(sents) > 8:
-        score -= 1; notes.append(f"{len(sents)} sentences - padded")
+    # no length penalty: an answer takes as many points as the question needs
+    # (a cap made the writer drop parts of multi-part questions)
     if len(text.split()) < 18:
         score -= 2; notes.append("too thin to be an answer")
     outlook = re.search(r"\b(outlook|read|view|going forward|future|expect)\b",
