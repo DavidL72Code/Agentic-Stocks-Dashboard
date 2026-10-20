@@ -1,0 +1,4011 @@
+{
+ "tag": "oct19",
+ "model": "gemini-3.5-flash-lite",
+ "judge": "gemini-3-flash-preview",
+ "judge_validated": null,
+ "summary": {
+  "judged": "0/15",
+  "grounded": "15/15",
+  "errors": 0,
+  "degraded": 0,
+  "median_tokens": 9150,
+  "median_calls": 5,
+  "median_wall_s": 24.1
+ },
+ "rows": [
+  {
+   "id": "perf_ytd",
+   "q": "How is NVDA performing this year?",
+   "needs": "a YTD return set against peers or beta, not a bare number",
+   "http": 200,
+   "wall_s": 91.5,
+   "answer": "NVIDIA is up 16.7% year-to-date, outperforming the broader market's 13.4% gain. It recently lagged with a 4.5% drop over the past month. When accounting for its 1.89 beta, its beta-adjusted excess return is -8.6%. Analyst sentiment remains strongly positive, with a mean recommendation of 1.29 across 59 opinions. The company beat earnings estimates for the sixth consecutive quarter, posting an EPS of $2.22 against a $2.09 estimate.",
+   "tickers": [
+    "NVDA"
+   ],
+   "domains": [
+    "events",
+    "market",
+    "relations",
+    "street"
+   ],
+   "degraded": "",
+   "grounded": true,
+   "ungrounded": [],
+   "tokens": 16841,
+   "calls": 9,
+   "readability": 5,
+   "conjunction": 5,
+   "task_fit": 0,
+   "usefulness": 0,
+   "calibration": 0,
+   "judge_note": "not judged",
+   "steps": [
+    "guard: on-topic",
+    "route: market(NVDA), relations(NVDA)",
+    "market.select: router-named",
+    "market.gather: 3/3 returned data",
+    "market.synthesize: 3 results",
+    "relations.select: router-named",
+    "relations.gather: 1/1 returned data",
+    "relations.synthesize: 1 results",
+    "writer.decide: needs more -> street(NVDA), events(NVDA)",
+    "street.select: Skipped historical news and other data since current news and analyst perspectiv",
+    "street.gather: 3/3 returned data",
+    "street.synthesize: 3 results",
+    "events.select: Ex-dividend, governance, and future earnings dates are not needed to explain pas",
+    "events.gather: 2/2 returned data",
+    "events.synthesize: 2 results",
+    "writer: 4 findings"
+   ],
+   "resolved": "",
+   "findings": [
+    {
+     "domain": "market",
+     "ticker": "NVDA",
+     "evidence": [
+      {
+       "tool": "quote",
+       "data": {
+        "price": 217.5784,
+        "change": 3.4483948,
+        "change_pct": 1.6104211,
+        "volume": 61976758,
+        "market_state": "REGULAR",
+        "name": "NVIDIA Corporation"
+       }
+      },
+      {
+       "tool": "relative_strength",
+       "data": {
+        "ytd_stock_pct": 16.6939,
+        "ytd_spy_pct": 13.3669,
+        "ytd_excess_pct": 3.33,
+        "1m_stock_pct": -4.5113,
+        "1m_spy_pct": -0.8378,
+        "1m_excess_pct": -3.67,
+        "3m_stock_pct": 2.5018,
+        "3m_spy_pct": 2.8786,
+        "3m_excess_pct": -0.38
+       }
+      },
+      {
+       "tool": "price_series",
+       "data": {
+        "period": "ytd",
+        "bars": 201,
+        "start": 186.06,
+        "end": 217.13,
+        "high": 239.24,
+        "low": 164.79,
+        "change_pct": 16.6939
+       }
+      }
+     ]
+    },
+    {
+     "domain": "relations",
+     "ticker": "NVDA",
+     "evidence": [
+      {
+       "tool": "peer_performance",
+       "data": {
+        "ticker": "NVDA",
+        "period": "ytd",
+        "market_return_pct": 13.3669,
+        "subject": {
+         "ticker": "NVDA",
+         "return_pct": 16.6939,
+         "beta_vs_spy": 1.89,
+         "volatility_pct": 37.6,
+         "market_cap": 5254145376256,
+         "name": "NVIDIA Corporation",
+         "beta_adjusted_excess_pct": -8.57,
+         "return_per_vol": 0.44
+        },
+        "peers": [
+         {
+          "ticker": "AMD",
+          "return_pct": 151.695,
+          "beta_vs_spy": 3.24,
+          "volatility_pct": 71.0,
+          "market_cap": 882507776000,
+          "name": "Advanced Micro Devices, Inc.",
+          "beta_adjusted_excess_pct": 108.39,
+          "return_per_vol": 2.14
+         },
+         {
+          "ticker": "AAPL",
+          "return_pct": 26.3693,
+          "beta_vs_spy": 0.61,
+          "volatility_pct": 26.0,
+          "market_cap": 5000184987648,
+          "name": "Apple Inc.",
+          "beta_adjusted_excess_pct": 18.22,
+          "return_per_vol": 1.01
+         },
+         {
+          "ticker": "AMZN",
+          "return_pct": 13.634,
+          "beta_vs_spy": 1.4,
+          "volatility_pct": 34.9,
+          "market_cap": 2829309444096,
+          "name": "Amazon.com, Inc.",
+          "beta_adjusted_excess_pct": -5.08,
+          "return_per_vol": 0.39
+         },
+         {
+          "ticker": "META",
+          "return_pct": 6.7186,
+          "beta_vs_spy": 1.49,
+          "volatility_pct": 43.9,
+          "market_cap": 1789954228224,
+          "name": "Meta Platforms, Inc.",
+          "beta_adjusted_excess_pct": -13.2,
+          "return_per_vol": 0.15
+         },
+         {
+          "ticker": "TSLA",
+          "return_pct": -18.2291,
+          "beta_vs_spy": 2.18,
+          "volatility_pct": 45.1,
+          "market_cap": 1452446056448,
+          "name": "Tesla, Inc.",
+          "beta_adjusted_excess_pct": -47.37,
+          "return_per_vol": -0.4
+         }
+        ],
+        "cohort": {
+         "median_return_pct": 13.63,
+         "median_beta": 1.49,
+         "median_excess_pct": -5.08,
+         "median_market_cap": 1789954228224,
+         "peers_measured": 5
+        },
+        "note": "a raw return is not comparable between names of different beta; beta_adjusted_excess_pct is the part not explained by the market move. Share price level and stock splits do not affect any of these figures - returns are split-adjusted.",
+        "reading": "NVDA returned +16.7% over ytd vs a peer median of +13.6%; on a beta of 1.89 against the cohort's 1.49; which leaves -3.5pts once the market move each beta implies is removed (raw gap +3.1pts)"
+       }
+      }
+     ]
+    },
+    {
+     "domain": "street",
+     "ticker": "NVDA",
+     "evidence": [
+      {
+       "tool": "news",
+       "data": {
+        "headlines": [
+         {
+          "title": "Third Wheel: Microsoft\u2019s AI Chips Are \u201cNowhere Close\u201d to NVIDIA or Google per Analyst",
+          "publisher": "TIKR",
+          "published": 1792431607,
+          "url": "https://finance.yahoo.com/technology/ai/articles/third-wheel-microsoft-ai-chips-174007859.html",
+          "via": "search"
+         }
+        ],
+        "count": 1,
+        "filtered_out": 7,
+        "note": "sentiment is NOT provided by the feed; headlines not naming the issuer were dropped"
+       }
+      },
+      {
+       "tool": "analyst_ratings",
+       "data": {
+        "recommendationKey": "strong_buy",
+        "recommendationMean": 1.29032,
+        "numberOfAnalystOpinions": 59
+       }
+      },
+      {
+       "tool": "rating_changes",
+       "data": {
+        "changes": [
+         {
+          "date": "2026-10-01",
+          "firm": "Cantor Fitzgerald",
+          "to": "Overweight",
+          "from": "Overweight",
+          "action": "reit"
+         },
+         {
+          "date": "2026-09-29",
+          "firm": "Rosenblatt",
+          "to": "Buy",
+          "from": "Buy",
+          "action": "main"
+         },
+         {
+          "date": "2026-09-10",
+          "firm": "Piper Sandler",
+          "to": "Overweight",
+          "from": "",
+          "action": "init"
+         },
+         {
+          "date": "2026-09-04",
+          "firm": "Rosenblatt",
+          "to": "Buy",
+          "from": "Buy",
+          "action": "main"
+         },
+         {
+          "date": "2026-09-04",
+          "firm": "Needham",
+          "to": "Buy",
+          "from": "Buy",
+          "action": "reit"
+         },
+         {
+          "date": "2026-08-27",
+          "firm": "Citigroup",
+          "to": "Buy",
+          "from": "Buy",
+          "action": "main"
+         },
+         {
+          "date": "2026-08-27",
+          "firm": "Mizuho",
+          "to": "Outperform",
+          "from": "Outperform",
+          "action": "main"
+         },
+         {
+          "date": "2026-08-27",
+          "firm": "JP Morgan",
+          "to": "Overweight",
+          "from": "Overweight",
+          "action": "main"
+         }
+        ]
+       }
+      }
+     ]
+    },
+    {
+     "domain": "events",
+     "ticker": "NVDA",
+     "evidence": [
+      {
+       "tool": "earnings_surprise_history",
+       "data": {
+        "history": [
+         {
+          "date": "2026-08-26",
+          "eps_estimate": 2.09,
+          "eps_actual": 2.22,
+          "surprise_pct": 6.2,
+          "beat": true
+         },
+         {
+          "date": "2026-05-20",
+          "eps_estimate": 1.77,
+          "eps_actual": 1.87,
+          "surprise_pct": 5.6,
+          "beat": true
+         },
+         {
+          "date": "2026-02-25",
+          "eps_estimate": 1.54,
+          "eps_actual": 1.62,
+          "surprise_pct": 5.2,
+          "beat": true
+         },
+         {
+          "date": "2025-11-19",
+          "eps_estimate": 1.26,
+          "eps_actual": 1.3,
+          "surprise_pct": 3.2,
+          "beat": true
+         },
+         {
+          "date": "2025-08-27",
+          "eps_estimate": 1.01,
+          "eps_actual": 1.05,
+          "surprise_pct": 4.0,
+          "beat": true
+         },
+         {
+          "date": "2025-05-28",
+          "eps_estimate": 0.75,
+          "eps_actual": 0.81,
+          "surprise_pct": 8.0,
+          "beat": true
+         }
+        ],
+        "beats": 6,
+        "of": 6
+       }
+      },
+      {
+       "tool": "recent_filings",
+       "data": {
+        "filings": [
+         {
+          "date": "2026-09-03",
+          "form": "8-K",
+          "doc": "nvda-20260902.htm",
+          "url": "https://www.sec.gov/Archives/edgar/data/1045810/000104581026000078/nvda-20260902.htm",
+          "reasons": [
+           "other material event"
+          ]
+         },
+         {
+          "date": "2026-08-26",
+          "form": "10-Q",
+          "doc": "nvda-20260726.htm",
+          "url": "https://www.sec.gov/Archives/edgar/data/1045810/000104581026000075/nvda-20260726.htm"
+         },
+         {
+          "date": "2026-08-26",
+          "form": "8-K",
+          "doc": "nvda-20260826.htm",
+          "url": "https://www.sec.gov/Archives/edgar/data/1045810/000104581026000073/nvda-20260826.htm",
+          "reasons": [
+           "quarterly results"
+          ]
+         },
+         {
+          "date": "2026-08-17",
+          "form": "8-K",
+          "doc": "nvda-20260817.htm",
+          "url": "https://www.sec.gov/Archives/edgar/data/1045810/000104581026000069/nvda-20260817.htm",
+          "reasons": [
+           "material agreement",
+           "new debt obligation",
+           "Reg FD disclosure"
+          ]
+         },
+         {
+          "date": "2026-07-02",
+          "form": "8-K",
+          "doc": "nvda-20260628.htm",
+          "url": "https://www.sec.gov/Archives/edgar/data/1045810/000104581026000060/nvda-20260628.htm",
+          "reasons": [
+           "executive or director change"
+          ]
+         },
+         {
+          "date": "2026-06-30",
+          "form": "8-K",
+          "doc": "nvda-20260624.htm",
+          "url": "https://www.sec.gov/Archives/edgar/data/1045810/000104581026000056/nvda-20260624.htm",
+          "reasons": [
+           "shareholder vote"
+          ]
+         },
+         {
+          "date": "2026-06-18",
+          "form": "8-K",
+          "doc": "d48176d8k.htm",
+          "url": "https://www.sec.gov/Archives/edgar/data/1045810/000119312526275783/d48176d8k.htm",
+          "reasons": [
+           "other material event"
+          ]
+         },
+         {
+          "date": "2026-05-20",
+          "form": "10-Q",
+          "doc": "nvda-20260426.htm",
+          "url": "https://www.sec.gov/Archives/edgar/data/1045810/000104581026000052/nvda-20260426.htm"
+         },
+         {
+          "date": "2026-05-20",
+          "form": "8-K",
+          "doc": "nvda-20260520.htm",
+          "url": "https://www.sec.gov/Archives/edgar/data/1045810/000104581026000051/nvda-20260520.htm",
+          "reasons": [
+           "quarterly results"
+          ]
+         },
+         {
+          "date": "2026-05-08",
+          "form": "8-K",
+          "doc": "nvda-20260507.htm",
+          "url": "https://www.sec.gov/Archives/edgar/data/1045810/000104581026000028/nvda-20260507.htm",
+          "reasons": [
+           "executive or director change"
+          ]
+         },
+         {
+          "date": "2026-04-27",
+          "form": "8-K",
+          "doc": "nvda-20260424.htm",
+          "url": "https://www.sec.gov/Archives/edgar/data/1045810/000104581026000026/nvda-20260424.htm",
+          "reasons": [
+           "executive or director change"
+          ]
+         },
+         {
+          "date": "2026-03-06",
+          "form": "8-K",
+          "doc": "nvda-20260302.htm",
+          "url": "https://www.sec.gov/Archives/edgar/data/1045810/000104581026000024/nvda-20260302.htm",
+          "reasons": [
+           "executive or director change"
+          ]
+         },
+         {
+          "date": "2026-02-25",
+          "form": "10-K",
+          "doc": "nvda-20260125.htm",
+          "url": "https://www.sec.gov/Archives/edgar/data/1045810/000104581026000021/nvda-20260125.htm"
+         },
+         {
+          "date": "2026-02-25",
+          "form": "8-K",
+          "doc": "nvda-20260225.htm",
+          "url": "https://www.sec.gov/Archives/edgar/data/1045810/000104581026000019/nvda-20260225.htm",
+          "reasons": [
+           "quarterly results"
+          ]
+         },
+         {
+          "date": "2026-01-23",
+          "form": "8-K",
+          "doc": "nvda-20260120.htm",
+          "url": "https://www.sec.gov/Archives/edgar/data/1045810/000104581026000003/nvda-20260120.htm",
+          "reasons": [
+           "executive or director change"
+          ]
+         }
+        ]
+       }
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "valuation",
+   "q": "Is AMD expensive relative to what it earns?",
+   "needs": "multiples set against margins or growth",
+   "http": 200,
+   "wall_s": 54.8,
+   "answer": "AMD trades at a trailing P/E of 137.9, while the forward P/E drops to 34.3. Profitability includes a 53.2% gross margin alongside a 15.7% operating margin. The market prices in strong growth expectations, supported by a 131.1% one-year return and a strong buy analyst consensus. What would change the picture is a shift in earnings delivery relative to those forward multiples.",
+   "tickers": [
+    "AMD"
+   ],
+   "domains": [
+    "events",
+    "fundamentals",
+    "relations",
+    "street"
+   ],
+   "degraded": "",
+   "grounded": true,
+   "ungrounded": [],
+   "tokens": 17734,
+   "calls": 9,
+   "readability": 5,
+   "conjunction": 5,
+   "task_fit": 0,
+   "usefulness": 0,
+   "calibration": 0,
+   "judge_note": "not judged",
+   "steps": [
+    "guard: on-topic",
+    "route: fundamentals(AMD), relations(AMD)",
+    "fundamentals.select: router-named",
+    "fundamentals.gather: 3/3 returned data",
+    "fundamentals.synthesize: 3 results",
+    "relations.select: router-named",
+    "relations.gather: 2/2 returned data",
+    "relations.synthesize: 2 results",
+    "writer.decide: needs more -> street(AMD), events(AMD)",
+    "street.select: Left out historical news, insider transactions, institutional holders, and short",
+    "street.gather: 4/4 returned data",
+    "street.synthesize: 4 results",
+    "events.select: Skipped earnings, ex-dividend, governance, and surprise history tools as the que",
+    "events.gather: 1/1 returned data",
+    "events.synthesize: 1 results",
+    "writer: 4 findings"
+   ],
+   "resolved": "",
+   "findings": [
+    {
+     "domain": "fundamentals",
+     "ticker": "AMD",
+     "evidence": [
+      {
+       "tool": "valuation_multiples",
+       "data": {
+        "pe_trailing": 137.92857,
+        "pe_forward": 34.30256,
+        "price_to_book": 13.126167,
+        "market_cap": 882646581248,
+        "eps_next_fiscal_year_estimate": 15.76209,
+        "_src": {
+         "pe_forward": {
+          "label": "Yahoo Finance \u00b7 AMD analyst estimates (forward P/E = price \u00f7 next fiscal year's estimated EPS)",
+          "url": "https://finance.yahoo.com/quote/AMD/analysis/"
+         },
+         "eps_next_fiscal_year_estimate": {
+          "label": "Yahoo Finance \u00b7 AMD analyst estimates (next year EPS)",
+          "url": "https://finance.yahoo.com/quote/AMD/analysis/"
+         },
+         "price_to_book": {
+          "label": "Yahoo Finance \u00b7 AMD statistics",
+          "url": "https://finance.yahoo.com/quote/AMD/key-statistics/"
+         }
+        }
+       }
+      },
+      {
+       "tool": "profitability",
+       "data": {
+        "roe": 10.2,
+        "roa": 5.13,
+        "_src": {
+         "roe": {
+          "label": "Yahoo Finance \u00b7 AMD statistics",
+          "url": "https://finance.yahoo.com/quote/AMD/key-statistics/"
+         },
+         "roa": {
+          "label": "Yahoo Finance \u00b7 AMD statistics",
+          "url": "https://finance.yahoo.com/quote/AMD/key-statistics/"
+         },
+         "gross_margin": {
+          "label": "SEC EDGAR \u00b7 AMD 10-K and 10-Q filings, 4 quarters to June 27th 2026 (gross profit \u00f7 revenue)",
+          "url": "https://www.sec.gov/Archives/edgar/data/2488/000000248826000123/0000002488-26-000123-index.htm"
+         },
+         "operating_margin": {
+          "label": "SEC EDGAR \u00b7 AMD 10-K and 10-Q filings, 4 quarters to June 27th 2026 (operating income \u00f7 revenue)",
+          "url": "https://www.sec.gov/Archives/edgar/data/2488/000000248826000123/0000002488-26-000123-index.htm"
+         },
+         "net_margin": {
+          "label": "SEC EDGAR \u00b7 AMD 10-K and 10-Q filings, 4 quarters to June 27th 2026 (net income \u00f7 revenue)",
+          "url": "https://www.sec.gov/Archives/edgar/data/2488/000000248826000123/0000002488-26-000123-index.htm"
+         }
+        },
+        "gross_margin": 53.2,
+        "operating_margin": 15.71,
+        "net_margin": 15.58,
+        "margin_period": "the 12 months to June 27th 2026",
+        "revenue_12m_usd": 41305000000,
+        "operating_income_12m_usd": 6488000000,
+        "net_income_12m_usd": 6434000000
+       }
+      },
+      {
+       "tool": "income_statement",
+       "data": {
+        "quarterly_revenue": [
+         {
+          "end": "2025-03-29",
+          "usd": 7438000000
+         },
+         {
+          "end": "2025-06-28",
+          "usd": 7685000000
+         },
+         {
+          "end": "2025-09-27",
+          "usd": 9246000000
+         },
+         {
+          "end": "2025-12-27",
+          "usd": 10270000000
+         },
+         {
+          "end": "2026-03-28",
+          "usd": 10253000000
+         },
+         {
+          "end": "2026-06-27",
+          "usd": 11536000000
+         }
+        ],
+        "quarterly_net_income": [
+         {
+          "end": "2025-03-29",
+          "usd": 709000000
+         },
+         {
+          "end": "2025-06-28",
+          "usd": 872000000
+         },
+         {
+          "end": "2025-09-27",
+          "usd": 1243000000
+         },
+         {
+          "end": "2025-12-27",
+          "usd": 1511000000
+         },
+         {
+          "end": "2026-03-28",
+          "usd": 1383000000
+         },
+         {
+          "end": "2026-06-27",
+          "usd": 2297000000
+         }
+        ],
+        "note": "each row is a single ~91-day quarter, not a cumulative rollup"
+       }
+      }
+     ]
+    },
+    {
+     "domain": "relations",
+     "ticker": "AMD",
+     "evidence": [
+      {
+       "tool": "peer_set",
+       "data": {
+        "peers_by_correlation": [
+         {
+          "ticker": "TSM",
+          "correlation": 0.63,
+          "observations": 500
+         },
+         {
+          "ticker": "MU",
+          "correlation": 0.59,
+          "observations": 500
+         },
+         {
+          "ticker": "INTC",
+          "correlation": 0.53,
+          "observations": 500
+         },
+         {
+          "ticker": "PLTR",
+          "correlation": 0.32,
+          "observations": 500
+         },
+         {
+          "ticker": "NFLX",
+          "correlation": 0.12,
+          "observations": 500
+         }
+        ]
+       }
+      },
+      {
+       "tool": "peer_performance",
+       "data": {
+        "ticker": "AMD",
+        "period": "1y",
+        "market_return_pct": 16.6928,
+        "subject": {
+         "ticker": "AMD",
+         "return_pct": 131.1481,
+         "beta_vs_spy": 3.22,
+         "volatility_pct": 67.9,
+         "market_cap": 882646581248,
+         "name": "Advanced Micro Devices, Inc.",
+         "beta_adjusted_excess_pct": 77.4,
+         "return_per_vol": 1.93
+        },
+        "peers": [
+         {
+          "ticker": "MU",
+          "return_pct": 347.3724,
+          "beta_vs_spy": 3.36,
+          "volatility_pct": 81.2,
+          "market_cap": 1025776615424,
+          "name": "Micron Technology, Inc.",
+          "beta_adjusted_excess_pct": 291.28,
+          "return_per_vol": 4.28
+         },
+         {
+          "ticker": "INTC",
+          "return_pct": 149.4056,
+          "beta_vs_spy": 3.04,
+          "volatility_pct": 77.6,
+          "market_cap": 489440444416,
+          "name": "Intel Corporation",
+          "beta_adjusted_excess_pct": 98.66,
+          "return_per_vol": 1.93
+         },
+         {
+          "ticker": "TSM",
+          "return_pct": 44.0462,
+          "beta_vs_spy": 2.11,
+          "volatility_pct": 38.9,
+          "market_cap": 2185580118016,
+          "name": "Taiwan Semiconductor Manufactur",
+          "beta_adjusted_excess_pct": 8.82,
+          "return_per_vol": 1.13
+         },
+         {
+          "ticker": "PLTR",
+          "return_pct": 9.8344,
+          "beta_vs_spy": 2.01,
+          "volatility_pct": 60.8,
+          "market_cap": 468596391936,
+          "name": "Palantir Technologies Inc.",
+          "beta_adjusted_excess_pct": -23.72,
+          "return_per_vol": 0.16
+         },
+         {
+          "ticker": "NFLX",
+          "return_pct": -41.9107,
+          "beta_vs_spy": 0.31,
+          "volatility_pct": 36.7,
+          "market_cap": 289581170688,
+          "name": "Netflix, Inc.",
+          "beta_adjusted_excess_pct": -47.09,
+          "return_per_vol": -1.14
+         }
+        ],
+        "cohort": {
+         "median_return_pct": 44.05,
+         "median_beta": 2.11,
+         "median_excess_pct": 8.82,
+         "median_market_cap": 489440444416,
+         "peers_measured": 5
+        },
+        "note": "a raw return is not comparable between names of different beta; beta_adjusted_excess_pct is the part not explained by the market move. Share price level and stock splits do not affect any of these figures - returns are split-adjusted.",
+        "reading": "AMD returned +131.1% over 1y vs a peer median of +44.0%; on a beta of 3.22 against the cohort's 2.11; which leaves +68.6pts once the market move each beta implies is removed (raw gap +87.1pts)"
+       }
+      }
+     ]
+    },
+    {
+     "domain": "street",
+     "ticker": "AMD",
+     "evidence": [
+      {
+       "tool": "news",
+       "data": {
+        "headlines": [
+         {
+          "title": "Why AMD Stock Popped on Monday",
+          "publisher": "Motley Fool",
+          "published": 1792429613,
+          "url": "https://finance.yahoo.com/markets/stocks/articles/why-amd-stock-popped-monday-170653529.html",
+          "via": "search"
+         },
+         {
+          "title": "Investor: \u2018I Turned AMD Into $16 Million and Sold Everything, Did I Quit Too Soon?\u2019",
+          "publisher": "24/7 Wall St.",
+          "published": 1792425588,
+          "url": "https://finance.yahoo.com/markets/stocks/articles/investor-turned-amd-16-million-155948015.html",
+          "via": "search"
+         },
+         {
+          "title": "Nvidia wins CPU business from Modal, previously exclusive to AMD and Intel",
+          "publisher": "Investing.com",
+          "published": 1792421501,
+          "url": "https://finance.yahoo.com/technology/ai/articles/nvidia-wins-cpu-business-modal-145141641.html",
+          "via": "search"
+         }
+        ],
+        "count": 3,
+        "filtered_out": 5,
+        "note": "sentiment is NOT provided by the feed; headlines not naming the issuer were dropped"
+       }
+      },
+      {
+       "tool": "analyst_ratings",
+       "data": {
+        "recommendationKey": "strong_buy",
+        "recommendationMean": 1.48214,
+        "numberOfAnalystOpinions": 51
+       }
+      },
+      {
+       "tool": "price_targets",
+       "data": {
+        "targetLowPrice": 200.0,
+        "targetMeanPrice": 627.6549,
+        "targetHighPrice": 1250.0,
+        "currentPrice": 539.03,
+        "upside_to_mean_pct": 16.4
+       }
+      },
+      {
+       "tool": "rating_changes",
+       "data": {
+        "changes": [
+         {
+          "date": "2026-10-06",
+          "firm": "Citigroup",
+          "to": "Buy",
+          "from": "Buy",
+          "action": "main"
+         },
+         {
+          "date": "2026-10-06",
+          "firm": "Mizuho",
+          "to": "Outperform",
+          "from": "Outperform",
+          "action": "main"
+         },
+         {
+          "date": "2026-10-05",
+          "firm": "Stifel",
+          "to": "Buy",
+          "from": "Buy",
+          "action": "main"
+         },
+         {
+          "date": "2026-09-29",
+          "firm": "StoneX",
+          "to": "Buy",
+          "from": "Buy",
+          "action": "reit"
+         },
+         {
+          "date": "2026-09-29",
+          "firm": "Rosenblatt",
+          "to": "Buy",
+          "from": "Buy",
+          "action": "main"
+         },
+         {
+          "date": "2026-09-25",
+          "firm": "B of A Securities",
+          "to": "Buy",
+          "from": "Buy",
+          "action": "main"
+         },
+         {
+          "date": "2026-09-10",
+          "firm": "Piper Sandler",
+          "to": "Overweight",
+          "from": "",
+          "action": "init"
+         },
+         {
+          "date": "2026-08-25",
+          "firm": "Raymond James",
+          "to": "Strong Buy",
+          "from": "Outperform",
+          "action": "up"
+         }
+        ]
+       }
+      }
+     ]
+    },
+    {
+     "domain": "events",
+     "ticker": "AMD",
+     "evidence": [
+      {
+       "tool": "recent_filings",
+       "data": {
+        "filings": [
+         {
+          "date": "2026-10-15",
+          "form": "144",
+          "doc": "xsl144X01/primary_doc.xml",
+          "url": "https://www.sec.gov/Archives/edgar/data/2488/000195004726010251/xsl144X01/primary_doc.xml"
+         },
+         {
+          "date": "2026-09-28",
+          "form": "8-K",
+          "doc": "amd-20260926.htm",
+          "url": "https://www.sec.gov/Archives/edgar/data/2488/000000248826000182/amd-20260926.htm",
+          "reasons": [
+           "unregistered share sale"
+          ]
+         },
+         {
+          "date": "2026-09-17",
+          "form": "4",
+          "doc": "xslF345X06/wk-form4_1789676486.xml",
+          "url": "https://www.sec.gov/Archives/edgar/data/2488/000000248826000180/xslF345X06/wk-form4_1789676486.xml"
+         },
+         {
+          "date": "2026-09-15",
+          "form": "144",
+          "doc": "xsl144X01/primary_doc.xml",
+          "url": "https://www.sec.gov/Archives/edgar/data/2488/000195004726009483/xsl144X01/primary_doc.xml"
+         },
+         {
+          "date": "2026-09-14",
+          "form": "4",
+          "doc": "xslF345X06/wk-form4_1789417189.xml",
+          "url": "https://www.sec.gov/Archives/edgar/data/2488/000000248826000178/xslF345X06/wk-form4_1789417189.xml"
+         },
+         {
+          "date": "2026-09-10",
+          "form": "144",
+          "doc": "xsl144X01/primary_doc.xml",
+          "url": "https://www.sec.gov/Archives/edgar/data/2488/000195004726009301/xsl144X01/primary_doc.xml"
+         }
+        ]
+       }
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "earnings_outlook",
+   "q": "What's the setup for AAPL into its next earnings?",
+   "needs": "the date, the estimate, the beat/miss record",
+   "http": 200,
+   "wall_s": 93.0,
+   "answer": "Apple trades at $342.59 in an upward trend, sitting 5.2% above its 50-day moving average. The setup features a trailing P/E of 39.29 and 16.4% year-over-year revenue growth to $109.4B. Analysts maintain a buy recommendation with a mean price target of $329.38, which is 3.9% below the current price. News highlights an upcoming October 28 event for a touchscreen MacBook Pro alongside concerns over China demand. Earnings are scheduled for November 2 with an expected EPS of 1.98, backed by a history of beating estimates in all of the last 6 reports.",
+   "tickers": [
+    "AAPL"
+   ],
+   "domains": [
+    "events",
+    "fundamentals",
+    "market",
+    "street"
+   ],
+   "degraded": "",
+   "grounded": true,
+   "ungrounded": [],
+   "tokens": 13599,
+   "calls": 6,
+   "readability": 4,
+   "conjunction": 5,
+   "task_fit": 0,
+   "usefulness": 0,
+   "calibration": 0,
+   "judge_note": "not judged",
+   "steps": [
+    "guard: on-topic",
+    "route: market(AAPL), fundamentals(AAPL), street(AAPL), events(AAPL)",
+    "market.select: router-named",
+    "market.gather: 4/4 returned data",
+    "market.synthesize: 4 results",
+    "fundamentals.select: router-named",
+    "fundamentals.gather: 3/3 returned data",
+    "fundamentals.synthesize: 3 results",
+    "street.select: router-named",
+    "street.gather: 3/3 returned data",
+    "street.synthesize: 3 results",
+    "events.select: router-named",
+    "events.gather: 2/2 returned data",
+    "events.synthesize: 2 results",
+    "writer: 4 findings"
+   ],
+   "resolved": "",
+   "findings": [
+    {
+     "domain": "market",
+     "ticker": "AAPL",
+     "evidence": [
+      {
+       "tool": "quote",
+       "data": {
+        "price": 342.5901,
+        "change": -0.86990356,
+        "change_pct": -0.25327653,
+        "volume": 19088939,
+        "market_state": "REGULAR",
+        "name": "Apple Inc."
+       }
+      },
+      {
+       "tool": "moving_averages",
+       "data": {
+        "price": 342.57,
+        "ma50": 325.7,
+        "ma200": 292.46,
+        "vs_ma50_pct": 5.1813,
+        "vs_ma200_pct": 17.1338,
+        "golden_cross": true
+       }
+      },
+      {
+       "tool": "volatility",
+       "data": {
+        "realised_vol_annual_pct": 24.4,
+        "avg_daily_move_pct": 1.1,
+        "beta_vs_spy": 0.62,
+        "beta_basis": "1 year of daily moves vs SPY (Yahoo's 'Beta (5Y Monthly)' uses 5 years of monthly moves)",
+        "corr_vs_spy": 0.32
+       }
+      },
+      {
+       "tool": "trend",
+       "data": {
+        "windows": {
+         "1m": {
+          "change_pct": 1.9219,
+          "bars": 22,
+          "annualised_pct": 23.6,
+          "straightness_r2": 0.2,
+          "direction": "flat"
+         },
+         "6m": {
+          "change_pct": 27.0127,
+          "bars": 128,
+          "annualised_pct": 47.3,
+          "straightness_r2": 0.71,
+          "direction": "up"
+         },
+         "1y": {
+          "change_pct": 36.2878,
+          "bars": 252,
+          "annualised_pct": 31.8,
+          "straightness_r2": 0.68,
+          "direction": "up"
+         },
+         "3y": {
+          "change_pct": 94.1424,
+          "bars": 756,
+          "annualised_pct": 21.5,
+          "straightness_r2": 0.79,
+          "direction": "up"
+         }
+        },
+        "short_vs_long_agree": false,
+        "reading": "short term flat, 1y up",
+        "note": "straightness_r2 is how much of the move is direction rather than noise: 1.0 is a straight line, near 0 is chop"
+       }
+      }
+     ]
+    },
+    {
+     "domain": "fundamentals",
+     "ticker": "AAPL",
+     "evidence": [
+      {
+       "tool": "valuation_multiples",
+       "data": {
+        "pe_trailing": 39.287853,
+        "pe_forward": 35.768997,
+        "price_to_book": 46.547565,
+        "market_cap": 4999821656064,
+        "eps_next_fiscal_year_estimate": 9.57785,
+        "_src": {
+         "pe_forward": {
+          "label": "Yahoo Finance \u00b7 AAPL analyst estimates (forward P/E = price \u00f7 next fiscal year's estimated EPS)",
+          "url": "https://finance.yahoo.com/quote/AAPL/analysis/"
+         },
+         "eps_next_fiscal_year_estimate": {
+          "label": "Yahoo Finance \u00b7 AAPL analyst estimates (next year EPS)",
+          "url": "https://finance.yahoo.com/quote/AAPL/analysis/"
+         },
+         "price_to_book": {
+          "label": "Yahoo Finance \u00b7 AAPL statistics",
+          "url": "https://finance.yahoo.com/quote/AAPL/key-statistics/"
+         }
+        }
+       }
+      },
+      {
+       "tool": "growth_rates",
+       "data": {
+        "latest_quarter_end": "2026-06-27",
+        "latest_revenue_usd": 109417000000,
+        "yoy_pct": 16.3565,
+        "qoq_pct": -1.5893,
+        "yoy_pct_prior_quarter": 16.5952,
+        "growth_accelerating": false
+       }
+      },
+      {
+       "tool": "income_statement",
+       "data": {
+        "quarterly_revenue": [
+         {
+          "end": "2025-03-29",
+          "usd": 95359000000
+         },
+         {
+          "end": "2025-06-28",
+          "usd": 94036000000
+         },
+         {
+          "end": "2025-09-27",
+          "usd": 102466000000
+         },
+         {
+          "end": "2025-12-27",
+          "usd": 143756000000
+         },
+         {
+          "end": "2026-03-28",
+          "usd": 111184000000
+         },
+         {
+          "end": "2026-06-27",
+          "usd": 109417000000
+         }
+        ],
+        "quarterly_net_income": [
+         {
+          "end": "2025-03-29",
+          "usd": 24780000000
+         },
+         {
+          "end": "2025-06-28",
+          "usd": 23434000000
+         },
+         {
+          "end": "2025-09-27",
+          "usd": 27466000000
+         },
+         {
+          "end": "2025-12-27",
+          "usd": 42097000000
+         },
+         {
+          "end": "2026-03-28",
+          "usd": 29578000000
+         },
+         {
+          "end": "2026-06-27",
+          "usd": 29789000000
+         }
+        ],
+        "note": "each row is a single ~91-day quarter, not a cumulative rollup"
+       }
+      }
+     ]
+    },
+    {
+     "domain": "street",
+     "ticker": "AAPL",
+     "evidence": [
+      {
+       "tool": "news",
+       "data": {
+        "headlines": [
+         {
+          "title": "Apple Confirms October 28 \u2018Pro And Tell\u2019 Event \u2014 First Touchscreen MacBook Pro Expected",
+          "publisher": "Stocktwits",
+          "published": 1792431800,
+          "url": "https://finance.yahoo.com/markets/stocks/articles/apple-confirms-october-28-pro-174320803.html",
+          "via": "search"
+         },
+         {
+          "title": "Market Chatter: Apple Touch-Screen MacBook Expected at Oct. 28 'Pro and Tell' Event",
+          "publisher": "MT Newswires",
+          "published": 1792431004,
+          "url": "https://finance.yahoo.com/markets/stocks/articles/market-chatter-apple-touch-screen-173004089.html",
+          "via": "search"
+         },
+         {
+          "title": "Apple Stock Dips as iPhone 18 Pro Weakness Centers on China",
+          "publisher": "GuruFocus.com",
+          "published": 1792430014,
+          "url": "https://finance.yahoo.com/markets/stocks/articles/apple-stock-dips-iphone-18-171334625.html",
+          "via": "search"
+         },
+         {
+          "title": "Apple Stock Holds Strong Amid Healthy iPhone Duo Preorders",
+          "publisher": "Investor's Business Daily",
+          "published": 1792428585,
+          "url": "https://finance.yahoo.com/m/ed0b8ee3-bbf6-3cb8-840e-4138b476aa07/apple-stock-holds-strong-amid.html",
+          "via": "search"
+         },
+         {
+          "title": "Samsung is making an unexpected move against Apple",
+          "publisher": "TheStreet",
+          "published": 1792428420,
+          "url": "https://finance.yahoo.com/technology/articles/samsung-making-unexpected-move-against-164700462.html",
+          "via": "search"
+         },
+         {
+          "title": "Deep Hardware-Software Integration Drives Apple\u2019s (AAPL) Underappreciated AI Advantage",
+          "publisher": "Insider Monkey",
+          "published": 1792427470,
+          "url": "https://finance.yahoo.com/markets/stocks/articles/deep-hardware-software-integration-drives-163110026.html",
+          "via": "search"
+         },
+         {
+          "title": "Apple\u2019s iPhone Duo Sold Out In Minutes. The Last Time Apple Reinvented The Phone, One Apple Supplier\u2019s Stock Soared About 1,200% In A Decade",
+          "publisher": "24/7 Wall St.",
+          "published": 1792424972,
+          "url": "https://finance.yahoo.com/markets/stocks/articles/apple-iphone-duo-sold-minutes-154932956.html",
+          "via": "search"
+         }
+        ],
+        "count": 7,
+        "filtered_out": 1,
+        "note": "sentiment is NOT provided by the feed; headlines not naming the issuer were dropped"
+       }
+      },
+      {
+       "tool": "analyst_ratings",
+       "data": {
+        "recommendationKey": "buy",
+        "recommendationMean": 2.20455,
+        "numberOfAnalystOpinions": 39
+       }
+      },
+      {
+       "tool": "price_targets",
+       "data": {
+        "targetLowPrice": 215.0,
+        "targetMeanPrice": 329.3759,
+        "targetHighPrice": 405.0,
+        "currentPrice": 342.92,
+        "upside_to_mean_pct": -3.9
+       }
+      }
+     ]
+    },
+    {
+     "domain": "events",
+     "ticker": "AAPL",
+     "evidence": [
+      {
+       "tool": "next_earnings",
+       "data": {
+        "earnings_date": "2026-11-02",
+        "eps_estimate": 1.98212,
+        "revenue_estimate": 113626875100,
+        "days_away": 14
+       }
+      },
+      {
+       "tool": "earnings_surprise_history",
+       "data": {
+        "history": [
+         {
+          "date": "2026-07-30",
+          "eps_estimate": 1.89,
+          "eps_actual": 2.02,
+          "surprise_pct": 6.9,
+          "beat": true
+         },
+         {
+          "date": "2026-04-30",
+          "eps_estimate": 1.94,
+          "eps_actual": 2.01,
+          "surprise_pct": 3.6,
+          "beat": true
+         },
+         {
+          "date": "2026-01-29",
+          "eps_estimate": 2.67,
+          "eps_actual": 2.84,
+          "surprise_pct": 6.4,
+          "beat": true
+         },
+         {
+          "date": "2025-10-30",
+          "eps_estimate": 1.77,
+          "eps_actual": 1.85,
+          "surprise_pct": 4.5,
+          "beat": true
+         },
+         {
+          "date": "2025-07-31",
+          "eps_estimate": 1.43,
+          "eps_actual": 1.57,
+          "surprise_pct": 9.8,
+          "beat": true
+         },
+         {
+          "date": "2025-05-01",
+          "eps_estimate": 1.62,
+          "eps_actual": 1.65,
+          "surprise_pct": 1.9,
+          "beat": true
+         }
+        ],
+        "beats": 6,
+        "of": 6
+       }
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "why_move",
+   "q": "Why did TSLA move today?",
+   "needs": "a cause from news/ratings/filings, or a plain statement that none was found",
+   "http": 200,
+   "wall_s": 64.5,
+   "answer": "Tesla shares gained 3.7% to 367.71 today, though volume stayed below average at 0.78x its 20-day norm. The advance followed political headlines regarding potential regulatory support for new vehicle technology, alongside speculative reports concerning a potential merger with SpaceX. Relative strength remains weak, with a 1-month excess return of -1.1% against the S&P 500.",
+   "tickers": [
+    "TSLA"
+   ],
+   "domains": [
+    "market",
+    "street"
+   ],
+   "degraded": "",
+   "grounded": true,
+   "ungrounded": [],
+   "tokens": 8216,
+   "calls": 4,
+   "readability": 4,
+   "conjunction": 5,
+   "task_fit": 0,
+   "usefulness": 0,
+   "calibration": 0,
+   "judge_note": "not judged",
+   "steps": [
+    "guard: on-topic",
+    "route: market(TSLA), street(TSLA)",
+    "market.select: router-named",
+    "market.gather: 3/3 returned data",
+    "market.synthesize: 3 results",
+    "street.select: router-named",
+    "street.gather: 1/1 returned data",
+    "street.synthesize: 1 results",
+    "writer: 2 findings"
+   ],
+   "resolved": "",
+   "findings": [
+    {
+     "domain": "market",
+     "ticker": "TSLA",
+     "evidence": [
+      {
+       "tool": "quote",
+       "data": {
+        "price": 367.71,
+        "change": 12.98999,
+        "change_pct": 3.6620405,
+        "volume": 26965764,
+        "market_state": "REGULAR",
+        "name": "Tesla, Inc."
+       }
+      },
+      {
+       "tool": "volume_profile",
+       "data": {
+        "volume": 26965740,
+        "avg_volume_20d": 34462060,
+        "ratio": 0.78,
+        "unusual": false
+       }
+      },
+      {
+       "tool": "relative_strength",
+       "data": {
+        "1m_stock_pct": -1.9265,
+        "1m_spy_pct": -0.8378,
+        "1m_excess_pct": -1.09,
+        "3m_stock_pct": -1.5882,
+        "3m_spy_pct": 2.8786,
+        "3m_excess_pct": -4.47
+       }
+      }
+     ]
+    },
+    {
+     "domain": "street",
+     "ticker": "TSLA",
+     "evidence": [
+      {
+       "tool": "news",
+       "data": {
+        "headlines": [
+         {
+          "title": "Wall Street Projects A Down Quarter For Tesla Earnings; Stock Rebounds",
+          "publisher": "Investor's Business Daily",
+          "published": 1792431805,
+          "url": "https://finance.yahoo.com/m/c61444d9-580f-35fc-a535-18525c5e82ea/wall-street-projects-a-down.html",
+          "via": "search"
+         },
+         {
+          "title": "Tesla Rises 4% as DeSantis Vows to Make Flying Roadster Legal in Florida; Rivian and Lucid Slip",
+          "publisher": "24/7 Wall St.",
+          "published": 1792428638,
+          "url": "https://finance.yahoo.com/markets/stocks/articles/tesla-rises-4-desantis-vows-165038673.html",
+          "via": "search"
+         },
+         {
+          "title": "SpaceX to Continue Sharing 'Ambitious' Updates as Interest Around Potential Tesla Merger Grows, RBC Says",
+          "publisher": "MT Newswires",
+          "published": 1792428376,
+          "url": "https://finance.yahoo.com/markets/stocks/articles/spacex-continue-sharing-apos-ambitious-164616965.html",
+          "via": "search"
+         },
+         {
+          "title": "SpaceX Stock Climbs After Musk Gift Pledge; Analysts Predict Tesla Merger Price",
+          "publisher": "Investor's Business Daily",
+          "published": 1792428034,
+          "url": "https://finance.yahoo.com/m/09846e36-2ac5-354a-ba60-fe373a5d1095/spacex-stock-climbs-after.html",
+          "via": "search"
+         }
+        ],
+        "count": 4,
+        "filtered_out": 3,
+        "note": "sentiment is NOT provided by the feed; headlines not naming the issuer were dropped"
+       }
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "compare_pair",
+   "q": "Compare MSFT and GOOGL on margins and growth.",
+   "needs": "both names, the same metrics side by side",
+   "http": 200,
+   "wall_s": 47.5,
+   "answer": "Microsoft leads on profitability with a net margin of 40.3% and a gross margin of 67.9%. Alphabet counters with a higher net margin of 54.8% and an operating margin of 33.1%. Alphabet also shows faster revenue growth at 24.2% year-over-year, and its growth is accelerating. Microsoft posts slower revenue growth at 17.7%, and its pace is not accelerating.",
+   "tickers": [
+    "GOOGL",
+    "MSFT"
+   ],
+   "domains": [
+    "fundamentals",
+    "relations"
+   ],
+   "degraded": "",
+   "grounded": true,
+   "ungrounded": [],
+   "tokens": 13147,
+   "calls": 6,
+   "readability": 5,
+   "conjunction": 4,
+   "task_fit": 0,
+   "usefulness": 0,
+   "calibration": 0,
+   "judge_note": "not judged",
+   "steps": [
+    "guard: on-topic",
+    "route: fundamentals(MSFT), fundamentals(GOOGL), relations(GOOGL), relations(MSFT)",
+    "fundamentals.select: router-named",
+    "fundamentals.gather: 2/2 returned data",
+    "fundamentals.synthesize: 2 results",
+    "fundamentals.select: router-named",
+    "fundamentals.gather: 2/2 returned data",
+    "fundamentals.synthesize: 2 results",
+    "relations.select: router-named",
+    "relations.gather: 2/2 returned data",
+    "relations.synthesize: 2 results",
+    "relations.select: router-named",
+    "relations.gather: 2/2 returned data",
+    "relations.synthesize: 2 results",
+    "writer: 4 findings"
+   ],
+   "resolved": "",
+   "findings": [
+    {
+     "domain": "fundamentals",
+     "ticker": "MSFT",
+     "evidence": [
+      {
+       "tool": "profitability",
+       "data": {
+        "roe": 34.04,
+        "roa": 14.09,
+        "_src": {
+         "roe": {
+          "label": "Yahoo Finance \u00b7 MSFT statistics",
+          "url": "https://finance.yahoo.com/quote/MSFT/key-statistics/"
+         },
+         "roa": {
+          "label": "Yahoo Finance \u00b7 MSFT statistics",
+          "url": "https://finance.yahoo.com/quote/MSFT/key-statistics/"
+         },
+         "gross_margin": {
+          "label": "SEC EDGAR \u00b7 MSFT 10-K and 10-Q filings, 4 quarters to June 30th 2026 (gross profit \u00f7 revenue)",
+          "url": "https://www.sec.gov/Archives/edgar/data/789019/000119312526323660/0001193125-26-323660-index.htm"
+         },
+         "operating_margin": {
+          "label": "SEC EDGAR \u00b7 MSFT 10-K and 10-Q filings, 4 quarters to June 30th 2026 (operating income \u00f7 revenue)",
+          "url": "https://www.sec.gov/Archives/edgar/data/789019/000119312526323660/0001193125-26-323660-index.htm"
+         },
+         "net_margin": {
+          "label": "SEC EDGAR \u00b7 MSFT 10-K and 10-Q filings, 4 quarters to June 30th 2026 (net income \u00f7 revenue)",
+          "url": "https://www.sec.gov/Archives/edgar/data/789019/000119312526323660/0001193125-26-323660-index.htm"
+         }
+        },
+        "gross_margin": 67.94,
+        "operating_margin": 46.78,
+        "net_margin": 40.31,
+        "margin_period": "the 12 months to June 30th 2026",
+        "revenue_12m_usd": 331839000000,
+        "operating_income_12m_usd": 155237000000,
+        "net_income_12m_usd": 133749000000
+       }
+      },
+      {
+       "tool": "growth_rates",
+       "data": {
+        "latest_quarter_end": "2026-06-30",
+        "latest_revenue_usd": 90007000000,
+        "yoy_pct": 17.747,
+        "qoq_pct": 8.5913,
+        "yoy_pct_prior_quarter": 18.297,
+        "growth_accelerating": false
+       }
+      }
+     ]
+    },
+    {
+     "domain": "fundamentals",
+     "ticker": "GOOGL",
+     "evidence": [
+      {
+       "tool": "profitability",
+       "data": {
+        "roe": 48.68,
+        "roa": 12.96,
+        "_src": {
+         "roe": {
+          "label": "Yahoo Finance \u00b7 GOOGL statistics",
+          "url": "https://finance.yahoo.com/quote/GOOGL/key-statistics/"
+         },
+         "roa": {
+          "label": "Yahoo Finance \u00b7 GOOGL statistics",
+          "url": "https://finance.yahoo.com/quote/GOOGL/key-statistics/"
+         },
+         "gross_margin": {
+          "label": "SEC EDGAR \u00b7 GOOGL 10-K and 10-Q filings, 4 quarters to June 30th 2026 (gross profit \u00f7 revenue)",
+          "url": "https://www.sec.gov/Archives/edgar/data/1652044/000165204426000071/0001652044-26-000071-index.htm"
+         },
+         "operating_margin": {
+          "label": "SEC EDGAR \u00b7 GOOGL 10-K and 10-Q filings, 4 quarters to June 30th 2026 (operating income \u00f7 revenue)",
+          "url": "https://www.sec.gov/Archives/edgar/data/1652044/000165204426000071/0001652044-26-000071-index.htm"
+         },
+         "net_margin": {
+          "label": "SEC EDGAR \u00b7 GOOGL 10-K and 10-Q filings, 4 quarters to June 30th 2026 (net income \u00f7 revenue)",
+          "url": "https://www.sec.gov/Archives/edgar/data/1652044/000165204426000071/0001652044-26-000071-index.htm"
+         }
+        },
+        "gross_margin": 60.9,
+        "operating_margin": 33.11,
+        "net_margin": 54.77,
+        "margin_period": "the 12 months to June 30th 2026",
+        "revenue_12m_usd": 445866000000,
+        "operating_income_12m_usd": 147628000000,
+        "net_income_12m_usd": 244205000000
+       }
+      },
+      {
+       "tool": "growth_rates",
+       "data": {
+        "latest_quarter_end": "2026-06-30",
+        "latest_revenue_usd": 119796000000,
+        "yoy_pct": 24.2336,
+        "qoq_pct": 9.0085,
+        "yoy_pct_prior_quarter": 21.79,
+        "growth_accelerating": true
+       }
+      }
+     ]
+    },
+    {
+     "domain": "relations",
+     "ticker": "GOOGL",
+     "evidence": [
+      {
+       "tool": "peer_set",
+       "data": {
+        "peers_by_correlation": [
+         {
+          "ticker": "AVGO",
+          "correlation": 0.37,
+          "observations": 500
+         },
+         {
+          "ticker": "AMD",
+          "correlation": 0.34,
+          "observations": 500
+         },
+         {
+          "ticker": "BABA",
+          "correlation": 0.28,
+          "observations": 500
+         },
+         {
+          "ticker": "NFLX",
+          "correlation": 0.22,
+          "observations": 500
+         },
+         {
+          "ticker": "V",
+          "correlation": 0.22,
+          "observations": 500
+         }
+        ]
+       }
+      },
+      {
+       "tool": "peer_performance",
+       "data": {
+        "ticker": "GOOGL",
+        "period": "1y",
+        "market_return_pct": 16.6928,
+        "subject": {
+         "ticker": "GOOGL",
+         "return_pct": 36.2199,
+         "beta_vs_spy": 1.38,
+         "volatility_pct": 31.5,
+         "market_cap": 4208932159488,
+         "name": "Alphabet Inc.",
+         "beta_adjusted_excess_pct": 13.18,
+         "return_per_vol": 1.15
+        },
+        "peers": [
+         {
+          "ticker": "AMD",
+          "return_pct": 131.1481,
+          "beta_vs_spy": 3.22,
+          "volatility_pct": 67.9,
+          "market_cap": 880067149824,
+          "name": "Advanced Micro Devices, Inc.",
+          "beta_adjusted_excess_pct": 77.4,
+          "return_per_vol": 1.93
+         },
+         {
+          "ticker": "V",
+          "return_pct": 18.9348,
+          "beta_vs_spy": 0.29,
+          "volatility_pct": 22.1,
+          "market_cap": 757325103104,
+          "name": "Visa Inc.",
+          "beta_adjusted_excess_pct": 14.09,
+          "return_per_vol": 0.86
+         },
+         {
+          "ticker": "AVGO",
+          "return_pct": -3.5477,
+          "beta_vs_spy": 2.15,
+          "volatility_pct": 45.7,
+          "market_cap": 1596540583936,
+          "name": "Broadcom Inc.",
+          "beta_adjusted_excess_pct": -39.44,
+          "return_per_vol": -0.08
+         },
+         {
+          "ticker": "BABA",
+          "return_pct": -34.1693,
+          "beta_vs_spy": 1.18,
+          "volatility_pct": 40.8,
+          "market_cap": 271088320512,
+          "name": "Alibaba Group Holding Limited",
+          "beta_adjusted_excess_pct": -53.87,
+          "return_per_vol": -0.84
+         },
+         {
+          "ticker": "NFLX",
+          "return_pct": -41.9107,
+          "beta_vs_spy": 0.31,
+          "volatility_pct": 36.7,
+          "market_cap": 289456259072,
+          "name": "Netflix, Inc.",
+          "beta_adjusted_excess_pct": -47.09,
+          "return_per_vol": -1.14
+         }
+        ],
+        "cohort": {
+         "median_return_pct": -3.55,
+         "median_beta": 1.18,
+         "median_excess_pct": -39.44,
+         "median_market_cap": 757325103104,
+         "peers_measured": 5
+        },
+        "note": "a raw return is not comparable between names of different beta; beta_adjusted_excess_pct is the part not explained by the market move. Share price level and stock splits do not affect any of these figures - returns are split-adjusted.",
+        "reading": "GOOGL returned +36.2% over 1y vs a peer median of -3.5%; on a beta of 1.38 against the cohort's 1.18; which leaves +52.6pts once the market move each beta implies is removed (raw gap +39.8pts)"
+       }
+      }
+     ]
+    },
+    {
+     "domain": "relations",
+     "ticker": "MSFT",
+     "evidence": [
+      {
+       "tool": "peer_set",
+       "data": {
+        "peers_by_correlation": [
+         {
+          "ticker": "AMZN",
+          "correlation": 0.5,
+          "observations": 500
+         },
+         {
+          "ticker": "NVDA",
+          "correlation": 0.42,
+          "observations": 500
+         },
+         {
+          "ticker": "META",
+          "correlation": 0.37,
+          "observations": 500
+         },
+         {
+          "ticker": "AAPL",
+          "correlation": 0.31,
+          "observations": 500
+         },
+         {
+          "ticker": "GOOG",
+          "correlation": 0.31,
+          "observations": 500
+         }
+        ]
+       }
+      },
+      {
+       "tool": "peer_performance",
+       "data": {
+        "ticker": "MSFT",
+        "period": "1y",
+        "market_return_pct": 16.6928,
+        "subject": {
+         "ticker": "MSFT",
+         "return_pct": 4.804,
+         "beta_vs_spy": 1.0,
+         "volatility_pct": 32.9,
+         "market_cap": 3963681767424,
+         "name": "Microsoft Corporation",
+         "beta_adjusted_excess_pct": -11.89,
+         "return_per_vol": 0.15
+        },
+        "peers": [
+         {
+          "ticker": "AAPL",
+          "return_pct": 36.2878,
+          "beta_vs_spy": 0.62,
+          "volatility_pct": 24.4,
+          "market_cap": 5009452302336,
+          "name": "Apple Inc.",
+          "beta_adjusted_excess_pct": 25.94,
+          "return_per_vol": 1.49
+         },
+         {
+          "ticker": "GOOG",
+          "return_pct": 34.3148,
+          "beta_vs_spy": 1.36,
+          "volatility_pct": 31.0,
+          "market_cap": 4158055514112,
+          "name": "Alphabet Inc.",
+          "beta_adjusted_excess_pct": 11.61,
+          "return_per_vol": 1.11
+         },
+         {
+          "ticker": "AMZN",
+          "return_pct": 23.0332,
+          "beta_vs_spy": 1.46,
+          "volatility_pct": 34.6,
+          "market_cap": 2826445520896,
+          "name": "Amazon.com, Inc.",
+          "beta_adjusted_excess_pct": -1.34,
+          "return_per_vol": 0.67
+         },
+         {
+          "ticker": "NVDA",
+          "return_pct": 18.7875,
+          "beta_vs_spy": 1.9,
+          "volatility_pct": 37.3,
+          "market_cap": 5242072072192,
+          "name": "NVIDIA Corporation",
+          "beta_adjusted_excess_pct": -12.93,
+          "return_per_vol": 0.5
+         },
+         {
+          "ticker": "META",
+          "return_pct": -1.8182,
+          "beta_vs_spy": 1.48,
+          "volatility_pct": 42.1,
+          "market_cap": 1789240934400,
+          "name": "Meta Platforms, Inc.",
+          "beta_adjusted_excess_pct": -26.52,
+          "return_per_vol": -0.04
+         }
+        ],
+        "cohort": {
+         "median_return_pct": 23.03,
+         "median_beta": 1.46,
+         "median_excess_pct": -1.34,
+         "median_market_cap": 4158055514112,
+         "peers_measured": 5
+        },
+        "note": "a raw return is not comparable between names of different beta; beta_adjusted_excess_pct is the part not explained by the market move. Share price level and stock splits do not affect any of these figures - returns are split-adjusted.",
+        "reading": "MSFT returned +4.8% over 1y vs a peer median of +23.0%; on a beta of 1.0 against the cohort's 1.46; which leaves -10.6pts once the market move each beta implies is removed (raw gap -18.2pts)"
+       }
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "street_change",
+   "q": "What do analysts think about META, and has that changed recently?",
+   "needs": "consensus and targets, plus recent rating changes",
+   "http": 200,
+   "wall_s": 10.7,
+   "answer": "Analysts maintain a strong buy consensus on META with a recommendation mean of 1.41 across 58 opinions. The mean price target sits at $819, offering a 16.6% upside from the current price of $702.5. This stance is unchanged recently, with firms like Pivotal Research and Truist Securities reaffirming their buy ratings in mid-October 2026. Keybanc, Rosenblatt, Cantor Fitzgerald, and TD Cowen also maintained their positive stances during the same week.",
+   "tickers": [
+    "META"
+   ],
+   "domains": [
+    "street"
+   ],
+   "degraded": "",
+   "grounded": true,
+   "ungrounded": [],
+   "tokens": 7756,
+   "calls": 4,
+   "readability": 4,
+   "conjunction": 1,
+   "task_fit": 0,
+   "usefulness": 0,
+   "calibration": 0,
+   "judge_note": "not judged",
+   "steps": [
+    "guard: on-topic",
+    "route: street(META), street(META)",
+    "street.select: router-named",
+    "street.gather: 2/2 returned data",
+    "street.synthesize: 2 results",
+    "street.select: router-named",
+    "street.gather: 1/1 returned data",
+    "street.synthesize: 1 results",
+    "writer: 2 findings"
+   ],
+   "resolved": "",
+   "findings": [
+    {
+     "domain": "street",
+     "ticker": "META",
+     "evidence": [
+      {
+       "tool": "analyst_ratings",
+       "data": {
+        "recommendationKey": "strong_buy",
+        "recommendationMean": 1.4127,
+        "numberOfAnalystOpinions": 58
+       }
+      },
+      {
+       "tool": "price_targets",
+       "data": {
+        "targetLowPrice": 580.0,
+        "targetMeanPrice": 818.9952,
+        "targetHighPrice": 1050.0,
+        "currentPrice": 702.505,
+        "upside_to_mean_pct": 16.6
+       }
+      }
+     ]
+    },
+    {
+     "domain": "street",
+     "ticker": "META",
+     "evidence": [
+      {
+       "tool": "rating_changes",
+       "data": {
+        "changes": [
+         {
+          "date": "2026-10-13",
+          "firm": "Pivotal Research",
+          "to": "Buy",
+          "from": "Buy",
+          "action": "main"
+         },
+         {
+          "date": "2026-10-13",
+          "firm": "Truist Securities",
+          "to": "Buy",
+          "from": "Buy",
+          "action": "main"
+         },
+         {
+          "date": "2026-10-13",
+          "firm": "Keybanc",
+          "to": "Overweight",
+          "from": "Overweight",
+          "action": "reit"
+         },
+         {
+          "date": "2026-10-13",
+          "firm": "Rosenblatt",
+          "to": "Buy",
+          "from": "Buy",
+          "action": "main"
+         },
+         {
+          "date": "2026-10-12",
+          "firm": "Cantor Fitzgerald",
+          "to": "Overweight",
+          "from": "Overweight",
+          "action": "main"
+         },
+         {
+          "date": "2026-10-08",
+          "firm": "TD Cowen",
+          "to": "Buy",
+          "from": "Buy",
+          "action": "reit"
+         },
+         {
+          "date": "2026-10-06",
+          "firm": "Wells Fargo",
+          "to": "Overweight",
+          "from": "Overweight",
+          "action": "main"
+         },
+         {
+          "date": "2026-09-25",
+          "firm": "Deutsche Bank",
+          "to": "Buy",
+          "from": "Buy",
+          "action": "main"
+         }
+        ]
+       }
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "read_across",
+   "q": "If NVDA sells off, does AMD usually follow?",
+   "needs": "measured correlation or beta, not an assertion",
+   "http": 200,
+   "wall_s": 9.0,
+   "answer": "AMD moves in the same direction as NVDA 70.2% of the time, showing a 0.53 correlation. With a 0.37 beta, AMD historically captures only a fraction of NVDA's volatility during sell-offs. NVDA itself carries a high annualised volatility of 37.3% and a 1.9 beta against the market.",
+   "tickers": [
+    "NVDA"
+   ],
+   "domains": [
+    "market",
+    "relations"
+   ],
+   "degraded": "",
+   "grounded": true,
+   "ungrounded": [],
+   "tokens": 7896,
+   "calls": 4,
+   "readability": 5,
+   "conjunction": 5,
+   "task_fit": 0,
+   "usefulness": 0,
+   "calibration": 0,
+   "judge_note": "not judged",
+   "steps": [
+    "guard: on-topic",
+    "route: relations(NVDA), market(NVDA)",
+    "relations.select: router-named",
+    "relations.gather: 2/2 returned data",
+    "relations.synthesize: 2 results",
+    "market.select: router-named",
+    "market.gather: 2/2 returned data",
+    "market.synthesize: 2 results",
+    "writer: 2 findings"
+   ],
+   "resolved": "",
+   "findings": [
+    {
+     "domain": "relations",
+     "ticker": "NVDA",
+     "evidence": [
+      {
+       "tool": "correlation",
+       "data": {
+        "other": "AMD",
+        "period": "2y",
+        "observations": 500,
+        "correlation": 0.53,
+        "beta_to_other": 0.37,
+        "co_direction_pct_all_days": 70.2
+       }
+      },
+      {
+       "tool": "read_across",
+       "data": {
+        "ticker": "NVDA",
+        "peers": [
+         {
+          "peer": "AMD",
+          "peer_name": "Advanced Micro Devices, Inc.",
+          "peer_change_today_pct": 1.87,
+          "correlation": 0.53,
+          "co_direction_pct": 70.2,
+          "beta_to_peer": 0.37,
+          "median_capture_of_big_moves": 0.37,
+          "observations": 500
+         }
+        ],
+        "strongest_link": {
+         "peer": "AMD",
+         "peer_name": "Advanced Micro Devices, Inc.",
+         "peer_change_today_pct": 1.87,
+         "correlation": 0.53,
+         "co_direction_pct": 70.2,
+         "beta_to_peer": 0.37,
+         "median_capture_of_big_moves": 0.37,
+         "observations": 500
+        },
+        "how_to_read": "co_direction_pct is the share of ALL days the pair moves the same way - the baseline any single event must beat. median_capture is how much of a >3% peer move this ticker historically follows: near 0 means peer news does NOT transmit, near 1 means it moves one-for-one.",
+        "caution": "these are statistical associations over ~2y of daily returns, not causation"
+       }
+      }
+     ]
+    },
+    {
+     "domain": "market",
+     "ticker": "NVDA",
+     "evidence": [
+      {
+       "tool": "price_series",
+       "data": {
+        "period": "1y",
+        "bars": 252,
+        "start": 182.78,
+        "end": 217.12,
+        "high": 239.24,
+        "low": 164.79,
+        "change_pct": 18.7875
+       }
+      },
+      {
+       "tool": "volatility",
+       "data": {
+        "realised_vol_annual_pct": 37.3,
+        "avg_daily_move_pct": 1.85,
+        "beta_vs_spy": 1.9,
+        "beta_basis": "1 year of daily moves vs SPY (Yahoo's 'Beta (5Y Monthly)' uses 5 years of monthly moves)",
+        "corr_vs_spy": 0.65
+       }
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "market_today",
+   "q": "What's driving the market today?",
+   "needs": "index moves tied to a named macro event",
+   "http": 200,
+   "wall_s": 10.7,
+   "answer": "The S&P 500 rose 0.53% while the Nasdaq gained 1.2% as a rebounding AI trade and semiconductor jump drove equities higher. Meanwhile, the volatility index dropped to 18.6 during a busy earnings week.",
+   "tickers": [
+    "MARKET"
+   ],
+   "domains": [
+    "macro"
+   ],
+   "degraded": "",
+   "grounded": true,
+   "ungrounded": [],
+   "tokens": 6135,
+   "calls": 4,
+   "readability": 5,
+   "conjunction": 2,
+   "task_fit": 0,
+   "usefulness": 0,
+   "calibration": 0,
+   "judge_note": "not judged",
+   "steps": [
+    "guard: on-topic",
+    "route: macro(MARKET)",
+    "macro.select: router-named",
+    "macro.gather: 2/3 returned data",
+    "macro.synthesize: 2 results",
+    "writer: edited macro",
+    "writer.verify: repaired: UNSUPPORTED figures (not present in the evidence): 7.0"
+   ],
+   "resolved": "",
+   "findings": [
+    {
+     "domain": "macro",
+     "ticker": "MARKET",
+     "evidence": [
+      {
+       "tool": "market_news",
+       "data": {
+        "headlines": [
+         {
+          "title": "What Are Coca-Cola Stock Bulls Not Worried About?",
+          "publisher": "Trefis",
+          "published": 1792431841,
+          "url": "https://finance.yahoo.com/markets/stocks/articles/coca-cola-stock-bulls-not-174401748.html",
+          "via": "search",
+          "source_feed": "^GSPC"
+         },
+         {
+          "title": "Stock market today: Dow slips, Nasdaq, S&P 500 rise as the AI trade rebounds",
+          "publisher": "Yahoo Finance",
+          "published": 1792431632,
+          "url": "https://finance.yahoo.com/markets/live/stock-market-today-dow-sp-500-nasdaq-futures-mixed-amid-volatile-week-112734828.html",
+          "via": "search",
+          "source_feed": "^GSPC"
+         },
+         {
+          "title": "Update: Equities Rise Intraday as Busy Earnings Week Kicks Off",
+          "publisher": "MT Newswires",
+          "published": 1792431355,
+          "url": "https://finance.yahoo.com/markets/stocks/articles/equities-rise-intraday-busy-earnings-173555913.html",
+          "via": "search",
+          "source_feed": "^GSPC"
+         },
+         {
+          "title": "2 High-Flying Dividend Stocks to Buy and Hold for a Decade",
+          "publisher": "Motley Fool",
+          "published": 1792431301,
+          "url": "https://finance.yahoo.com/healthcare/articles/2-high-flying-dividend-stocks-173501553.html",
+          "via": "search",
+          "source_feed": "^GSPC"
+         },
+         {
+          "title": "Warren Buffett Loves This Low-Cost Vanguard Fund. If You Invest Just $200 Each Month, History Says It Will Be Worth This Much in 30 Years.",
+          "publisher": "Motley Fool",
+          "published": 1792431300,
+          "url": "https://finance.yahoo.com/markets/stocks/articles/warren-buffett-loves-low-cost-173500168.html",
+          "via": "search",
+          "source_feed": "^GSPC"
+         },
+         {
+          "title": "Tech rebounds as semiconductor stocks jump: AlphaCheck",
+          "publisher": "Yahoo Finance",
+          "published": 1792417803,
+          "url": "https://finance.yahoo.com/markets/article/tech-rebounds-as-semiconductor-stocks-jump-alphacheck-135003909.html",
+          "via": "search",
+          "source_feed": "^TNX"
+         },
+         {
+          "title": "Tesla pops, tech heads for losing week: AlphaCheck",
+          "publisher": "Yahoo Finance",
+          "published": 1792159100,
+          "url": "https://finance.yahoo.com/markets/article/tesla-pops-tech-heads-for-losing-week-alphacheck-135820459.html",
+          "via": "search",
+          "source_feed": "^TNX"
+         },
+         {
+          "title": "Gold price today, Friday, October 16, 2026: Gold lifts as Treasury yields and dollar fall back",
+          "publisher": "Yahoo Personal Finance",
+          "published": 1792148811,
+          "url": "https://finance.yahoo.com/personal-finance/investing/article/gold-price-today-friday-october-16-2026-gold-lifts-as-treasury-yields-and-dollar-fall-back-110651322.html",
+          "via": "search",
+          "source_feed": "^TNX"
+         },
+         {
+          "title": "Mortgage and refinance interest rates today, Friday, October 16, 2026: Fixed mortgage rates fall back",
+          "publisher": "Yahoo Personal Finance",
+          "published": 1792144800,
+          "url": "https://finance.yahoo.com/personal-finance/mortgages/article/mortgage-and-refinance-interest-rates-today-friday-october-16-2026-fixed-mortgage-rates-fall-back-100000131.html",
+          "via": "search",
+          "source_feed": "^TNX"
+         },
+         {
+          "title": "5 Top-Performing ETF Areas of Last Week",
+          "publisher": "Zacks",
+          "published": 1792411200,
+          "url": "https://finance.yahoo.com/markets/stocks/articles/5-top-performing-etf-areas-120000254.html",
+          "via": "search",
+          "source_feed": "^VIX"
+         },
+         {
+          "title": "Dow Jones, Nasdaq, S&P 500 preview: All eyes on Meta, Tesla, SpaceX earnings",
+          "publisher": "Investing.com",
+          "published": 1792409057,
+          "url": "https://finance.yahoo.com/markets/stocks/articles/dow-jones-nasdaq-p-500-112417890.html",
+          "via": "search",
+          "source_feed": "^VIX"
+         },
+         {
+          "title": "Tom Lee Says Last Week's Stock Selloff Sets Up a Buy in Crypto, Semis",
+          "publisher": "BeInCrypto",
+          "published": 1792389300,
+          "url": "https://finance.yahoo.com/markets/crypto/articles/tom-lee-says-last-weeks-055500464.html",
+          "via": "search",
+          "source_feed": "^VIX"
+         }
+        ],
+        "note": "from index, rates and volatility feeds - treat as reported claims, not facts"
+       }
+      },
+      {
+       "tool": "index_levels",
+       "data": {
+        "S&P 500": {
+         "level": 7700.05,
+         "change_pct": 0.53
+        },
+        "Nasdaq": {
+         "level": 26443.85,
+         "change_pct": 1.16
+        },
+        "US 10-year yield": {
+         "level": 5.14,
+         "change_pct": 0.86
+        },
+        "volatility index": {
+         "level": 18.6,
+         "change_pct": -6.95
+        }
+       }
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "broad_read",
+   "q": "Give me the overall read on AMZN right now.",
+   "needs": "both sides of the evidence, the backdrop, what would change it; no advice",
+   "http": 200,
+   "wall_s": 43.6,
+   "answer": "Amazon trades at 262.29, sitting 8.7% below its 52-week high while holding above its 50-day moving average. The stock recently gained 4.9% after Morgan Stanley named it a top pick and projected strong AWS growth. Fifty-eight analysts currently rate the stock as a strong buy with a mean target of $331.46. Fundamentals show accelerating revenue growth at 19.6% year-over-year alongside a trailing P/E of 21.1 and a 12.1% operating margin. The broader market backdrop features a 1.2% Nasdaq rise amid an AI rebound, though mega-cap growth stocks face headwinds from a 5.14% 10-year yield. Valuations and growth support the bullish analyst consensus, while elevated bond yields cut against tech momentum. The next major catalyst will be quarterly earnings execution on cloud growth targets.",
+   "tickers": [
+    "AMZN",
+    "MARKET"
+   ],
+   "domains": [
+    "fundamentals",
+    "macro",
+    "market",
+    "street"
+   ],
+   "degraded": "",
+   "grounded": true,
+   "ungrounded": [],
+   "tokens": 12843,
+   "calls": 6,
+   "readability": 4,
+   "conjunction": 5,
+   "task_fit": 0,
+   "usefulness": 0,
+   "calibration": 0,
+   "judge_note": "not judged",
+   "steps": [
+    "guard: on-topic",
+    "route: market(AMZN), street(AMZN), fundamentals(AMZN), macro(MARKET)",
+    "market.select: router-named",
+    "market.gather: 4/4 returned data",
+    "market.synthesize: 4 results",
+    "street.select: router-named",
+    "street.gather: 3/3 returned data",
+    "street.synthesize: 3 results",
+    "fundamentals.select: router-named",
+    "fundamentals.gather: 3/3 returned data",
+    "fundamentals.synthesize: 3 results",
+    "macro.select: router-named",
+    "macro.gather: 2/3 returned data",
+    "macro.synthesize: 2 results",
+    "writer: 4 findings"
+   ],
+   "resolved": "",
+   "findings": [
+    {
+     "domain": "market",
+     "ticker": "AMZN",
+     "evidence": [
+      {
+       "tool": "quote",
+       "data": {
+        "price": 262.29,
+        "change": 12.290009,
+        "change_pct": 4.916003,
+        "volume": 34018214,
+        "market_state": "REGULAR",
+        "name": "Amazon.com, Inc."
+       }
+      },
+      {
+       "tool": "range_52w",
+       "data": {
+        "high_52w": 287.2,
+        "low_52w": 196.0,
+        "price": 262.29,
+        "pct_below_high": 8.67,
+        "pct_above_low": 33.82,
+        "position_in_range_pct": 72.7,
+        "range_basis": "intraday highs and lows, so the high can sit above the highest close"
+       }
+      },
+      {
+       "tool": "moving_averages",
+       "data": {
+        "price": 262.11,
+        "ma50": 257.08,
+        "ma200": 242.73,
+        "vs_ma50_pct": 1.9582,
+        "vs_ma200_pct": 7.985,
+        "golden_cross": true
+       }
+      },
+      {
+       "tool": "relative_strength",
+       "data": {
+        "6mo_stock_pct": 4.6815,
+        "6mo_spy_pct": 8.5653,
+        "6mo_excess_pct": -3.88,
+        "1m_stock_pct": 1.4161,
+        "1m_spy_pct": -0.8378,
+        "1m_excess_pct": 2.25,
+        "3m_stock_pct": 7.0492,
+        "3m_spy_pct": 2.8786,
+        "3m_excess_pct": 4.17
+       }
+      }
+     ]
+    },
+    {
+     "domain": "street",
+     "ticker": "AMZN",
+     "evidence": [
+      {
+       "tool": "news",
+       "data": {
+        "headlines": [
+         {
+          "title": "AMZN Stock Set For Best Day In Three Months: Morgan Stanley Expects Amazon's AWS To Grow 47% In 2027, Denotes Stock As 'Top Pick'",
+          "publisher": "Stocktwits",
+          "published": 1792432138,
+          "url": "https://finance.yahoo.com/markets/stocks/articles/amzn-stock-set-best-day-174858785.html",
+          "via": "search"
+         }
+        ],
+        "count": 1,
+        "filtered_out": 7,
+        "note": "sentiment is NOT provided by the feed; headlines not naming the issuer were dropped"
+       }
+      },
+      {
+       "tool": "analyst_ratings",
+       "data": {
+        "recommendationKey": "strong_buy",
+        "recommendationMean": 1.33333,
+        "numberOfAnalystOpinions": 58
+       }
+      },
+      {
+       "tool": "price_targets",
+       "data": {
+        "targetLowPrice": 230.0,
+        "targetMeanPrice": 331.46103,
+        "targetHighPrice": 405.0,
+        "currentPrice": 262.29,
+        "upside_to_mean_pct": 26.4
+       }
+      }
+     ]
+    },
+    {
+     "domain": "fundamentals",
+     "ticker": "AMZN",
+     "evidence": [
+      {
+       "tool": "valuation_multiples",
+       "data": {
+        "pe_trailing": 21.101368,
+        "pe_forward": 25.115988,
+        "price_to_book": 5.1272583,
+        "market_cap": 2829142196224,
+        "eps_next_fiscal_year_estimate": 10.44315,
+        "_src": {
+         "pe_forward": {
+          "label": "Yahoo Finance \u00b7 AMZN analyst estimates (forward P/E = price \u00f7 next fiscal year's estimated EPS)",
+          "url": "https://finance.yahoo.com/quote/AMZN/analysis/"
+         },
+         "eps_next_fiscal_year_estimate": {
+          "label": "Yahoo Finance \u00b7 AMZN analyst estimates (next year EPS)",
+          "url": "https://finance.yahoo.com/quote/AMZN/analysis/"
+         },
+         "price_to_book": {
+          "label": "Yahoo Finance \u00b7 AMZN statistics",
+          "url": "https://finance.yahoo.com/quote/AMZN/key-statistics/"
+         }
+        }
+       }
+      },
+      {
+       "tool": "growth_rates",
+       "data": {
+        "latest_quarter_end": "2026-06-30",
+        "latest_revenue_usd": 200606000000,
+        "yoy_pct": 19.6205,
+        "qoq_pct": 10.5152,
+        "yoy_pct_prior_quarter": 16.6072,
+        "growth_accelerating": true
+       }
+      },
+      {
+       "tool": "profitability",
+       "data": {
+        "roe": 30.56,
+        "roa": 6.59,
+        "_src": {
+         "roe": {
+          "label": "Yahoo Finance \u00b7 AMZN statistics",
+          "url": "https://finance.yahoo.com/quote/AMZN/key-statistics/"
+         },
+         "roa": {
+          "label": "Yahoo Finance \u00b7 AMZN statistics",
+          "url": "https://finance.yahoo.com/quote/AMZN/key-statistics/"
+         },
+         "gross_margin": {
+          "label": "SEC EDGAR \u00b7 AMZN 10-K and 10-Q filings, 4 quarters to June 30th 2026 (gross profit \u00f7 revenue)",
+          "url": "https://www.sec.gov/Archives/edgar/data/1018724/000101872426000026/0001018724-26-000026-index.htm"
+         },
+         "operating_margin": {
+          "label": "SEC EDGAR \u00b7 AMZN 10-K and 10-Q filings, 4 quarters to June 30th 2026 (operating income \u00f7 revenue)",
+          "url": "https://www.sec.gov/Archives/edgar/data/1018724/000101872426000026/0001018724-26-000026-index.htm"
+         },
+         "net_margin": {
+          "label": "SEC EDGAR \u00b7 AMZN 10-K and 10-Q filings, 4 quarters to June 30th 2026 (net income \u00f7 revenue)",
+          "url": "https://www.sec.gov/Archives/edgar/data/1018724/000101872426000026/0001018724-26-000026-index.htm"
+         }
+        },
+        "gross_margin": 50.77,
+        "operating_margin": 12.08,
+        "net_margin": 17.44,
+        "margin_period": "the 12 months to June 30th 2026",
+        "revenue_12m_usd": 775680000000,
+        "operating_income_12m_usd": 93712000000,
+        "net_income_12m_usd": 135281000000
+       }
+      }
+     ]
+    },
+    {
+     "domain": "macro",
+     "ticker": "MARKET",
+     "evidence": [
+      {
+       "tool": "index_levels",
+       "data": {
+        "S&P 500": {
+         "level": 7700.75,
+         "change_pct": 0.54
+        },
+        "Nasdaq": {
+         "level": 26448.05,
+         "change_pct": 1.18
+        },
+        "US 10-year yield": {
+         "level": 5.14,
+         "change_pct": 0.82
+        },
+        "volatility index": {
+         "level": 18.52,
+         "change_pct": -7.33
+        }
+       }
+      },
+      {
+       "tool": "market_news",
+       "data": {
+        "headlines": [
+         {
+          "title": "What Are Coca-Cola Stock Bulls Not Worried About?",
+          "publisher": "Trefis",
+          "published": 1792431841,
+          "url": "https://finance.yahoo.com/markets/stocks/articles/coca-cola-stock-bulls-not-174401748.html",
+          "via": "search",
+          "source_feed": "^GSPC"
+         },
+         {
+          "title": "Stock market today: Dow slips, Nasdaq, S&P 500 rise as the AI trade rebounds",
+          "publisher": "Yahoo Finance",
+          "published": 1792431632,
+          "url": "https://finance.yahoo.com/markets/live/stock-market-today-dow-sp-500-nasdaq-futures-mixed-amid-volatile-week-112734828.html",
+          "via": "search",
+          "source_feed": "^GSPC"
+         },
+         {
+          "title": "Update: Equities Rise Intraday as Busy Earnings Week Kicks Off",
+          "publisher": "MT Newswires",
+          "published": 1792431355,
+          "url": "https://finance.yahoo.com/markets/stocks/articles/equities-rise-intraday-busy-earnings-173555913.html",
+          "via": "search",
+          "source_feed": "^GSPC"
+         },
+         {
+          "title": "2 High-Flying Dividend Stocks to Buy and Hold for a Decade",
+          "publisher": "Motley Fool",
+          "published": 1792431301,
+          "url": "https://finance.yahoo.com/healthcare/articles/2-high-flying-dividend-stocks-173501553.html",
+          "via": "search",
+          "source_feed": "^GSPC"
+         },
+         {
+          "title": "Warren Buffett Loves This Low-Cost Vanguard Fund. If You Invest Just $200 Each Month, History Says It Will Be Worth This Much in 30 Years.",
+          "publisher": "Motley Fool",
+          "published": 1792431300,
+          "url": "https://finance.yahoo.com/markets/stocks/articles/warren-buffett-loves-low-cost-173500168.html",
+          "via": "search",
+          "source_feed": "^GSPC"
+         },
+         {
+          "title": "Tech rebounds as semiconductor stocks jump: AlphaCheck",
+          "publisher": "Yahoo Finance",
+          "published": 1792417803,
+          "url": "https://finance.yahoo.com/markets/article/tech-rebounds-as-semiconductor-stocks-jump-alphacheck-135003909.html",
+          "via": "search",
+          "source_feed": "^TNX"
+         },
+         {
+          "title": "Tesla pops, tech heads for losing week: AlphaCheck",
+          "publisher": "Yahoo Finance",
+          "published": 1792159100,
+          "url": "https://finance.yahoo.com/markets/article/tesla-pops-tech-heads-for-losing-week-alphacheck-135820459.html",
+          "via": "search",
+          "source_feed": "^TNX"
+         },
+         {
+          "title": "Gold price today, Friday, October 16, 2026: Gold lifts as Treasury yields and dollar fall back",
+          "publisher": "Yahoo Personal Finance",
+          "published": 1792148811,
+          "url": "https://finance.yahoo.com/personal-finance/investing/article/gold-price-today-friday-october-16-2026-gold-lifts-as-treasury-yields-and-dollar-fall-back-110651322.html",
+          "via": "search",
+          "source_feed": "^TNX"
+         },
+         {
+          "title": "Mortgage and refinance interest rates today, Friday, October 16, 2026: Fixed mortgage rates fall back",
+          "publisher": "Yahoo Personal Finance",
+          "published": 1792144800,
+          "url": "https://finance.yahoo.com/personal-finance/mortgages/article/mortgage-and-refinance-interest-rates-today-friday-october-16-2026-fixed-mortgage-rates-fall-back-100000131.html",
+          "via": "search",
+          "source_feed": "^TNX"
+         },
+         {
+          "title": "5 Top-Performing ETF Areas of Last Week",
+          "publisher": "Zacks",
+          "published": 1792411200,
+          "url": "https://finance.yahoo.com/markets/stocks/articles/5-top-performing-etf-areas-120000254.html",
+          "via": "search",
+          "source_feed": "^VIX"
+         },
+         {
+          "title": "Dow Jones, Nasdaq, S&P 500 preview: All eyes on Meta, Tesla, SpaceX earnings",
+          "publisher": "Investing.com",
+          "published": 1792409057,
+          "url": "https://finance.yahoo.com/markets/stocks/articles/dow-jones-nasdaq-p-500-112417890.html",
+          "via": "search",
+          "source_feed": "^VIX"
+         },
+         {
+          "title": "Tom Lee Says Last Week's Stock Selloff Sets Up a Buy in Crypto, Semis",
+          "publisher": "BeInCrypto",
+          "published": 1792389300,
+          "url": "https://finance.yahoo.com/markets/crypto/articles/tom-lee-says-last-weeks-055500464.html",
+          "via": "search",
+          "source_feed": "^VIX"
+         }
+        ],
+        "note": "from index, rates and volatility feeds - treat as reported claims, not facts"
+       }
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "dividend_safety",
+   "q": "Is KO's dividend safe?",
+   "needs": "payout ratio or cash-flow cover",
+   "http": 200,
+   "wall_s": 18.4,
+   "answer": "Coca-Cola pays a dividend yield of 2.3% with a payout ratio of 62.5%. The latest dividend payment details show a last dividend of $0.53.",
+   "tickers": [
+    "KO"
+   ],
+   "domains": [
+    "fundamentals"
+   ],
+   "degraded": "",
+   "grounded": true,
+   "ungrounded": [],
+   "tokens": 5187,
+   "calls": 3,
+   "readability": 5,
+   "conjunction": 4,
+   "task_fit": 0,
+   "usefulness": 0,
+   "calibration": 0,
+   "judge_note": "not judged",
+   "steps": [
+    "guard: on-topic",
+    "route: fundamentals(KO)",
+    "fundamentals.select: router-named",
+    "fundamentals.gather: 2/3 returned data",
+    "fundamentals.synthesize: 2 results",
+    "writer: edited fundamentals"
+   ],
+   "resolved": "",
+   "findings": [
+    {
+     "domain": "fundamentals",
+     "ticker": "KO",
+     "evidence": [
+      {
+       "tool": "dividend_economics",
+       "data": {
+        "dividend_yield_pct": 2.26,
+        "payout_ratio_pct": 62.5,
+        "last_dividend": 0.53
+       }
+      },
+      {
+       "tool": "leverage_liquidity",
+       "data": {
+        "current_ratio": 1.305,
+        "quick_ratio": 0.798,
+        "total_cash": 16371000320,
+        "total_debt": 44260999168,
+        "debt_to_equity_ratio": 1.16,
+        "debt_as_pct_of_equity": 115.5,
+        "net_cash_usd": -27889998848
+       }
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "leverage",
+   "q": "How leveraged is NVDA's balance sheet?",
+   "needs": "debt against equity or cash, in correct units",
+   "http": 200,
+   "wall_s": 24.1,
+   "answer": "NVDA carries a low debt-to-equity ratio of 0.17 and a strong current ratio of 4.59. It holds $62.5B in cash against $38.9B in debt, resulting in minimal overall balance sheet risk.",
+   "tickers": [
+    "NVDA"
+   ],
+   "domains": [
+    "fundamentals"
+   ],
+   "degraded": "",
+   "grounded": true,
+   "ungrounded": [],
+   "tokens": 5522,
+   "calls": 3,
+   "readability": 5,
+   "conjunction": 2,
+   "task_fit": 0,
+   "usefulness": 0,
+   "calibration": 0,
+   "judge_note": "not judged",
+   "steps": [
+    "guard: on-topic",
+    "route: fundamentals(NVDA)",
+    "fundamentals.select: router-named",
+    "fundamentals.gather: 2/2 returned data",
+    "fundamentals.synthesize: 2 results",
+    "writer: edited fundamentals"
+   ],
+   "resolved": "",
+   "findings": [
+    {
+     "domain": "fundamentals",
+     "ticker": "NVDA",
+     "evidence": [
+      {
+       "tool": "leverage_liquidity",
+       "data": {
+        "current_ratio": 4.589,
+        "quick_ratio": 2.918,
+        "total_cash": 62469001216,
+        "total_debt": 38860001280,
+        "debt_to_equity_ratio": 0.17,
+        "debt_as_pct_of_equity": 17.0,
+        "net_cash_usd": 23608999936
+       }
+      },
+      {
+       "tool": "income_statement",
+       "data": {
+        "quarterly_revenue": [
+         {
+          "end": "2025-04-27",
+          "usd": 44062000000
+         },
+         {
+          "end": "2025-07-27",
+          "usd": 46743000000
+         },
+         {
+          "end": "2025-10-26",
+          "usd": 57006000000
+         },
+         {
+          "end": "2026-01-25",
+          "usd": 68127000000
+         },
+         {
+          "end": "2026-04-26",
+          "usd": 81615000000
+         },
+         {
+          "end": "2026-07-26",
+          "usd": 96221000000
+         }
+        ],
+        "quarterly_net_income": [
+         {
+          "end": "2025-04-27",
+          "usd": 18775000000
+         },
+         {
+          "end": "2025-07-27",
+          "usd": 26422000000
+         },
+         {
+          "end": "2025-10-26",
+          "usd": 31910000000
+         },
+         {
+          "end": "2026-01-25",
+          "usd": 42960000000
+         },
+         {
+          "end": "2026-04-26",
+          "usd": 58321000000
+         },
+         {
+          "end": "2026-07-26",
+          "usd": 59688000000
+         }
+        ],
+        "note": "each row is a single ~91-day quarter, not a cumulative rollup"
+       }
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "six_month_peers",
+   "q": "How has PLTR done over the last six months versus its peers?",
+   "needs": "a six-month window, not a one-year one",
+   "http": 200,
+   "wall_s": 6.6,
+   "answer": "Palantir rose 32.7% over the last six months, outpacing the broader market gain of 8.6%. It beat the peer median return of 14.3% with a beta-adjusted excess return of 15.5%. This relative strength occurred despite a high beta of 2.01 and a volatility of 66.8%. The advance peaked at 209.05 before closing the period at 194.33.",
+   "tickers": [
+    "PLTR"
+   ],
+   "domains": [
+    "market",
+    "relations"
+   ],
+   "degraded": "",
+   "grounded": true,
+   "ungrounded": [],
+   "tokens": 8805,
+   "calls": 4,
+   "readability": 5,
+   "conjunction": 5,
+   "task_fit": 0,
+   "usefulness": 0,
+   "calibration": 0,
+   "judge_note": "not judged",
+   "steps": [
+    "guard: on-topic",
+    "route: market(PLTR), relations(PLTR)",
+    "market.select: router-named",
+    "market.gather: 2/2 returned data",
+    "market.synthesize: 2 results",
+    "relations.select: router-named",
+    "relations.gather: 1/1 returned data",
+    "relations.synthesize: 1 results",
+    "writer: 2 findings"
+   ],
+   "resolved": "",
+   "findings": [
+    {
+     "domain": "market",
+     "ticker": "PLTR",
+     "evidence": [
+      {
+       "tool": "price_series",
+       "data": {
+        "period": "6mo",
+        "bars": 128,
+        "start": 146.39,
+        "end": 194.33,
+        "high": 209.05,
+        "low": 107.27,
+        "change_pct": 32.7454
+       }
+      },
+      {
+       "tool": "relative_strength",
+       "data": {
+        "6mo_stock_pct": 32.7454,
+        "6mo_spy_pct": 8.5653,
+        "6mo_excess_pct": 24.18,
+        "1m_stock_pct": 6.8709,
+        "1m_spy_pct": -0.8378,
+        "1m_excess_pct": 7.71,
+        "3m_stock_pct": 57.0763,
+        "3m_spy_pct": 2.8786,
+        "3m_excess_pct": 54.2
+       }
+      }
+     ]
+    },
+    {
+     "domain": "relations",
+     "ticker": "PLTR",
+     "evidence": [
+      {
+       "tool": "peer_performance",
+       "data": {
+        "ticker": "PLTR",
+        "period": "6mo",
+        "market_return_pct": 8.5653,
+        "subject": {
+         "ticker": "PLTR",
+         "return_pct": 32.7454,
+         "beta_vs_spy": 2.01,
+         "volatility_pct": 66.8,
+         "market_cap": 466890194944,
+         "name": "Palantir Technologies Inc.",
+         "beta_adjusted_excess_pct": 15.53,
+         "return_per_vol": 0.49
+        },
+        "peers": [
+         {
+          "ticker": "MU",
+          "return_pct": 98.9918,
+          "beta_vs_spy": 4.02,
+          "volatility_pct": 91.1,
+          "market_cap": 1024243531776,
+          "name": "Micron Technology, Inc.",
+          "beta_adjusted_excess_pct": 64.56,
+          "return_per_vol": 1.09
+         },
+         {
+          "ticker": "AMD",
+          "return_pct": 93.6241,
+          "beta_vs_spy": 4.13,
+          "volatility_pct": 75.4,
+          "market_cap": 880148938752,
+          "name": "Advanced Micro Devices, Inc.",
+          "beta_adjusted_excess_pct": 58.25,
+          "return_per_vol": 1.24
+         },
+         {
+          "ticker": "TSM",
+          "return_pct": 14.2995,
+          "beta_vs_spy": 2.39,
+          "volatility_pct": 41.9,
+          "market_cap": 2185372631040,
+          "name": "Taiwan Semiconductor Manufactur",
+          "beta_adjusted_excess_pct": -6.17,
+          "return_per_vol": 0.34
+         },
+         {
+          "ticker": "AVGO",
+          "return_pct": -17.3252,
+          "beta_vs_spy": 2.21,
+          "volatility_pct": 46.3,
+          "market_cap": 1599333597184,
+          "name": "Broadcom Inc.",
+          "beta_adjusted_excess_pct": -36.25,
+          "return_per_vol": -0.37
+         },
+         {
+          "ticker": "SOFI",
+          "return_pct": -25.7591,
+          "beta_vs_spy": 2.67,
+          "volatility_pct": 54.8,
+          "market_cap": 18630901760,
+          "name": "SoFi Technologies, Inc.",
+          "beta_adjusted_excess_pct": -48.63,
+          "return_per_vol": -0.47
+         }
+        ],
+        "cohort": {
+         "median_return_pct": 14.3,
+         "median_beta": 2.67,
+         "median_excess_pct": -6.17,
+         "median_market_cap": 1024243531776,
+         "peers_measured": 5
+        },
+        "note": "a raw return is not comparable between names of different beta; beta_adjusted_excess_pct is the part not explained by the market move. Share price level and stock splits do not affect any of these figures - returns are split-adjusted.",
+        "reading": "PLTR returned +32.7% over 6mo vs a peer median of +14.3%; on a beta of 2.01 against the cohort's 2.67; which leaves +21.7pts once the market move each beta implies is removed (raw gap +18.4pts)"
+       }
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "company_name",
+   "q": "Is Nvidia's rally backed by earnings growth?",
+   "needs": "resolves the name to NVDA; price move set against EPS/revenue growth",
+   "http": 200,
+   "wall_s": 17.3,
+   "answer": "Nvidia's rally is strongly backed by fundamental earnings growth. Revenue reached $96.2B in the latest period, accompanied by a year-over-year growth rate of 105.9%. Net income climbed to $59.7B, showing that financial expansion matches the upward trajectory. The stock gained 18.8% over the last year, outperforming the broader market by 2.1%.",
+   "tickers": [
+    "NVDA"
+   ],
+   "domains": [
+    "fundamentals",
+    "market"
+   ],
+   "degraded": "",
+   "grounded": true,
+   "ungrounded": [],
+   "tokens": 9150,
+   "calls": 5,
+   "readability": 5,
+   "conjunction": 5,
+   "task_fit": 0,
+   "usefulness": 0,
+   "calibration": 0,
+   "judge_note": "not judged",
+   "steps": [
+    "guard: on-topic",
+    "route: market(NVDA), fundamentals(NVDA)",
+    "market.select: router-named",
+    "market.gather: 3/3 returned data",
+    "market.synthesize: 3 results",
+    "fundamentals.select: router-named",
+    "fundamentals.gather: 2/2 returned data",
+    "fundamentals.synthesize: 2 results",
+    "writer: 2 findings",
+    "writer.verify: repaired: UNSUPPORTED figures (not present in the evidence): 4.5"
+   ],
+   "resolved": "",
+   "findings": [
+    {
+     "domain": "market",
+     "ticker": "NVDA",
+     "evidence": [
+      {
+       "tool": "price_series",
+       "data": {
+        "period": "1y",
+        "bars": 252,
+        "start": 182.78,
+        "end": 217.12,
+        "high": 239.24,
+        "low": 164.79,
+        "change_pct": 18.7875
+       }
+      },
+      {
+       "tool": "relative_strength",
+       "data": {
+        "1y_stock_pct": 18.7875,
+        "1y_spy_pct": 16.6928,
+        "1y_excess_pct": 2.09,
+        "1m_stock_pct": -4.5113,
+        "1m_spy_pct": -0.8378,
+        "1m_excess_pct": -3.67,
+        "3m_stock_pct": 2.5018,
+        "3m_spy_pct": 2.8786,
+        "3m_excess_pct": -0.38
+       }
+      },
+      {
+       "tool": "trend",
+       "data": {
+        "windows": {
+         "1m": {
+          "change_pct": -2.191,
+          "bars": 22,
+          "annualised_pct": -25.3,
+          "straightness_r2": 0.07,
+          "direction": "down"
+         },
+         "6m": {
+          "change_pct": 7.9048,
+          "bars": 128,
+          "annualised_pct": 20.7,
+          "straightness_r2": 0.27,
+          "direction": "up"
+         },
+         "1y": {
+          "change_pct": 18.7875,
+          "bars": 252,
+          "annualised_pct": 26.5,
+          "straightness_r2": 0.6,
+          "direction": "up"
+         },
+         "3y": {
+          "change_pct": 379.6406,
+          "bars": 756,
+          "annualised_pct": 58.5,
+          "straightness_r2": 0.82,
+          "direction": "up"
+         }
+        },
+        "short_vs_long_agree": false,
+        "reading": "a pullback inside a longer uptrend - short term down, 1y still up",
+        "note": "straightness_r2 is how much of the move is direction rather than noise: 1.0 is a straight line, near 0 is chop"
+       }
+      }
+     ]
+    },
+    {
+     "domain": "fundamentals",
+     "ticker": "NVDA",
+     "evidence": [
+      {
+       "tool": "income_statement",
+       "data": {
+        "quarterly_revenue": [
+         {
+          "end": "2025-04-27",
+          "usd": 44062000000
+         },
+         {
+          "end": "2025-07-27",
+          "usd": 46743000000
+         },
+         {
+          "end": "2025-10-26",
+          "usd": 57006000000
+         },
+         {
+          "end": "2026-01-25",
+          "usd": 68127000000
+         },
+         {
+          "end": "2026-04-26",
+          "usd": 81615000000
+         },
+         {
+          "end": "2026-07-26",
+          "usd": 96221000000
+         }
+        ],
+        "quarterly_net_income": [
+         {
+          "end": "2025-04-27",
+          "usd": 18775000000
+         },
+         {
+          "end": "2025-07-27",
+          "usd": 26422000000
+         },
+         {
+          "end": "2025-10-26",
+          "usd": 31910000000
+         },
+         {
+          "end": "2026-01-25",
+          "usd": 42960000000
+         },
+         {
+          "end": "2026-04-26",
+          "usd": 58321000000
+         },
+         {
+          "end": "2026-07-26",
+          "usd": 59688000000
+         }
+        ],
+        "note": "each row is a single ~91-day quarter, not a cumulative rollup"
+       }
+      },
+      {
+       "tool": "growth_rates",
+       "data": {
+        "latest_quarter_end": "2026-07-26",
+        "latest_revenue_usd": 96221000000,
+        "yoy_pct": 105.8511,
+        "qoq_pct": 17.8962,
+        "yoy_pct_prior_quarter": 85.2276,
+        "growth_accelerating": true
+       }
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "followup_swap",
+   "q": "What about AMD?",
+   "needs": "reads the prior turn: AMD's performance this year",
+   "http": 200,
+   "wall_s": 42.0,
+   "answer": "{\\\"answer\\\": \\\"AMD has gained 151.7% year-to-date, significantly outperforming the S&P 500 return of 13.4%. It also beats the peer group median return of 39.8%, driven by a high beta of 3.24. Growth is accelerating, with quarterly revenue jumping 50.1% year-over-year to $11.5B alongside an operating margin of 15.7%. However, momentum has cooled with a 12.5% decline over the past month amid reports of Nvidia capturing CPU business. Analyst sentiment remains unchanged, with six firms maintaining buy or outperform ratings over the past month.\\\"}",
+   "tickers": [
+    "AMD"
+   ],
+   "domains": [
+    "fundamentals",
+    "market",
+    "relations",
+    "street"
+   ],
+   "degraded": "",
+   "grounded": true,
+   "ungrounded": [],
+   "tokens": 16485,
+   "calls": 9,
+   "readability": 4,
+   "conjunction": 5,
+   "task_fit": 0,
+   "usefulness": 0,
+   "calibration": 0,
+   "judge_note": "not judged",
+   "steps": [
+    "guard: on-topic",
+    "route: market(AMD), relations(AMD)",
+    "market.select: router-named",
+    "market.gather: 2/2 returned data",
+    "market.synthesize: 2 results",
+    "relations.select: router-named",
+    "relations.gather: 1/1 returned data",
+    "relations.synthesize: 1 results",
+    "writer.decide: needs more -> fundamentals(AMD), street(AMD)",
+    "fundamentals.select: Left out dilution and share count as the focus is on primary earnings results an",
+    "fundamentals.gather: 4/4 returned data",
+    "fundamentals.synthesize: 4 results",
+    "street.select: Skipped other sentiment and structural tools like short interest and price targe",
+    "street.gather: 2/2 returned data",
+    "street.synthesize: 2 results",
+    "writer: 4 findings"
+   ],
+   "resolved": "How is AMD performing this year compared to its semiconductor peers?",
+   "findings": [
+    {
+     "domain": "market",
+     "ticker": "AMD",
+     "evidence": [
+      {
+       "tool": "price_series",
+       "data": {
+        "period": "ytd",
+        "bars": 201,
+        "start": 214.16,
+        "end": 539.03,
+        "high": 649.42,
+        "low": 190.95,
+        "change_pct": 151.695
+       }
+      },
+      {
+       "tool": "relative_strength",
+       "data": {
+        "ytd_stock_pct": 151.695,
+        "ytd_spy_pct": 13.3669,
+        "ytd_excess_pct": 138.33,
+        "1m_stock_pct": -12.4708,
+        "1m_spy_pct": -0.8378,
+        "1m_excess_pct": -11.63,
+        "3m_stock_pct": -2.4569,
+        "3m_spy_pct": 2.8786,
+        "3m_excess_pct": -5.34
+       }
+      }
+     ]
+    },
+    {
+     "domain": "relations",
+     "ticker": "AMD",
+     "evidence": [
+      {
+       "tool": "peer_performance",
+       "data": {
+        "ticker": "AMD",
+        "period": "ytd",
+        "market_return_pct": 13.3669,
+        "subject": {
+         "ticker": "AMD",
+         "return_pct": 151.695,
+         "beta_vs_spy": 3.24,
+         "volatility_pct": 71.0,
+         "market_cap": 880620732416,
+         "name": "Advanced Micro Devices, Inc.",
+         "beta_adjusted_excess_pct": 108.39,
+         "return_per_vol": 2.14
+        },
+        "peers": [
+         {
+          "ticker": "MU",
+          "return_pct": 217.4143,
+          "beta_vs_spy": 3.26,
+          "volatility_pct": 84.7,
+          "market_cap": 1024945029120,
+          "name": "Micron Technology, Inc.",
+          "beta_adjusted_excess_pct": 173.84,
+          "return_per_vol": 2.57
+         },
+         {
+          "ticker": "INTC",
+          "return_pct": 150.7046,
+          "beta_vs_spy": 3.12,
+          "volatility_pct": 82.9,
+          "market_cap": 488938307584,
+          "name": "Intel Corporation",
+          "beta_adjusted_excess_pct": 109.0,
+          "return_per_vol": 1.82
+         },
+         {
+          "ticker": "TSM",
+          "return_pct": 39.7457,
+          "beta_vs_spy": 2.21,
+          "volatility_pct": 41.4,
+          "market_cap": 2186461839360,
+          "name": "Taiwan Semiconductor Manufactur",
+          "beta_adjusted_excess_pct": 10.2,
+          "return_per_vol": 0.96
+         },
+         {
+          "ticker": "PLTR",
+          "return_pct": 9.3255,
+          "beta_vs_spy": 1.7,
+          "volatility_pct": 62.9,
+          "market_cap": 466977226752,
+          "name": "Palantir Technologies Inc.",
+          "beta_adjusted_excess_pct": -13.4,
+          "return_per_vol": 0.15
+         },
+         {
+          "ticker": "NFLX",
+          "return_pct": -25.8266,
+          "beta_vs_spy": 0.28,
+          "volatility_pct": 36.7,
+          "market_cap": 289581170688,
+          "name": "Netflix, Inc.",
+          "beta_adjusted_excess_pct": -29.57,
+          "return_per_vol": -0.7
+         }
+        ],
+        "cohort": {
+         "median_return_pct": 39.75,
+         "median_beta": 2.21,
+         "median_excess_pct": 10.2,
+         "median_market_cap": 488938307584,
+         "peers_measured": 5
+        },
+        "note": "a raw return is not comparable between names of different beta; beta_adjusted_excess_pct is the part not explained by the market move. Share price level and stock splits do not affect any of these figures - returns are split-adjusted.",
+        "reading": "AMD returned +151.7% over ytd vs a peer median of +39.8%; on a beta of 3.24 against the cohort's 2.21; which leaves +98.2pts once the market move each beta implies is removed (raw gap +111.9pts)"
+       }
+      }
+     ]
+    },
+    {
+     "domain": "fundamentals",
+     "ticker": "AMD",
+     "evidence": [
+      {
+       "tool": "income_statement",
+       "data": {
+        "quarterly_revenue": [
+         {
+          "end": "2025-03-29",
+          "usd": 7438000000
+         },
+         {
+          "end": "2025-06-28",
+          "usd": 7685000000
+         },
+         {
+          "end": "2025-09-27",
+          "usd": 9246000000
+         },
+         {
+          "end": "2025-12-27",
+          "usd": 10270000000
+         },
+         {
+          "end": "2026-03-28",
+          "usd": 10253000000
+         },
+         {
+          "end": "2026-06-27",
+          "usd": 11536000000
+         }
+        ],
+        "quarterly_net_income": [
+         {
+          "end": "2025-03-29",
+          "usd": 709000000
+         },
+         {
+          "end": "2025-06-28",
+          "usd": 872000000
+         },
+         {
+          "end": "2025-09-27",
+          "usd": 1243000000
+         },
+         {
+          "end": "2025-12-27",
+          "usd": 1511000000
+         },
+         {
+          "end": "2026-03-28",
+          "usd": 1383000000
+         },
+         {
+          "end": "2026-06-27",
+          "usd": 2297000000
+         }
+        ],
+        "note": "each row is a single ~91-day quarter, not a cumulative rollup"
+       }
+      },
+      {
+       "tool": "growth_rates",
+       "data": {
+        "latest_quarter_end": "2026-06-27",
+        "latest_revenue_usd": 11536000000,
+        "yoy_pct": 50.1106,
+        "qoq_pct": 12.5134,
+        "yoy_pct_prior_quarter": 37.8462,
+        "growth_accelerating": true
+       }
+      },
+      {
+       "tool": "profitability",
+       "data": {
+        "roe": 10.2,
+        "roa": 5.13,
+        "_src": {
+         "roe": {
+          "label": "Yahoo Finance \u00b7 AMD statistics",
+          "url": "https://finance.yahoo.com/quote/AMD/key-statistics/"
+         },
+         "roa": {
+          "label": "Yahoo Finance \u00b7 AMD statistics",
+          "url": "https://finance.yahoo.com/quote/AMD/key-statistics/"
+         },
+         "gross_margin": {
+          "label": "SEC EDGAR \u00b7 AMD 10-K and 10-Q filings, 4 quarters to June 27th 2026 (gross profit \u00f7 revenue)",
+          "url": "https://www.sec.gov/Archives/edgar/data/2488/000000248826000123/0000002488-26-000123-index.htm"
+         },
+         "operating_margin": {
+          "label": "SEC EDGAR \u00b7 AMD 10-K and 10-Q filings, 4 quarters to June 27th 2026 (operating income \u00f7 revenue)",
+          "url": "https://www.sec.gov/Archives/edgar/data/2488/000000248826000123/0000002488-26-000123-index.htm"
+         },
+         "net_margin": {
+          "label": "SEC EDGAR \u00b7 AMD 10-K and 10-Q filings, 4 quarters to June 27th 2026 (net income \u00f7 revenue)",
+          "url": "https://www.sec.gov/Archives/edgar/data/2488/000000248826000123/0000002488-26-000123-index.htm"
+         }
+        },
+        "gross_margin": 53.2,
+        "operating_margin": 15.71,
+        "net_margin": 15.58,
+        "margin_period": "the 12 months to June 27th 2026",
+        "revenue_12m_usd": 41305000000,
+        "operating_income_12m_usd": 6488000000,
+        "net_income_12m_usd": 6434000000
+       }
+      },
+      {
+       "tool": "valuation_multiples",
+       "data": {
+        "pe_trailing": 137.51276,
+        "pe_forward": 34.199146,
+        "price_to_book": 13.086596,
+        "market_cap": 879985623040,
+        "eps_next_fiscal_year_estimate": 15.76209,
+        "_src": {
+         "pe_forward": {
+          "label": "Yahoo Finance \u00b7 AMD analyst estimates (forward P/E = price \u00f7 next fiscal year's estimated EPS)",
+          "url": "https://finance.yahoo.com/quote/AMD/analysis/"
+         },
+         "eps_next_fiscal_year_estimate": {
+          "label": "Yahoo Finance \u00b7 AMD analyst estimates (next year EPS)",
+          "url": "https://finance.yahoo.com/quote/AMD/analysis/"
+         },
+         "price_to_book": {
+          "label": "Yahoo Finance \u00b7 AMD statistics",
+          "url": "https://finance.yahoo.com/quote/AMD/key-statistics/"
+         }
+        }
+       }
+      }
+     ]
+    },
+    {
+     "domain": "street",
+     "ticker": "AMD",
+     "evidence": [
+      {
+       "tool": "news",
+       "data": {
+        "headlines": [
+         {
+          "title": "Why AMD Stock Popped on Monday",
+          "publisher": "Motley Fool",
+          "published": 1792429613,
+          "url": "https://finance.yahoo.com/markets/stocks/articles/why-amd-stock-popped-monday-170653529.html",
+          "via": "search"
+         },
+         {
+          "title": "Investor: \u2018I Turned AMD Into $16 Million and Sold Everything, Did I Quit Too Soon?\u2019",
+          "publisher": "24/7 Wall St.",
+          "published": 1792425588,
+          "url": "https://finance.yahoo.com/markets/stocks/articles/investor-turned-amd-16-million-155948015.html",
+          "via": "search"
+         },
+         {
+          "title": "Nvidia wins CPU business from Modal, previously exclusive to AMD and Intel",
+          "publisher": "Investing.com",
+          "published": 1792421501,
+          "url": "https://finance.yahoo.com/technology/ai/articles/nvidia-wins-cpu-business-modal-145141641.html",
+          "via": "search"
+         }
+        ],
+        "count": 3,
+        "filtered_out": 5,
+        "note": "sentiment is NOT provided by the feed; headlines not naming the issuer were dropped"
+       }
+      },
+      {
+       "tool": "rating_changes",
+       "data": {
+        "changes": [
+         {
+          "date": "2026-10-06",
+          "firm": "Citigroup",
+          "to": "Buy",
+          "from": "Buy",
+          "action": "main"
+         },
+         {
+          "date": "2026-10-06",
+          "firm": "Mizuho",
+          "to": "Outperform",
+          "from": "Outperform",
+          "action": "main"
+         },
+         {
+          "date": "2026-10-05",
+          "firm": "Stifel",
+          "to": "Buy",
+          "from": "Buy",
+          "action": "main"
+         },
+         {
+          "date": "2026-09-29",
+          "firm": "StoneX",
+          "to": "Buy",
+          "from": "Buy",
+          "action": "reit"
+         },
+         {
+          "date": "2026-09-29",
+          "firm": "Rosenblatt",
+          "to": "Buy",
+          "from": "Buy",
+          "action": "main"
+         },
+         {
+          "date": "2026-09-25",
+          "firm": "B of A Securities",
+          "to": "Buy",
+          "from": "Buy",
+          "action": "main"
+         },
+         {
+          "date": "2026-09-10",
+          "firm": "Piper Sandler",
+          "to": "Overweight",
+          "from": "",
+          "action": "init"
+         },
+         {
+          "date": "2026-08-25",
+          "firm": "Raymond James",
+          "to": "Strong Buy",
+          "from": "Outperform",
+          "action": "up"
+         }
+        ]
+       }
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "followup_why",
+   "q": "Why is that?",
+   "needs": "reads the prior turn: what drives the analyst view on AAPL",
+   "http": 200,
+   "wall_s": 16.9,
+   "answer": "Analysts maintain a buy recommendation backed by a mean price target of $329.38, driven by an underappreciated AI advantage from deep hardware-software integration. This outlook is supported by a robust gross margin of 48.6% and a market cap of $5.01T. Revenue growth stands at 16.4% year-over-year, while the forward P/E of 35.87 reflects high earnings expectations. The broader tech sector rebound also provides a supportive backdrop for consumer electronics names.",
+   "tickers": [
+    "AAPL"
+   ],
+   "domains": [
+    "fundamentals",
+    "macro",
+    "market",
+    "street"
+   ],
+   "degraded": "",
+   "grounded": true,
+   "ungrounded": [],
+   "tokens": 16189,
+   "calls": 6,
+   "readability": 5,
+   "conjunction": 5,
+   "task_fit": 0,
+   "usefulness": 0,
+   "calibration": 0,
+   "judge_note": "not judged",
+   "steps": [
+    "guard: on-topic",
+    "route: street(AAPL), fundamentals(AAPL), macro(AAPL), market(AAPL)",
+    "street.select: router-named",
+    "street.gather: 3/3 returned data",
+    "street.synthesize: 3 results",
+    "fundamentals.select: router-named",
+    "fundamentals.gather: 3/3 returned data",
+    "fundamentals.synthesize: 3 results",
+    "macro.select: router-named",
+    "macro.gather: 2/2 returned data",
+    "macro.synthesize: 2 results",
+    "market.select: router-named",
+    "market.gather: 2/2 returned data",
+    "market.synthesize: 2 results",
+    "writer: 4 findings"
+   ],
+   "resolved": "Why do analysts have a positive outlook on AAPL, and what factors are driving their price targets?",
+   "findings": [
+    {
+     "domain": "street",
+     "ticker": "AAPL",
+     "evidence": [
+      {
+       "tool": "news",
+       "data": {
+        "headlines": [
+         {
+          "title": "Apple Confirms October 28 \u2018Pro And Tell\u2019 Event \u2014 First Touchscreen MacBook Pro Expected",
+          "publisher": "Stocktwits",
+          "published": 1792431800,
+          "url": "https://finance.yahoo.com/markets/stocks/articles/apple-confirms-october-28-pro-174320803.html",
+          "via": "search"
+         },
+         {
+          "title": "Market Chatter: Apple Touch-Screen MacBook Expected at Oct. 28 'Pro and Tell' Event",
+          "publisher": "MT Newswires",
+          "published": 1792431004,
+          "url": "https://finance.yahoo.com/markets/stocks/articles/market-chatter-apple-touch-screen-173004089.html",
+          "via": "search"
+         },
+         {
+          "title": "Apple Stock Dips as iPhone 18 Pro Weakness Centers on China",
+          "publisher": "GuruFocus.com",
+          "published": 1792430014,
+          "url": "https://finance.yahoo.com/markets/stocks/articles/apple-stock-dips-iphone-18-171334625.html",
+          "via": "search"
+         },
+         {
+          "title": "Apple Stock Holds Strong Amid Healthy iPhone Duo Preorders",
+          "publisher": "Investor's Business Daily",
+          "published": 1792428585,
+          "url": "https://finance.yahoo.com/m/ed0b8ee3-bbf6-3cb8-840e-4138b476aa07/apple-stock-holds-strong-amid.html",
+          "via": "search"
+         },
+         {
+          "title": "Samsung is making an unexpected move against Apple",
+          "publisher": "TheStreet",
+          "published": 1792428420,
+          "url": "https://finance.yahoo.com/technology/articles/samsung-making-unexpected-move-against-164700462.html",
+          "via": "search"
+         },
+         {
+          "title": "Deep Hardware-Software Integration Drives Apple\u2019s (AAPL) Underappreciated AI Advantage",
+          "publisher": "Insider Monkey",
+          "published": 1792427470,
+          "url": "https://finance.yahoo.com/markets/stocks/articles/deep-hardware-software-integration-drives-163110026.html",
+          "via": "search"
+         },
+         {
+          "title": "Apple\u2019s iPhone Duo Sold Out In Minutes. The Last Time Apple Reinvented The Phone, One Apple Supplier\u2019s Stock Soared About 1,200% In A Decade",
+          "publisher": "24/7 Wall St.",
+          "published": 1792424972,
+          "url": "https://finance.yahoo.com/markets/stocks/articles/apple-iphone-duo-sold-minutes-154932956.html",
+          "via": "search"
+         }
+        ],
+        "count": 7,
+        "filtered_out": 1,
+        "note": "sentiment is NOT provided by the feed; headlines not naming the issuer were dropped"
+       }
+      },
+      {
+       "tool": "analyst_ratings",
+       "data": {
+        "recommendationKey": "buy",
+        "recommendationMean": 2.20455,
+        "numberOfAnalystOpinions": 39
+       }
+      },
+      {
+       "tool": "price_targets",
+       "data": {
+        "targetLowPrice": 215.0,
+        "targetMeanPrice": 329.3759,
+        "targetHighPrice": 405.0,
+        "currentPrice": 342.92,
+        "upside_to_mean_pct": -3.9
+       }
+      }
+     ]
+    },
+    {
+     "domain": "fundamentals",
+     "ticker": "AAPL",
+     "evidence": [
+      {
+       "tool": "growth_rates",
+       "data": {
+        "latest_quarter_end": "2026-06-27",
+        "latest_revenue_usd": 109417000000,
+        "yoy_pct": 16.3565,
+        "qoq_pct": -1.5893,
+        "yoy_pct_prior_quarter": 16.5952,
+        "growth_accelerating": false
+       }
+      },
+      {
+       "tool": "profitability",
+       "data": {
+        "roe": 148.75,
+        "roa": 27.08,
+        "_src": {
+         "roe": {
+          "label": "Yahoo Finance \u00b7 AAPL statistics",
+          "url": "https://finance.yahoo.com/quote/AAPL/key-statistics/"
+         },
+         "roa": {
+          "label": "Yahoo Finance \u00b7 AAPL statistics",
+          "url": "https://finance.yahoo.com/quote/AAPL/key-statistics/"
+         },
+         "gross_margin": {
+          "label": "SEC EDGAR \u00b7 AAPL 10-K and 10-Q filings, 4 quarters to June 27th 2026 (gross profit \u00f7 revenue)",
+          "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019326000020/0000320193-26-000020-index.htm"
+         },
+         "operating_margin": {
+          "label": "SEC EDGAR \u00b7 AAPL 10-K and 10-Q filings, 4 quarters to June 27th 2026 (operating income \u00f7 revenue)",
+          "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019326000020/0000320193-26-000020-index.htm"
+         },
+         "net_margin": {
+          "label": "SEC EDGAR \u00b7 AAPL 10-K and 10-Q filings, 4 quarters to June 27th 2026 (net income \u00f7 revenue)",
+          "url": "https://www.sec.gov/Archives/edgar/data/320193/000032019326000020/0000320193-26-000020-index.htm"
+         }
+        },
+        "gross_margin": 48.65,
+        "operating_margin": 33.17,
+        "net_margin": 27.62,
+        "margin_period": "the 12 months to June 27th 2026",
+        "revenue_12m_usd": 466823000000,
+        "operating_income_12m_usd": 154859000000,
+        "net_income_12m_usd": 128930000000
+       }
+      },
+      {
+       "tool": "valuation_multiples",
+       "data": {
+        "pe_trailing": 39.394493,
+        "pe_forward": 35.866085,
+        "price_to_book": 46.673912,
+        "market_cap": 5013392326656,
+        "eps_next_fiscal_year_estimate": 9.57785,
+        "_src": {
+         "pe_forward": {
+          "label": "Yahoo Finance \u00b7 AAPL analyst estimates (forward P/E = price \u00f7 next fiscal year's estimated EPS)",
+          "url": "https://finance.yahoo.com/quote/AAPL/analysis/"
+         },
+         "eps_next_fiscal_year_estimate": {
+          "label": "Yahoo Finance \u00b7 AAPL analyst estimates (next year EPS)",
+          "url": "https://finance.yahoo.com/quote/AAPL/analysis/"
+         },
+         "price_to_book": {
+          "label": "Yahoo Finance \u00b7 AAPL statistics",
+          "url": "https://finance.yahoo.com/quote/AAPL/key-statistics/"
+         }
+        }
+       }
+      }
+     ]
+    },
+    {
+     "domain": "macro",
+     "ticker": "AAPL",
+     "evidence": [
+      {
+       "tool": "market_news",
+       "data": {
+        "headlines": [
+         {
+          "title": "What Are Coca-Cola Stock Bulls Not Worried About?",
+          "publisher": "Trefis",
+          "published": 1792431841,
+          "url": "https://finance.yahoo.com/markets/stocks/articles/coca-cola-stock-bulls-not-174401748.html",
+          "via": "search",
+          "source_feed": "^GSPC"
+         },
+         {
+          "title": "Stock market today: Dow slips, Nasdaq, S&P 500 rise as the AI trade rebounds",
+          "publisher": "Yahoo Finance",
+          "published": 1792431632,
+          "url": "https://finance.yahoo.com/markets/live/stock-market-today-dow-sp-500-nasdaq-futures-mixed-amid-volatile-week-112734828.html",
+          "via": "search",
+          "source_feed": "^GSPC"
+         },
+         {
+          "title": "Update: Equities Rise Intraday as Busy Earnings Week Kicks Off",
+          "publisher": "MT Newswires",
+          "published": 1792431355,
+          "url": "https://finance.yahoo.com/markets/stocks/articles/equities-rise-intraday-busy-earnings-173555913.html",
+          "via": "search",
+          "source_feed": "^GSPC"
+         },
+         {
+          "title": "2 High-Flying Dividend Stocks to Buy and Hold for a Decade",
+          "publisher": "Motley Fool",
+          "published": 1792431301,
+          "url": "https://finance.yahoo.com/healthcare/articles/2-high-flying-dividend-stocks-173501553.html",
+          "via": "search",
+          "source_feed": "^GSPC"
+         },
+         {
+          "title": "Warren Buffett Loves This Low-Cost Vanguard Fund. If You Invest Just $200 Each Month, History Says It Will Be Worth This Much in 30 Years.",
+          "publisher": "Motley Fool",
+          "published": 1792431300,
+          "url": "https://finance.yahoo.com/markets/stocks/articles/warren-buffett-loves-low-cost-173500168.html",
+          "via": "search",
+          "source_feed": "^GSPC"
+         },
+         {
+          "title": "Tech rebounds as semiconductor stocks jump: AlphaCheck",
+          "publisher": "Yahoo Finance",
+          "published": 1792417803,
+          "url": "https://finance.yahoo.com/markets/article/tech-rebounds-as-semiconductor-stocks-jump-alphacheck-135003909.html",
+          "via": "search",
+          "source_feed": "^TNX"
+         },
+         {
+          "title": "Tesla pops, tech heads for losing week: AlphaCheck",
+          "publisher": "Yahoo Finance",
+          "published": 1792159100,
+          "url": "https://finance.yahoo.com/markets/article/tesla-pops-tech-heads-for-losing-week-alphacheck-135820459.html",
+          "via": "search",
+          "source_feed": "^TNX"
+         },
+         {
+          "title": "Gold price today, Friday, October 16, 2026: Gold lifts as Treasury yields and dollar fall back",
+          "publisher": "Yahoo Personal Finance",
+          "published": 1792148811,
+          "url": "https://finance.yahoo.com/personal-finance/investing/article/gold-price-today-friday-october-16-2026-gold-lifts-as-treasury-yields-and-dollar-fall-back-110651322.html",
+          "via": "search",
+          "source_feed": "^TNX"
+         },
+         {
+          "title": "Mortgage and refinance interest rates today, Friday, October 16, 2026: Fixed mortgage rates fall back",
+          "publisher": "Yahoo Personal Finance",
+          "published": 1792144800,
+          "url": "https://finance.yahoo.com/personal-finance/mortgages/article/mortgage-and-refinance-interest-rates-today-friday-october-16-2026-fixed-mortgage-rates-fall-back-100000131.html",
+          "via": "search",
+          "source_feed": "^TNX"
+         },
+         {
+          "title": "5 Top-Performing ETF Areas of Last Week",
+          "publisher": "Zacks",
+          "published": 1792411200,
+          "url": "https://finance.yahoo.com/markets/stocks/articles/5-top-performing-etf-areas-120000254.html",
+          "via": "search",
+          "source_feed": "^VIX"
+         },
+         {
+          "title": "Dow Jones, Nasdaq, S&P 500 preview: All eyes on Meta, Tesla, SpaceX earnings",
+          "publisher": "Investing.com",
+          "published": 1792409057,
+          "url": "https://finance.yahoo.com/markets/stocks/articles/dow-jones-nasdaq-p-500-112417890.html",
+          "via": "search",
+          "source_feed": "^VIX"
+         },
+         {
+          "title": "Tom Lee Says Last Week's Stock Selloff Sets Up a Buy in Crypto, Semis",
+          "publisher": "BeInCrypto",
+          "published": 1792389300,
+          "url": "https://finance.yahoo.com/markets/crypto/articles/tom-lee-says-last-weeks-055500464.html",
+          "via": "search",
+          "source_feed": "^VIX"
+         }
+        ],
+        "note": "from index, rates and volatility feeds - treat as reported claims, not facts"
+       }
+      },
+      {
+       "tool": "sector_news",
+       "data": {
+        "sector": "Technology",
+        "industry": "Consumer Electronics",
+        "resolved_as": "cohort",
+        "sources": [
+         "TSLA",
+         "GOOG",
+         "META"
+        ],
+        "proxy_correlation": 0.15,
+        "headlines": [
+         {
+          "title": "Sector Update: Consumer Stocks Mixed in Afternoon Trading",
+          "publisher": "MT Newswires",
+          "published": 1792432009,
+          "url": "https://finance.yahoo.com/markets/stocks/articles/sector-consumer-stocks-mixed-afternoon-174649584.html",
+          "via": "search",
+          "source_feed": "TSLA"
+         },
+         {
+          "title": "Wall Street Projects A Down Quarter For Tesla Earnings; Stock Rebounds",
+          "publisher": "Investor's Business Daily",
+          "published": 1792431805,
+          "url": "https://finance.yahoo.com/m/c61444d9-580f-35fc-a535-18525c5e82ea/wall-street-projects-a-down.html",
+          "via": "search",
+          "source_feed": "TSLA"
+         },
+         {
+          "title": "Stock market today: Dow slips, Nasdaq, S&P 500 rise as the AI trade rebounds",
+          "publisher": "Yahoo Finance",
+          "published": 1792431632,
+          "url": "https://finance.yahoo.com/markets/live/stock-market-today-dow-sp-500-nasdaq-futures-mixed-amid-volatile-week-112734828.html",
+          "via": "search",
+          "source_feed": "TSLA"
+         },
+         {
+          "title": "Toyota Motor (TSE:7203) Brings EV Casting Tech to China While Pushing EU Rule Changes",
+          "publisher": "Simply Wall St.",
+          "published": 1792430067,
+          "url": "https://finance.yahoo.com/technology/articles/toyota-motor-tse-7203-brings-171427320.html",
+          "via": "search",
+          "source_feed": "TSLA"
+         },
+         {
+          "title": "6 Signs of a Winning Stock, Each Shown by a Real Company",
+          "publisher": "Motley Fool",
+          "published": 1792432380,
+          "url": "https://finance.yahoo.com/markets/stocks/articles/6-signs-winning-stock-shown-175300493.html",
+          "via": "search",
+          "source_feed": "GOOG"
+         },
+         {
+          "title": "Third Wheel: Microsoft\u2019s AI Chips Are \u201cNowhere Close\u201d to NVIDIA or Google per Analyst",
+          "publisher": "TIKR",
+          "published": 1792431607,
+          "url": "https://finance.yahoo.com/technology/ai/articles/third-wheel-microsoft-ai-chips-174007859.html",
+          "via": "search",
+          "source_feed": "GOOG"
+         },
+         {
+          "title": "Update: Equities Rise Intraday as Busy Earnings Week Kicks Off",
+          "publisher": "MT Newswires",
+          "published": 1792431355,
+          "url": "https://finance.yahoo.com/markets/stocks/articles/equities-rise-intraday-busy-earnings-173555913.html",
+          "via": "search",
+          "source_feed": "GOOG"
+         },
+         {
+          "title": "This Mag 7 Stock Is Worth Watching for the Next 5 Years",
+          "publisher": "24/7 Wall St.",
+          "published": 1792431034,
+          "url": "https://finance.yahoo.com/markets/stocks/articles/mag-7-stock-worth-watching-173034842.html",
+          "via": "search",
+          "source_feed": "GOOG"
+         }
+        ],
+        "note": "spillover source discovered per ticker from its own industry and peer cohort, then chosen by measured correlation"
+       }
+      }
+     ]
+    },
+    {
+     "domain": "market",
+     "ticker": "AAPL",
+     "evidence": [
+      {
+       "tool": "turning_points",
+       "data": {
+        "last_low_vs_today": {
+         "last_low_date": "2025-04-08",
+         "then_fell_pct": 33.4,
+         "then_rebound_pct": 100.4,
+         "then_trading_days_low_to_50d_avg": 23,
+         "then_spy_pct": -17.2,
+         "market_fell_with_it_then": true,
+         "then_rsi14": 20.1,
+         "then_volume_vs_50d_avg": 2.13,
+         "today_down_from_peak_pct": 0.3,
+         "today_spy_pct": 0.5,
+         "market_fell_with_it_today": false,
+         "today_rsi14": 60.6,
+         "today_volume_vs_50d_avg": 0.46,
+         "today_below_50d_avg_pct": 0.0,
+         "then_spy_fell_pct": 17.2,
+         "last_time": "Last time it fell this hard, it dropped 33.4% from its December 26th 2024 peak to a low on April 8th 2025 while the S&P 500 fell 17.2%. It then rebounded 100.4% by October 16th 2026, and was back above its 50-day average 23 trading days after the low.",
+         "today": "Today it is down 0.3% from its October 16th 2026 peak while the S&P 500 was roughly flat.",
+         "then_vs_now": [
+          "Last time the whole market had sold off and the stock recovered with it; this drop is the company's own, so a market bounce alone may not lift it.",
+          "Selling volume is lighter than at that low (0.46x vs 2.13x normal): no capitulation-style flush yet."
+         ]
+        },
+        "period": "2y",
+        "big_drop_threshold_pct": 24.9,
+        "past_lows": [
+         {
+          "peak_date": "2024-12-26",
+          "peak": 257.15,
+          "low_date": "2025-04-08",
+          "low": 171.37,
+          "drop_pct": -33.4,
+          "trading_days_falling": 69,
+          "spy_pct_same_window": -17.2,
+          "at_low_rsi14": 20.1,
+          "at_low_near_52w_low": true,
+          "at_low_volume_vs_50d_avg": 2.13,
+          "rebound_peak_date": "2026-10-16",
+          "rebound_pct": 100.4,
+          "back_above_50d_avg": "2025-05-12",
+          "trading_days_low_to_50d_avg": 23,
+          "turn_days": [
+           {
+            "date": "2025-04-09",
+            "move_pct": 15.3,
+            "spy_move_pct": 10.5,
+            "headlines": []
+           },
+           {
+            "date": "2025-04-11",
+            "move_pct": 4.1,
+            "spy_move_pct": 1.8,
+            "headlines": []
+           }
+          ]
+         }
+        ],
+        "now": {
+         "date": "2026-10-19",
+         "price": 342.56,
+         "from_peak_date": "2026-10-16",
+         "peak": 343.46,
+         "drop_from_peak_pct": -0.3,
+         "trading_days_since_peak": 1,
+         "spy_pct_same_window": 0.5,
+         "rsi14": 60.6,
+         "pct_vs_200d_avg": 17.1,
+         "near_52w_low": false,
+         "above_50d_avg": true,
+         "pct_vs_50d_avg": 5.0,
+         "volume_vs_50d_avg": 0.46
+        },
+        "oversold_near_52w_low_history": {
+         "times": 0,
+         "dates": [],
+         "higher_20d_later": 0,
+         "measured_20d": 0,
+         "median_20d_pct": null,
+         "higher_60d_later": 0,
+         "measured_60d": 0,
+         "median_60d_pct": null
+        },
+        "headlines_available": true,
+        "note": "What happened before, not a forecast. A handful of past lows is a small sample; headlines on a turn day may coincide with the move without causing it."
+       }
+      },
+      {
+       "tool": "range_52w",
+       "data": {
+        "high_52w": 348.15,
+        "low_52w": 243.42,
+        "price": 343.52,
+        "pct_below_high": 1.33,
+        "pct_above_low": 41.12,
+        "position_in_range_pct": 95.6,
+        "range_basis": "intraday highs and lows, so the high can sit above the highest close"
+       }
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

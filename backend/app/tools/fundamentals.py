@@ -30,6 +30,16 @@ async def valuation_multiples(ticker: str, **_):
                                   "price_to_book": "priceToBook", "market_cap": "marketCap",
                                   "eps_next_fiscal_year_estimate": "epsForward"}.items()}
     d = {k: v for k, v in d.items() if v is not None}
+    # A company that loses money has no meaningful P/E: "-24.5" is not cheap or
+    # expensive, it is undefined - and an answer quoted APLD's as if it meant
+    # something. Say what it means instead of handing the writer the number.
+    for k, label in (("pe_trailing", "the last 12 months"), ("pe_forward", "next year")):
+        if isinstance(d.get(k), (int, float)) and d[k] <= 0:
+            d.pop(k)
+            d[f"{k}_not_meaningful"] = (f"the company {'lost money over' if k == 'pe_trailing' else 'is expected to lose money'} "
+                                        f"{label}, so price-to-earnings does not apply")
+    if isinstance(d.get("eps_next_fiscal_year_estimate"), (int, float)) and d["eps_next_fiscal_year_estimate"] < 0:
+        d["expected_profitable_next_year"] = False
     if not d:
         return fail("valuation_multiples", ticker, "none available")
     # Checked against the pages: market cap and trailing P/E match Yahoo's

@@ -35,6 +35,7 @@ MAX_CHARTS = 2
 MAX_NAMES = 6
 RETURN_TOOLS = ("price_series", "peer_performance", "relative_strength")
 LINES_FIRST = 1000
+LOWS_FIRST = 2000          # a rebound question's chart is its own history
 
 
 def _evidence(run) -> dict[str, dict[str, object]]:
@@ -87,8 +88,10 @@ def _bars(tool: str, results: dict) -> dict | None:
             if sum(isinstance(results[t].data.get(f), (int, float)) for t in names) >= 2]
     if not have:
         return None
+    # a P/E at or below zero is undefined (the company loses money) - never a bar
+    ok = lambda f, v: isinstance(v, (int, float)) and not (f.startswith("pe_") and v <= 0)
     rows = [{"label": t, **{f: round(float(results[t].data[f]), 2) for f, _ in have
-                            if isinstance(results[t].data.get(f), (int, float))}} for t in names]
+                            if ok(f, results[t].data.get(f))}} for t in names]
     rows = [r for r in rows if len(r) > 1]
     if len(rows) < 2:
         return None
@@ -145,6 +148,21 @@ def pick(run) -> list[dict]:
                       else f"Share price, {PERIOD.get(period, period)}"),
             "note": "Each line starts at 100, so a move compares fairly whatever the share price.",
             "sources": srcs}))
+
+    # "will it go back up": the price over the window with each past big low
+    # marked - how far it fell into it, how far it came back
+    tp = ev.get("turning_points", {})
+    if tp and cited.get("turning_points"):
+        t, e = next(iter(tp.items()))
+        marks = [{"date": x["low_date"], "price": x["low"], "fell_pct": abs(x["drop_pct"]),
+                  "rebound_pct": x["rebound_pct"]} for x in (e.data.get("past_lows") or [])]
+        if marks:
+            cands.append((LOWS_FIRST + cited["turning_points"], {
+                "kind": "lows", "symbol": t, "period": e.data.get("period") or "2y",
+                "title": f"{t}: past lows and what came next",
+                "lows": marks,
+                "note": "Each red dot is a past big low: how far the stock fell into it, then how far it rebounded.",
+                "sources": [_src(e)]}))
 
     for tool in BARS:
         res = ev.get(tool, {})

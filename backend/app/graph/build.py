@@ -2,6 +2,7 @@
 from __future__ import annotations
 import json, os, re, time
 from langgraph.graph import END, START, StateGraph
+from .plain import PLAIN_RULES
 from langgraph.types import Send
 
 from .. import llm
@@ -95,93 +96,120 @@ Reply with ONLY JSON:
 If NOTHING in the question is about markets, companies or investing, reply:
 {{"refuse": "one sentence saying what you can help with instead"}}"""
 
-WRITER_PROMPT = """You write the final answer from specialist findings.
+WRITER_PROMPT = """You write the final answer from specialist findings, for someone who
+does not invest for a living. They should understand it on one read and know
+what it means for them.
 
 You get each specialist's narrative AND its raw evidence numbers. Use both:
 the narratives for framing, the numbers for cross-domain relationships the
 individual specialists could not see (none of them saw each other's data).
 
-Rules:
+Accuracy:
 - Never state a number that is not in the evidence.
 - Answer EVERY part of the question. If one part has no evidence, say so in a
   few words rather than skipping it.
 - Prefer a cross-domain observation if the evidence supports one.
 - If a specialist reports data is unavailable, say so plainly. Do not guess.
-- 2-5 sentences (up to 8 for screen results, up to 7 when comparing past lows with today). Plain prose, no headers.
 
-How to write it:
-- Short sentences. Aim for 20 words, never more than 30. If a sentence needs an
-  "and" plus a "while", it is two sentences.
-- At most two figures in any one sentence. A reader cannot hold more than that,
-  and a wall of numbers is unreadable even when every number is correct.
-- Lead with the point, then the number that supports it. Write "margins are
-  expanding - up to 54.2% from 51.7%", not "operating margin of 54.2% versus a
-  prior 51.7% indicates expansion".
-- Drop figures that do not change the conclusion. Precision you do not use is
-  noise: "$96.2B" beats "$96,221,000,000".
+THE SHAPE - every answer, in this order, parts separated by a blank line:
+1. ONE sentence that answers the question directly, in plain words, with at
+   most one number. It is the line a reader remembers.
+2. As many bullet lines as it takes to answer the WHOLE question - every part
+   of it - each starting with "- " and ending with a period. There is no limit:
+   never leave out something the question needs to keep the answer short. One
+   idea per bullet: the plain point first, then the number that backs it, then
+   what it means. Never repeat a point or pad. Comparing companies, keep them in
+   the same order in every bullet, or give each company its own bullet.
+3. A last line starting "What would change this: " - the next thing to watch,
+   in one sentence.
+No headers, no bold, no other markdown.
 
+PLAIN WORDS:
+- Prefer the everyday phrase to the finance term. If you need the term,
+  explain it the first time in a few words: "price-to-earnings, or P/E (what
+  you pay for each $1 of yearly profit)".
+- Say what a number means, not just what it is: "about 14 times next year's
+  expected profit - low for a company growing this fast" beats "a forward P/E
+  of 13.643".
+- A company that loses money has no meaningful P/E. Never quote a negative
+  P/E or a negative EPS as a valuation; say it is not making a profit yet, so
+  the usual price-to-profit yardstick does not apply.
+- At most two figures in a bullet. Round where precision changes nothing:
+  "about 14", "$96B", "64%".
+- Short words, short sentences: aim for 15-20 words, never more than 25.
+- Never write "the market appears to be pricing", "trajectory", "headwinds",
+  "it is worth noting", "in contrast", "notably".
+- Never tell the reader what to feel or do ("you do not need to worry"); give
+  the facts that answer the worry.
 
+""" + PLAIN_RULES + """
 When the question asks for a VIEW, TAKE or POSITION on a ticker, answer it as a
 balanced read of the evidence, not a recommendation:
-- say what the data supports AND what cuts against it - both sides, from the
-  evidence you were given
-- name what the market appears to be pricing (valuation vs growth, positioning,
-  the macro backdrop) rather than what someone should do
-- end with what would change the picture - the next datapoint that matters
+- the bullets cover what the data supports AND what cuts against it
+- "What would change this" names the next datapoint that matters
 - NEVER say buy, sell, hold, accumulate, trim, overweight, underweight, or give
   a price target of your own. You summarise evidence; you do not advise.
 
 When a turning_points finding is present (past lows and rebounds), history IS
-the answer to "will it go back up?" - lead with it, not with today's sentiment:
-- Name the last comparable low: when, how far it fell, and how far it came back.
-- Say what that turn looked like: whether the whole market had fallen too and
-  then recovered, how oversold it was, any turn-day headline, and how soon it
-  got back above its 50-day average.
-- Then set TODAY against it: which of those conditions are present now and
-  which are missing (a stock-specific drop vs a market-wide one, no heavy
-  selling volume yet, still far below the 50-day average). Missing conditions
-  plus the next catalyst ARE what it needs to bounce - say so plainly.
-- Frame it as "last time ...; today ...". Never predict a price or say it will
-  or will not rise. If there are only one or two past lows, say it is a small
-  sample. Up to 7 sentences for this.
+the answer to "will it go back up?" - lead with it, not with today's sentiment.
+Its `last_low_vs_today` block has the bullets already written, one point and
+at most two figures each: `last_time`, `last_time_market`, `last_time_turn`,
+`today`, `today_trend`, and the `then_vs_now` points.
+- The first sentence says plainly whether today looks like the last time the
+  stock bounced.
+- Then the bullets, in that order, lightly reworded at most - keep their dates
+  and numbers. A reader needs "it dropped 50.3% into March 30th, then climbed
+  141.7% by May 28th", not "past drops led to rebounds". Skip any that are
+  empty, and add bullets for anything else the question asks.
+- "What would change this" is what it needs to turn: the missing conditions and
+  the next catalyst.
+- Never predict a price or say it will or will not rise. If there are only one
+  or two past lows, say it is a small sample.
 
 When a screener finding is present:
 - If the question also asks about the market and a macro finding is present,
-  OPEN with one or two sentences on the market from it, then the screen. Both
-  parts of the question get answered.
-- Present the names as results of a screen: say the criteria first ("Screening
-  liquid small caps for revenue growth, these lead:"), then one short sentence
-  per name with at most two figures, up to five names. Up to 8 sentences.
-- Never call them good, attractive, picks or buys. Where the evidence shows
-  operating losses, a big drawdown or a tiny market cap, say it - that is the
-  risk a reader of a small-cap screen most needs.
-- If the user asked for "good" stocks, say in one plain sentence that this is a
-  screen against measurable criteria, not a recommendation.
+  the first sentence is about the market, from it.
+- Otherwise the first sentence states the screen's criteria in plain words
+  ("These small companies grew sales fastest:").
+- One bullet per name the screen returned, as "Company (TICKER): ..." with at most two
+  figures. Where the evidence shows losses, a big drop or a tiny company, say
+  it - that is the risk a reader of a small-company screen most needs.
+- Never call them good, attractive, picks or buys. If the user asked for
+  "good" stocks, the last line says this is a screen against measurable
+  criteria, not a recommendation.
 
-Reply with ONLY JSON: {"answer": "..."}"""
+Reply with ONLY JSON: {"answer": "..."} - the shape above inside the string,
+with \\n for line breaks."""
 
 POLISH_PROMPT = """You are the editor. One specialist has already done the
-analysis. Your job is to make it read well - NOT to redo it.
+analysis. Your job is to make it easy for someone who does not invest for a
+living to read - NOT to redo it.
 
 Keep:
 - the specialist's point, in its order and emphasis
-- its voice. It is a domain specialist, not a generalist summariser
 - every figure it used, and no others
 
-Change only the prose:
-- Break any sentence over 30 words into two.
-- At most two figures per sentence. Move the rest into a second sentence or cut
-  them if they do not change the point.
-- Lead with the point, then its supporting number.
-- Round readable: "$96.2B" not "$96,221,000,000".
-- Remove throat-clearing ("It is worth noting that", "The data shows that").
+Put it in this shape, parts separated by a blank line:
+1. ONE plain sentence that answers the question, at most one number.
+2. Bullet lines starting with "- " and ending with a period - as many as the
+   specialist's points need, one idea each: the point, the number that backs
+   it, what it means. Keep every point the specialist made.
+3. A last line starting "What would change this: " with the next thing to
+   watch - only if the specialist named one; otherwise leave it out.
+No headers, no bold, no other markdown.
+
+Never quote a negative P/E; say the company is not profitable yet. Round where
+precision changes nothing ("$96.2B", "64%"). Sentences under 25 words, at most
+two figures per bullet.
+""" + PLAIN_RULES + """
 
 Do not add analysis, caveats, context or recommendations the specialist did not
-make. Do not introduce a number that is not already in its text. If it already
-reads well, return it close to unchanged. If the specialist listed screened
-names, keep every name it listed and its "Company (TICKER)" form.
+make. Do not introduce a number that is not already in its text. If the
+specialist listed screened names, keep every name it listed, one bullet each,
+in its "Company (TICKER)" form.
 
-Reply with ONLY JSON: {"answer": "..."}"""
+Reply with ONLY JSON: {"answer": "..."} - the shape inside the string, with \\n
+for line breaks."""
 
 
 # Questions that cannot be answered honestly without a peer comparison.
@@ -195,6 +223,13 @@ QUALITY_RE = re.compile(
     r"\b(good company|bad company|well[- ]run|trust\w*|trustworth\w*|"
     r"management|governance|scandal\w*|dilut\w*|fraud\w*|shady|legit|"
     r"quality|worth (buying|owning)|should i (buy|own))\b", re.I)
+
+# "will it go back up", "has it bottomed", "what does it need to turn": the
+# stock's own past lows are the evidence, and a snapshot of today is not. Same
+# reasoning as PERF_RE - the guarantee lives in code.
+REBOUND_RE = re.compile(
+    r"\b(go(es|ing)? back up|bounce\w*|rebound\w*|recover\w*|bottom(ed|ing|s)?|"
+    r"turn(s|ed|ing)? (around|up)|come back|comeback|revers\w*|trend\w*|outlook)\b", re.I)
 
 PERF_RE = re.compile(
     r"\b(perform\w*|doing|compare[sd]?|comparison|versus|vs\.?|against|"
@@ -371,6 +406,23 @@ async def route(state: ResearchState) -> dict:
                     question=f"How does {sym} compare with its peer cohort over the "
                              f"last year, adjusted for beta and company size?",
                     tools=["peer_set", "peer_performance"], args={}))
+
+    # A rebound or trend question ALWAYS gets the stock's past lows (APLD,
+    # Oct 2026: answered from today's RSI and sentiment while its own record -
+    # down 50% into March, +142% by May - went unmentioned).
+    if tasks and REBOUND_RE.search(resolved or state["question"]):
+        for sym in sorted({t["ticker"] for t in tasks if t["ticker"] != "MARKET"}):
+            mk = next((t for t in tasks if t["domain"] == "market" and t["ticker"] == sym), None)
+            if mk is None:
+                tasks.append(Task(
+                    id=f"h{len(tasks)}", domain="market", ticker=sym,
+                    question=f"How did {sym} behave at its past lows - how far it fell, what "
+                             f"turned it, how far it came back - and how does today compare?",
+                    tools=["turning_points", "range_52w"], args={}))
+            elif "turning_points" not in (mk.get("tools") or []):
+                # an empty list means "specialist chooses"; naming one tool would
+                # make it the only one, so give the core read alongside
+                mk["tools"] = [*(mk.get("tools") or ["range_52w", "moving_averages"]), "turning_points"]
 
     degraded = ""
     if not tasks:   # fallback: pull a ticker out of the text, ask market only
@@ -713,7 +765,7 @@ async def writer(state: ResearchState) -> dict:
         asks = _requested(j, free, state) if clause else []
         if asks:
             return _ask_more(asks, r)
-        ans = str(j.get("answer") or r.text).strip()
+        ans = str(j.get("answer") or _answer_text(r.text)).strip()
         step = RunStep(node="writer", detail=f"{len(findings)} findings",
                        tokens=r.tokens, latency_ms=r.latency_ms, llm=True, model=r.model)
     except Exception:
@@ -776,7 +828,57 @@ sentence empty of substance, drop the sentence.
 If the draft is too dense: split long sentences, keep at most two figures per
 sentence, and cut figures that do not change the point.
 
-Reply with ONLY JSON: {"answer": "..."}"""
+If JARGON is listed: the reader has never invested. Rewrite each sentence that
+holds a listed term so it says what the term MEANS, following the guidance
+beside it - in your own words, as a natural sentence, keeping its number. The
+guidance is an instruction, not text to paste: never copy it in brackets, never
+leave a broken sentence. Each rewritten sentence must still say exactly what the
+original meant - a price measure stays a price measure ("about 34 times next
+year's expected profit"), never turns into how investors feel. Keep every
+other sentence as is.
+
+If SHAPE is listed: put it in this shape, parts separated by a blank line - one
+plain sentence that answers the question; then as many bullet lines as the points need, starting
+"- "; then, if the draft names one, a line starting "What would change this: ".
+
+Reply with ONLY JSON: {"answer": "..."} - with \\n for line breaks."""
+
+
+def _answer_text(raw: str) -> str:
+    """The answer out of a reply that did not parse - never the raw JSON or a
+    code fence, which once shipped to the reader verbatim."""
+    t = re.sub(r"^```(?:json)?\s*|\s*```$", "", (raw or "").strip())
+    m = re.search(r'"answer"\s*:\s*"(.*)"\s*}?\s*$', t, re.S)
+    if not m:
+        return t
+    try:
+        return json.loads('"' + m.group(1) + '"', strict=False)
+    except Exception:
+        return m.group(1).replace("\\n", "\n").replace('\\"', '"')
+
+
+def ensure_history(ans: str, findings) -> str:
+    """A rebound answer must name the stock's last comparable low.
+
+    The past-lows tool hands the writer that sentence ready-made, and the small
+    writer model still paraphrased it away on about half the runs ("past drops
+    led to rebounds") - which is exactly the vagueness the tool exists to fix.
+    If no figure of the last low appears in the answer, its sentence goes in as
+    the first bullet. Every number in it is the tool's own, so it is grounded.
+    """
+    tp = next((e for f in findings for e in getattr(f, "evidence", []) or [] if e.tool == "turning_points"), None)
+    vs = ((tp.data or {}).get("last_low_vs_today") or {}) if tp else {}
+    line = vs.get("last_time")
+    fell = vs.get("then_fell_pct")
+    if not line or fell is None or not ans:
+        return ans
+    if re.search(rf"(?<![\d.]){re.escape(f'{fell:.1f}')}%|(?<![\d.]){round(fell)}%", ans):
+        return ans                                    # it already cites the last low
+    head, sep, rest = ans.partition("\n\n")
+    bullet = "- " + line
+    if sep and rest.lstrip().startswith("- "):
+        return head + "\n\n" + bullet + "\n" + rest.lstrip()
+    return head + "\n\n" + bullet + (("\n\n" + rest) if sep else "")
 
 
 async def _verify_and_repair(state, ans, findings, step):
@@ -788,12 +890,15 @@ async def _verify_and_repair(state, ans, findings, step):
     warning badge attached. For financial output that is the wrong default -
     it is now blocking, with one repair attempt.
     """
+    from .plain import report as plain_report, tidy
+    ans = ensure_history(tidy(ans), findings)
     emit("verify")
     bad = unverified_figures(ans, findings)
     dens = density_report(ans)
-    if not bad and dens["ok"]:
+    pl = plain_report(ans)
+    if not bad and dens["ok"] and pl["ok"]:
         return {"answer": ans, "steps": [step]}
-    emit("repair", unsupported=len(bad), dense=not dens["ok"])
+    emit("repair", unsupported=len(bad), dense=not dens["ok"], jargon=len(pl["jargon"]))
 
     problems = []
     if bad:
@@ -801,21 +906,39 @@ async def _verify_and_repair(state, ans, findings, step):
                         + ", ".join(str(b) for b in bad))
     if not dens["ok"]:
         problems.append("Too dense: " + dens["why"])
+    if pl["jargon"]:
+        problems.append("JARGON - rewrite each in everyday words:\n" + "\n".join(
+            f'    "{j["term"]}": {j["fix"]}' for j in pl["jargon"]))
+    if not pl["shaped"]:
+        problems.append("SHAPE: one plain sentence, then bullet lines starting \"- \"")
 
     try:
         fix = await llm.call(REPAIR_PROMPT,
                              f"Question: {q_of(state)}\n\n"
                              f"Problems:\n- " + "\n- ".join(problems) +
                              f"\n\nDraft:\n{ans}")
-        cand = str((llm.parse_json(fix.text) or {}).get("answer") or "").strip()
+        cand = tidy(str((llm.parse_json(fix.text) or {}).get("answer") or "").strip())
     except Exception:
         cand = ""
 
     if cand:
         bad2, dens2 = unverified_figures(cand, findings), density_report(cand)
-        better = (len(bad2) < len(bad)) or (bad2 == bad and not bad and
-                                            dens2["worst_figures"] < dens["worst_figures"])
-        if not bad2 and dens2["ok"]:
+        pl2 = plain_report(cand)
+        # wording is the one problem a second pass reliably fixes: if the first
+        # left only jargon (no figure problems), give it one more go
+        if pl2["jargon"] and not bad2 and len(pl2["jargon"]) < len(pl["jargon"]) + 1:
+            try:
+                fix2 = await llm.call(REPAIR_PROMPT, f"Question: {q_of(state)}\n\nProblems:\n- JARGON - rewrite each in everyday words:\n"
+                                      + "\n".join(f'    "{j["term"]}": {j["fix"]}' for j in pl2["jargon"]) + f"\n\nDraft:\n{cand}")
+                c2 = str((llm.parse_json(fix2.text) or {}).get("answer") or "").strip()
+                if c2 and not unverified_figures(c2, findings) and len(plain_report(c2)["jargon"]) < len(pl2["jargon"]):
+                    cand, bad2, dens2, pl2 = c2, [], density_report(c2), plain_report(c2)
+            except Exception:
+                pass
+        # better = fewer invented figures, never more; then plainer; then less dense
+        score = lambda b, d, p: (len(b), len(p["jargon"]) + (0 if p["shaped"] else 1), d["worst_figures"])
+        better = (not set(bad2) - set(bad)) and score(bad2, dens2, pl2) < score(bad, dens, pl)
+        if not bad2 and dens2["ok"] and pl2["ok"]:
             better = True
         if better:
             return {"answer": cand, "steps": [step, RunStep(
@@ -872,6 +995,11 @@ IGNORE = {30, 50, 52, 100, 200, 400, 500, 600, 1000, 2000,
           2023, 2024, 2025, 2026, 2027, 2028}
 
 
+_DOWN = re.compile(r"\b(?:fell|fall(?:s|ing)?|drop\w*|down|declin\w*|lower|lost|loss\w*|losing|below|less|under|"
+                   r"worse|behind|lag\w*|trail\w*|negative|shr[ai]nk\w*|slid|slump\w*|sank|minus|short of|off|"
+                   r"cut|lose|owes|debt)\b", re.I)
+
+
 def unverified_figures(answer: str, findings) -> list[float]:
     """Numbers the answer asserts that no evidence record supports.
 
@@ -879,6 +1007,7 @@ def unverified_figures(answer: str, findings) -> list[float]:
     blocks and the check that reports can never disagree.
     """
     ev: set[float] = set()
+    ev_down: set[float] = set()      # magnitudes of negative values: "fell 4%" for -3.95
     for f in findings:
         evidence = f.evidence if hasattr(f, "evidence") else f.get("evidence", [])
         for e in evidence:
@@ -886,10 +1015,17 @@ def unverified_figures(answer: str, findings) -> list[float]:
             for n in nums:
                 for v in (n, round(n, 2), round(n, 1), round(n)):
                     ev.add(float(v))
+                if n < 0:
+                    for v in (-n, round(-n, 2), round(-n, 1), round(-n)):
+                        ev_down.add(float(v))
                 for unit in (1e3, 1e6, 1e9, 1e12):
                     if abs(n) >= unit:
                         ev.add(round(n / unit, 3)); ev.add(round(n / unit, 2))
                         ev.add(round(n / unit, 1))
+                        # "$96B" for $96.2B: plain-language answers round whole
+                        # billions; refusing that pushed writers back to 96.221
+                        if abs(n) >= 10 * unit:
+                            ev.add(float(round(n / unit)))
 
     text = (answer or "").replace("%", "")
     for pat in _NOISE:
@@ -904,6 +1040,13 @@ def unverified_figures(answer: str, findings) -> list[float]:
         if any(round(c, 2) in ev or round(c, 1) in ev or round(c) in ev or c in ev
                for c in cands):
             continue
+        # Plain English states a fall as a size plus a direction - "4% below",
+        # "dropped 50.3%" - where the evidence holds -3.95 / -50.3. Accept the
+        # size only when a downward word sits next to it, so "rose 4%" for a
+        # 4% fall is still caught.
+        if any(round(c, 2) in ev_down or round(c, 1) in ev_down or round(c) in ev_down for c in cands) \
+                and _DOWN.search(text[max(0, m.start() - 45): m.end() + 45]):
+            continue
         bad.append(raw)
     return bad
 
@@ -915,9 +1058,14 @@ def _value_set(nums) -> set[float]:
     for n in nums:
         for v in (n, round(n, 2), round(n, 1), round(n)):
             ev.add(float(v))
+        if n < 0:                                    # "fell 4%" cites the -3.95 it came from
+            for v in (-n, round(-n, 2), round(-n, 1), round(-n)):
+                ev.add(float(v))
         for unit in (1e3, 1e6, 1e9, 1e12):
             if abs(n) >= unit:
                 ev.add(round(n / unit, 3)); ev.add(round(n / unit, 2)); ev.add(round(n / unit, 1))
+                if abs(n) >= 10 * unit:              # "$96B" - the same rule as the figure check
+                    ev.add(float(round(n / unit)))
     return ev
 
 
@@ -1098,6 +1246,8 @@ def grounding_check(run: AgentRun) -> AgentRun:
         run.charts = pick(run)
     except Exception:              # so are charts
         run.charts = []
+    from .plain import jargon as _jargon
+    run.jargon = [j["term"] for j in _jargon(run.answer)]
     return run
 
 

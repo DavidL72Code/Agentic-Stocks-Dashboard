@@ -115,3 +115,22 @@ JUDGE_MODEL=gemini-3.6-flash python -m evals.quality --pairwise base new
 The three follow-up and context cases were added to `golden.yaml`
 (`followup_resolves`, `context_ticker`, `context_not_a_fence`). They run with
 `evals.run --agent`, which was not re-run for the same quota reason.
+
+## 2026-10-19 run - and a comparison that measured nothing
+
+Fresh answers (`evals/quality/oct19.json`): 15/15 grounded, no errors or
+degraded runs, median 24.1s and 5 model calls per question. The judge
+(`gemini-3-flash-preview`) re-passed pairwise validation, then scored 11 of 15
+before its daily quota ran out:
+
+| | task_fit | usefulness | calibration |
+|---|---|---|---|
+| Oct 19 answers | 4.91 | 4.64 | 4.91 |
+
+The head-to-head against the Oct 3 baseline went **11-0 for the new version,
+and it is not a result.** `baseline.json` was collected before rows stored
+their findings, so the judge saw every baseline answer with *no* evidence - and
+the rubric penalises any claim not in the evidence. It scored the baseline 1/5
+on calibration across the board for that reason alone. `pairwise()` now skips
+any case where either side has no stored evidence. A fair before/after needs the
+old commit re-run against the same day's data, with the judge's quota fresh.

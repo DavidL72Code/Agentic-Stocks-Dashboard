@@ -322,11 +322,15 @@ def parse_json(text: str) -> dict | None:
     after it; reasoning can itself contain braces, so a greedy {.*} from the
     first brace swallowed prose and failed. Strip reasoning, prefer a fenced
     block, then fall back to the LAST balanced object that parses.
+
+    strict=False: asked for line breaks inside the answer string, models often
+    write real newlines instead of \\n - invalid JSON to a strict parser, so the
+    reply was dropped and the raw fenced text shipped to the reader.
     """
     t = _THOUGHT.sub("", text or "").strip()
     for cand in [m.group(1) for m in _FENCE.finditer(t)][::-1] + [t]:
         try:
-            v = json.loads(cand)
+            v = json.loads(cand, strict=False)
             if isinstance(v, dict):
                 return v
         except Exception:
@@ -339,7 +343,7 @@ def parse_json(text: str) -> dict | None:
             depth -= t[start] == "{"
             if depth == 0:
                 try:
-                    v = json.loads(t[start:end + 1])
+                    v = json.loads(t[start:end + 1], strict=False)
                     if isinstance(v, dict):
                         return v
                 except Exception:
