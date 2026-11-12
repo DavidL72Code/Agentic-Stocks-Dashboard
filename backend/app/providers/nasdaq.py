@@ -9,6 +9,7 @@ Returns Yahoo's .info key names, so yahoo.info() can merge it in directly.
 """
 from __future__ import annotations
 import asyncio, logging
+from .. import http
 
 from ..cache import cached
 
@@ -27,7 +28,7 @@ def _num(v):
 
 def _targets_blocking(symbol: str) -> dict:
     from curl_cffi import requests as cr
-    r = cr.get(URL.format(symbol), headers=HEADERS, impersonate="chrome", timeout=10)
+    r = http.session().get(URL.format(symbol), headers=HEADERS, timeout=10)
     r.raise_for_status()
     o = ((r.json() or {}).get("data") or {}).get("consensusOverview") or {}
     out = {"targetLowPrice": _num(o.get("lowPriceTarget")),
@@ -64,7 +65,7 @@ def _money(v):
 
 def _screener_blocking() -> list[dict]:
     from curl_cffi import requests as cr
-    r = cr.get(SCREENER_URL, headers=HEADERS, impersonate="chrome", timeout=30)
+    r = http.session().get(SCREENER_URL, headers=HEADERS, timeout=30)
     r.raise_for_status()
     rows = ((r.json() or {}).get("data") or {}).get("rows") or []
     out = []
@@ -116,7 +117,7 @@ FORECAST_URL = "https://api.nasdaq.com/api/analyst/{}/earnings-forecast"
 
 def _json_blocking(url: str) -> dict:
     from curl_cffi import requests as cr
-    r = cr.get(url, headers=HEADERS, impersonate="chrome", timeout=10)
+    r = http.session().get(url, headers=HEADERS, timeout=10)
     r.raise_for_status()
     return (r.json() or {}).get("data") or {}
 

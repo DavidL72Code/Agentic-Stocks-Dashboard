@@ -1,5 +1,5 @@
 from __future__ import annotations
-import contextlib, logging, os, pathlib
+import contextlib, logging, os, pathlib, time
 
 # Load .env before anything else imports - module-level config (model names,
 # base URL) is read at import time, so this has to happen first.
@@ -66,13 +66,26 @@ async def _warm() -> None:
     WARM.update(dashboard_s=round(time.time() - t0, 2), failed=bad)
     log.info("warm-up: dashboard data in %.1fs%s", time.time() - t0,
              f" (failed: {', '.join(bad)})" if bad else "")
-    t1 = time.time()
-    try:
-        await asyncio.to_thread(importlib.import_module, f"{__package__}.graph.build")
-        WARM["agent_import_s"] = round(time.time() - t1, 2)
-        log.info("warm-up: agent stack imported in %.1fs", time.time() - t1)
-    except Exception as e:
-        log.warning("warm-up: agent import failed: %s", e)
+    # The agent's libraries cost ~10s of CPU to import on Render's 0.1 CPU
+    # (measured: agent_import_s 9.89). Imported straight after start-up, that
+    # landed on the visitor who had just woken the server - every page they
+    # opened in those seconds crawled. Wait for 15s with no request in flight;
+    # a question asked before then imports it on demand.
+    import sys
+    from .status import ACTIVITY
+    mod = f"{__package__}.graph.build"
+    while mod not in sys.modules and (ACTIVITY["inflight"] or time.time() - ACTIVITY["last"] < 15):
+        await asyncio.sleep(3)
+    if mod in sys.modules:
+        WARM["agent_import_s"] = "imported on demand"
+    else:
+        t1 = time.time()
+        try:
+            await asyncio.to_thread(importlib.import_module, mod)
+            WARM["agent_import_s"] = round(time.time() - t1, 2)
+            log.info("warm-up: agent stack imported in %.1fs", time.time() - t1)
+        except Exception as e:
+            log.warning("warm-up: agent import failed: %s", e)
     WARM["done_after_s"] = round(time.time() - t0, 2)
 
 
@@ -119,7 +132,14 @@ async def no_store_api(request, call_next):
     prevent, reintroduced one layer up where no application test would see it.
     Cheap to state explicitly, and correct behind any proxy, not just Vercel.
     """
-    resp = await call_next(request)
+    from .status import ACTIVITY
+    ACTIVITY["inflight"] += 1
+    ACTIVITY["last"] = time.time()
+    try:
+        resp = await call_next(request)
+    finally:
+        ACTIVITY["inflight"] -= 1
+        ACTIVITY["last"] = time.time()
     if request.url.path.startswith("/api/"):
         resp.headers["Cache-Control"] = "no-store, private"
         resp.headers["Vary"] = "Cookie"
