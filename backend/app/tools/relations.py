@@ -12,6 +12,7 @@ Two traps this module handles, both found empirically:
      at which point it is a negative result.
 """
 from __future__ import annotations
+import asyncio
 from math import comb
 import numpy as np, pandas as pd
 from ..providers import yahoo
@@ -90,7 +91,7 @@ async def resolve_proxy(ticker: str) -> dict | None:
 
 
 async def _aligned(a: str, b: str, period: str = "2y") -> pd.DataFrame:
-    sa, sb = await closes(a, period), await closes(b, period)
+    sa, sb = await asyncio.gather(closes(a, period), closes(b, period))
     if sa.empty or sb.empty:
         return pd.DataFrame()
     df = pd.concat([sa.rename("a"), sb.rename("b")], axis=1).dropna()
@@ -385,7 +386,12 @@ async def read_across(ticker: str, other: str = "", limit: int = 4, **_):
     cohort = [other.upper()] if other else (await yahoo.peers(ticker))[:limit]
     if not cohort:
         return empty("read_across", ticker, "no peer cohort found")
-    q = await yahoo.quotes([ticker] + cohort)
+    # Every peer's two years of prices at once. Fetched peer by peer inside the
+    # loop, the Related tab for a ticker nobody had opened took 5.3s on Render
+    # after the click (live, Nov 12 2026). The loop below then reads the cache.
+    q, _ = await asyncio.gather(
+        yahoo.quotes([ticker] + cohort),
+        asyncio.gather(*(closes(s, "2y") for s in [ticker] + cohort), return_exceptions=True))
     rows = []
     for c in cohort:
         r = await _aligned(ticker, c)
