@@ -19,6 +19,7 @@ and recommendations()), then nothing until the cache expires.
 """
 from __future__ import annotations
 import asyncio, logging, os
+from .. import http
 
 import httpx
 
@@ -64,14 +65,14 @@ async def _rec_rows(symbol: str) -> list:
     """/stock/recommendation, fetched once and shared: info() needs it for the
     consensus mean and recommendations() for the breakdown chart."""
     async def load():
-        async with httpx.AsyncClient(timeout=15) as c:
+        async with http.shared("finnhub", timeout=15) as c:
             return await _get(c, "/stock/recommendation", symbol=symbol)
     val, _ = await cached(("finnhub", "rec_rows", symbol), 43200, load)
     return val or []
 
 
 async def _load_info(symbol: str) -> dict:
-    async with httpx.AsyncClient(timeout=15) as c:
+    async with http.shared("finnhub", timeout=15) as c:
         prof, met, rec = await asyncio.gather(
             _get(c, "/stock/profile2", symbol=symbol),
             _get(c, "/stock/metric", symbol=symbol, metric="all"),
@@ -136,7 +137,7 @@ async def company_news(symbol: str, frm: str, to: str) -> list[dict]:
     if not enabled():
         return []
     async def load():
-        async with httpx.AsyncClient(timeout=15) as c:
+        async with http.shared("finnhub", timeout=15) as c:
             return await _get(c, "/company-news", symbol=symbol, **{"from": frm, "to": to})
     val, _ = await cached(("finnhub", "news", symbol.upper(), frm, to), 7 * 86400, load)
     return val if isinstance(val, list) else []
@@ -170,7 +171,7 @@ async def earnings_calendar(frm: str, to: str, symbol: str = "") -> list[dict]:
     if not enabled():
         return []
     async def load():
-        async with httpx.AsyncClient(timeout=15) as c:
+        async with http.shared("finnhub", timeout=15) as c:
             js = await _get(c, "/calendar/earnings", **{"from": frm, "to": to,
                                                          **({"symbol": symbol.upper()} if symbol else {})})
         return js.get("earningsCalendar", []) if isinstance(js, dict) else []

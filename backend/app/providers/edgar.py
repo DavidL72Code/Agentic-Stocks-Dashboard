@@ -7,6 +7,7 @@ silently report double revenue.
 """
 from __future__ import annotations
 import asyncio, logging, os
+from .. import http
 from datetime import date, timedelta
 from typing import Any
 import httpx
@@ -70,7 +71,7 @@ QUARTER_DAYS = (80, 100)     # a 10-Q period is ~91 days; reject 6/9/12-month ro
 
 
 async def _get(url: str) -> Any:
-    async with httpx.AsyncClient(timeout=25, headers={"User-Agent": UA}) as c:
+    async with http.shared("sec", timeout=25, headers={"User-Agent": UA}) as c:
         r = await c.get(url)
         r.raise_for_status()
         return r.json()

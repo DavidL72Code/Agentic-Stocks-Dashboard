@@ -147,9 +147,9 @@ def _chart_quotes(symbols: list[str]) -> dict[str, dict]:
            if (hit := _chart_hits.get(sym)) and now - hit[0] < CHART_TTL}
     todo = [sym for sym in symbols if sym not in out]
     if todo:
-        s = cr.Session(impersonate="chrome")
+        from .. import http
         with ThreadPoolExecutor(max_workers=12) as ex:
-            rows = list(ex.map(lambda sym: _chart_quote(s, sym), todo))
+            rows = list(ex.map(lambda sym: _chart_quote(http.session(), sym), todo))
         for r in rows:
             if r:
                 _chart_hits[r["symbol"]] = (now, r)
@@ -195,12 +195,12 @@ def _spark_quotes(symbols: list[str]) -> dict[str, dict]:
     todo = [sym for sym in symbols if sym not in out]
     if not todo:
         return out
-    s = cr.Session(impersonate="chrome")
+    from .. import http
     chunks = [todo[i:i + 20] for i in range(0, len(todo), 20)]
 
     def one(chunk):
         try:
-            r = s.get(SPARK_URL, params={"symbols": ",".join(chunk), "range": "1d", "interval": "1d"},
+            r = http.session().get(SPARK_URL, params={"symbols": ",".join(chunk), "range": "1d", "interval": "1d"},
                       timeout=10)
             return r.json() if r.status_code == 200 else {}
         except Exception as e:
