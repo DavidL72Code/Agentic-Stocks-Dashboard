@@ -7,7 +7,7 @@ silently report double revenue.
 """
 from __future__ import annotations
 import asyncio, logging, os
-from datetime import date
+from datetime import date, timedelta
 from typing import Any
 import httpx
 from ..cache import cached
@@ -175,8 +175,15 @@ async def concept(ticker: str, metric: str, limit: int = 8) -> list[dict]:
         if not series:
             return []
         newest = max(q[-1]["end"] for q in series)
-        return next(q for q in series if q[-1]["end"] == newest)
-    val, _ = await cached(("edgar", ticker.upper(), metric, "v4"), 86400, load)
+        current = [q for q in series if q[-1]["end"] == newest]
+        # Two tags can both be current. APLD files `Revenues` for 2 recent
+        # quarters and RevenueFromContract... for all 8: list order picked the
+        # 2-quarter series, and 6 of 8 quarters - and the TTM margins - came
+        # back empty. Prefer the series covering more of the last two years;
+        # max() keeps list order for a tie.
+        cutoff = (date.fromisoformat(newest) - timedelta(days=800)).isoformat()
+        return max(current, key=lambda q: sum(1 for r in q if r["end"] >= cutoff))
+    val, _ = await cached(("edgar", ticker.upper(), metric, "v5"), 86400, load)
     return val[-limit:]
 
 
@@ -271,3 +278,211 @@ async def filings(ticker: str, limit: int = 8, since: str | None = None) -> list
     if since:
         val = [x for x in val if x["date"] >= since]
     return val[:limit]
+
+
+# ════════════════ debt, cash and free cash flow, from the filings ════════════════
+# Yahoo's totalDebt / totalCash / freeCashflow sit behind the crumb Render never
+# gets, and Finnhub's free tier has none of them - so on the live site the three
+# numbers an investor checks first when a stock is falling (how much it owes,
+# what it holds, whether the business pays its own way) were blank. They come
+# from the 10-Q/10-K balance sheet and cash-flow statement instead, each linked
+# to its filing.
+FILED_FORMS = {"10-Q", "10-K", "10-Q/A", "10-K/A"}
+_SEC_SEM = asyncio.Semaphore(6)          # SEC asks for no more than 10 requests a second
+
+LEVEL_TAGS = {
+    "cash": ["CashAndCashEquivalentsAtCarryingValue",
+             "CashCashEquivalentsRestrictedCashAndRestrictedCashEquivalents"],
+    "short_term_investments": ["ShortTermInvestments", "MarketableSecuritiesCurrent",
+                               "AvailableForSaleSecuritiesDebtSecuritiesCurrent"],
+    "long_term_debt": ["LongTermDebtNoncurrent", "LongTermDebtAndCapitalLeaseObligations"],
+    "current_debt": ["DebtCurrent", "LongTermDebtCurrent",
+                     "LongTermDebtAndCapitalLeaseObligationsCurrent"],
+    "short_term_borrowings": ["ShortTermBorrowings", "CommercialPaper"],
+    "total_debt_fallback": ["LongTermDebt"],
+    "finance_leases": ["FinanceLeaseLiability"],
+    "finance_leases_noncurrent": ["FinanceLeaseLiabilityNoncurrent"],
+    "finance_leases_current": ["FinanceLeaseLiabilityCurrent"],
+}
+FLOW_TAGS = {
+    "operating_cash_flow": ["NetCashProvidedByUsedInOperatingActivities",
+                            "NetCashProvidedByUsedInOperatingActivitiesContinuingOperations"],
+    "capex": ["PaymentsToAcquirePropertyPlantAndEquipment", "PaymentsToAcquireProductiveAssets"],
+    "interest_expense": ["InterestExpense", "InterestExpenseNonoperating", "InterestExpenseDebt",
+                         "InterestAndDebtExpense", "InterestIncomeExpenseNonoperatingNet"],
+    "operating_income": ["OperatingIncomeLoss"],
+}
+
+
+async def _usd(cik: int, tag: str) -> list[dict]:
+    async with _SEC_SEM:
+        try:
+            js = await _get(CONCEPT.format(cik=cik, tag=tag))
+        except Exception:
+            return []
+    return [{**u, "tag": tag} for u in ((js.get("units") or {}).get("USD") or [])
+            if u.get("form") in FILED_FORMS and u.get("end")]
+
+
+def _span(u: dict) -> int:
+    return (date.fromisoformat(u["end"]) - date.fromisoformat(u["start"])).days
+
+
+def _instants(units: list[dict]) -> dict[str, dict]:
+    """Balance-sheet values by date, the latest filing winning a restatement."""
+    by: dict[str, dict] = {}
+    for u in units:
+        if u.get("start"):
+            continue
+        if u["end"] not in by or u.get("filed", "") > by[u["end"]].get("filed", ""):
+            by[u["end"]] = u
+    return by
+
+
+def _ttm_flow(units: list[dict]) -> dict | None:
+    """Twelve months of a flow from the way filings report it: a 10-Q's
+    cash-flow statement is year-to-date (6 or 9 months), so the last twelve
+    months are this year-to-date + the last full year - the same year-to-date
+    a year earlier. Only 3-month periods were read before, so Q2 and Q3 cash
+    flow never arrived and free cash flow could not be computed at all."""
+    facts: dict[tuple, dict] = {}
+    for u in units:
+        if not u.get("start"):
+            continue
+        k = (u["start"], u["end"])
+        if k not in facts or u.get("filed", "") > facts[k].get("filed", ""):
+            facts[k] = u
+    if not facts:
+        return None
+    latest = max(e for _, e in facts)
+    cur = max((f for (s, e), f in facts.items() if e == latest), key=_span)
+    sp = _span(cur)
+    base = {"end": cur["end"], "accn": cur.get("accn"), "form": cur.get("form"), "tag": cur["tag"]}
+    if 350 <= sp <= 380:
+        return {**base, "val": cur["val"], "basis": "fiscal year"}
+    start = date.fromisoformat(cur["start"])
+    end = date.fromisoformat(cur["end"])
+    annual = [f for f in facts.values() if 350 <= _span(f) <= 380
+              and abs((start - date.fromisoformat(f["end"])).days - 1) <= 7]
+    prior = [f for f in facts.values() if f is not cur and abs(_span(f) - sp) <= 10
+             and abs((end - date.fromisoformat(f["end"])).days - 365) <= 20]
+    if not annual or not prior:
+        return None
+    a = max(annual, key=lambda f: f.get("filed", ""))
+    p = max(prior, key=lambda f: f.get("filed", ""))
+    return {**base, "val": cur["val"] + a["val"] - p["val"],
+            "basis": f"{round(sp / 30.4)} months to {cur['end']} + fiscal year to {a['end']} "
+                     f"- the same {round(sp / 30.4)} months a year earlier"}
+
+
+def _current(series: list[list[dict]]) -> list[dict]:
+    """Of several tags for one line item, the one still being filed."""
+    series = [s for s in series if s]
+    if not series:
+        return []
+    newest = max(max(u["end"] for u in s) for s in series)
+    return next(s for s in series if max(u["end"] for u in s) == newest)
+
+
+async def leverage(ticker: str) -> dict:
+    """Debt, cash, net debt, free cash flow and interest cover from the latest
+    filings. {} when the company files no us-gaap XBRL (foreign filers, funds)."""
+    cik = await cik_for(ticker)
+    if cik is None:
+        return {}
+
+    async def load() -> dict:
+        from ..tools.sources import sec_filing_url
+        names = [(grp, tag) for grp, tags in {**LEVEL_TAGS, **FLOW_TAGS}.items() for tag in tags]
+        got = await asyncio.gather(*(_usd(cik, tag) for _, tag in names))
+        by_group: dict[str, list[list[dict]]] = {}
+        for (grp, _), units in zip(names, got):
+            by_group.setdefault(grp, []).append(units)
+
+        # ── the balance sheet: every part read at the SAME date ──
+        cash_series = _current(by_group["cash"])
+        if not cash_series:
+            return {}
+        cash_by = _instants(cash_series)
+        if not cash_by:
+            return {}
+        bs = max(cash_by)
+
+        def at(group: str) -> dict | None:
+            for units in by_group.get(group, []):
+                hit = _instants(units).get(bs)
+                if hit is not None:
+                    return hit
+            return None
+
+        parts: dict[str, float] = {}
+        cited: list[dict] = []
+
+        def take(label: str, f: dict | None) -> float:
+            if f is None:
+                return 0.0
+            parts[label] = f["val"]
+            cited.append(f)
+            return float(f["val"])
+
+        cash = take("cash and equivalents", cash_by[bs])
+        cash += take("short-term investments", at("short_term_investments"))
+        lt, cur_d = at("long_term_debt"), at("current_debt")
+        debt = 0.0
+        if lt is not None or cur_d is not None:
+            debt += take("long-term debt", lt)
+            debt += take("debt due within a year", cur_d)
+            if cur_d is None or cur_d["tag"] != "DebtCurrent":   # DebtCurrent already includes these
+                debt += take("short-term borrowings", at("short_term_borrowings"))
+        else:
+            debt += take("debt", at("total_debt_fallback"))
+        # leases count as borrowing unless the debt line already includes them
+        if not (lt is not None and lt["tag"] == "LongTermDebtAndCapitalLeaseObligations"):
+            fl = at("finance_leases")
+            if fl is not None:
+                debt += take("finance leases", fl)
+            else:
+                debt += take("finance leases (long-term)", at("finance_leases_noncurrent"))
+                debt += take("finance leases (within a year)", at("finance_leases_current"))
+
+        # ── twelve months of cash flow and interest ──
+        flows = {g: _ttm_flow(_current(by_group[g])) for g in FLOW_TAGS}
+        ocf, capex = flows["operating_cash_flow"], flows["capex"]
+        out: dict[str, Any] = {"as_of": bs, "cash": cash, "debt": debt, "net_debt": debt - cash,
+                               "parts": parts}
+        if ocf:
+            out["operating_cash_flow_12m"] = ocf["val"]
+            out["cash_flow_period_end"] = ocf["end"]
+            cited.append(ocf)
+        if ocf and capex and capex["end"] == ocf["end"]:
+            out["capex_12m"] = capex["val"]
+            out["free_cash_flow_12m"] = ocf["val"] - capex["val"]
+            cited.append(capex)
+        ie, oi = flows["interest_expense"], flows["operating_income"]
+        if ie:
+            # the "net" tag is negative when it is a cost; positive means the
+            # company EARNS more interest than it pays, and there is no bill to cover
+            cost = -ie["val"] if ie["tag"] == "InterestIncomeExpenseNonoperatingNet" else ie["val"]
+            if cost and cost > 0:
+                out["interest_expense_12m"] = cost
+                cited.append(ie)
+                if oi and oi["end"] == ie["end"]:
+                    out["operating_income_12m"] = oi["val"]
+                    out["interest_cover"] = round(oi["val"] / cost, 2)
+        stale = (date.today() - date.fromisoformat(bs)).days > 200
+        if stale:
+            out["stale"] = True
+        filings = {}
+        for f in cited:
+            if f.get("accn") and f["accn"] not in filings:
+                filings[f["accn"]] = {"form": f.get("form"), "end": f["end"],
+                                      "url": sec_filing_url(cik, f["accn"])}
+        out["filings"] = sorted(filings.values(), key=lambda x: x["end"], reverse=True)
+        return out
+
+    try:
+        val, _ = await cached(("edgar", ticker.upper(), "leverage", "v1"), 86400, load)
+        return val or {}
+    except Exception as e:
+        log.warning("leverage %s failed: %s", ticker, e)
+        return {}

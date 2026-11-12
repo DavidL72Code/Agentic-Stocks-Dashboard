@@ -182,7 +182,7 @@ const url = path => API + path;
    page would load and every call under it would error - looking broken when it
    is only asleep. Retry the transient shapes (network error, 502/503/504) with
    backoff, and say so on screen instead of failing silently. */
-const WAKE_MS = 90_000, WAKE_CODES = new Set([502, 503, 504]);
+const WAKE_MS = 180_000, WAKE_CODES = new Set([502, 503, 504]);
 let waking = false;
 
 function wakingBanner(on) {
@@ -195,8 +195,8 @@ function wakingBanner(on) {
     el.className = "guestbar";
     el.style.cssText = "position:fixed;left:50%;transform:translateX(-50%);" +
       "top:14px;z-index:95;max-width:min(560px,92vw)";
-    el.innerHTML = `<span>Waking the server &mdash; it sleeps when idle and takes
-      about a minute. Nothing is wrong.</span>`;
+    el.innerHTML = `<span>${MKT.asof ? "Showing the prices from your last visit while the server wakes up"
+      : "Waking the server"} &mdash; it sleeps when idle and takes about a minute. Nothing is wrong.</span>`;
     document.body.appendChild(el);
   } else if (!on && el) { el.remove(); }
 }
@@ -247,6 +247,40 @@ async function apiOnce(path, opts) {
 const jpost = (path, body) => api(path, {method:"POST",
   headers:{"Content-Type":"application/json"}, body: JSON.stringify(body)});
 
+/* Stale-while-revalidate for market data. A panel paints the last copy at once -
+   from this tab's memory, or from this browser's storage on a new visit - then
+   fetches and repaints with fresh numbers. Leaving the dashboard and coming back
+   used to blank the market map until a new fetch returned, and a visit that
+   woke the server showed skeletons for a minute. Only market data is kept, and
+   signing out clears it. */
+const SWR_PREFIX = "monsoon.swr.", SWR_MAX_AGE = 36 * 3600e3, SWR_MEM = new Map();
+function swrGet(key) {
+  const m = SWR_MEM.get(key); if (m) return m;
+  try { const j = JSON.parse(localStorage.getItem(SWR_PREFIX + key) || "null");
+    if (j && Date.now() - j.t < SWR_MAX_AGE) { SWR_MEM.set(key, j); return j; } } catch {}
+  return null;
+}
+function swrPut(key, d) {
+  const j = { t: Date.now(), d }; SWR_MEM.set(key, j);
+  try { localStorage.setItem(SWR_PREFIX + key, JSON.stringify(j)); } catch {}
+}
+function swrClear() {
+  SWR_MEM.clear();
+  try { Object.keys(localStorage).filter(k => k.startsWith(SWR_PREFIX)).forEach(k => localStorage.removeItem(k)); } catch {}
+}
+const clockTime = t => { if (!t) return "earlier"; const d = new Date(t);
+  const time = d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  return d.toDateString() === new Date().toDateString() ? time
+    : `${d.toLocaleDateString([], { month: "short", day: "numeric" })}, ${time}`; };
+/* paint(data, fresh) runs up to twice: the kept copy (fresh=false), then the
+   server's (fresh=true). Rejects only when there was nothing to show at all. */
+async function swr(path, paint) {
+  const old = swrGet(path);
+  if (old) paint(old.d, false);
+  try { const d = await api(path); swrPut(path, d); paint(d, true); return d; }
+  catch (e) { if (!old) throw e; return old.d; }
+}
+
 /* ─────────────── account ─────────────── */
 let ME = { guest:true, name:"Guest", can_save:false };
 
@@ -284,7 +318,7 @@ function toggleAcctMenu() {
   m.onclick = async e => {
     const a = e.target.dataset?.a; if (!a) return;
     closeAcctMenu();
-    if (a === "out") { await fetch(url("/api/auth/logout"), {method:"POST", credentials:"include"}); location.reload(); }
+    if (a === "out") { swrClear(); await fetch(url("/api/auth/logout"), {method:"POST", credentials:"include"}); location.reload(); }
     if (a === "pw") changePassword();
   };
   $("acct").appendChild(m);
@@ -619,19 +653,62 @@ function marginsHTML(tt) {
    "Sources" button at the foot of the tab rather than a line of grey links */
 const srcLine = list => (list || []).length ? `<div class="psrc">${srcBtn(list)}</div>` : "";
 
+/* Debt and cash, first on the overview: when a stock falls and borrowing costs
+   rise, the questions are how much it owes, what it holds, whether the business
+   pays its own way, and whether its profits cover the interest bill. These were
+   blank on the live site (Yahoo's figures never reach it); they now come from
+   the quarterly statements, linked to the filing. */
+function debtHTML(b, sym) {
+  if (!b || (b.cash == null && b.debt == null)) return "";
+  const m = v => v == null ? "—" : (v < 0 ? "−" : "") + usd(Math.abs(v));
+  const fin = !!b.financial, nd = b.net_debt, fcf = b.free_cash_flow_12m, ic = b.interest_cover;
+  const bits = [];
+  if (!fin && nd != null) bits.push(nd > 0 ? `owes ${m(nd)} more than it holds in cash` : `holds ${m(-nd)} more in cash than it owes`);
+  if (!fin && fcf != null) bits.push(fcf < 0 ? `spent ${m(-fcf)} more cash than the business brought in over the last 12 months`
+                                             : `the business brought in ${m(fcf)} of spare cash over the last 12 months`);
+  if (!fin && ic != null) bits.push(b.operating_income_12m < 0
+      ? `it ran an operating loss, so its profits covered none of its ${m(b.interest_expense_12m)} interest bill`
+      : ic < 1 ? `its operating profit covered only ${Math.round(ic * 100)}% of its ${m(b.interest_expense_12m)} interest bill`
+      : `its operating profit covered its ${m(b.interest_expense_12m)} interest bill ${ic >= 100 ? "more than 100" : num(ic, 1)} times over`);
+  const worry = !fin && ((ic != null && ic < 1.5) || (fcf != null && fcf < 0 && nd != null && nd > 0));
+  const read = fin ? "For a bank or insurer, borrowing and paying interest are the business itself, so these numbers don't read the way they do for other companies."
+             : bits.length ? `${esc(sym)} ${bits.join("; ")}.` : "";
+  const tone = (v, bad, warn) => v == null ? "" : v < bad ? "bad" : v < warn ? "warn" : "good";
+  const tiles = [
+    ["Debt", m(b.debt), (b.parts || {})["debt due within a year"] != null ? `${m(b.parts["debt due within a year"])} due within a year` : "loans and bonds", ""],
+    ["Cash", m(b.cash), ((b.parts || {})["short-term investments"] || 0) > 0.05 * (b.cash || 0)
+        ? "includes short-term investments" : "cash and equivalents", ""],
+    ...(fin ? [] : [
+      [nd != null && nd < 0 ? "Net cash" : "Net debt", m(nd == null ? null : Math.abs(nd)), "debt minus cash", ""],
+      ["Free cash flow", m(fcf), "last 12 months", fcf == null ? "" : fcf < 0 ? "bad" : "good"],
+      ["Interest cover", ic == null ? "—" : ic >= 100 ? "100×+" : (ic < 0 ? "−" : "") + num(Math.abs(ic), 1) + "×",
+        ic == null ? "no meaningful interest bill" : "operating profit ÷ interest, 12 months", tone(ic, 1.5, 3)],
+      ["Debt / equity", b.debt_to_equity == null ? "—" : num(b.debt_to_equity, 2) + "×", "debt per $1 of shareholders' equity",
+        b.debt_to_equity == null ? "" : b.debt_to_equity > 3 ? "bad" : b.debt_to_equity > 1.5 ? "warn" : ""]])];
+  return `<div class="section"><div class="panel debtp${worry ? " worry" : ""}">
+    <div class="panel-h"><h4>Debt and cash${tip(esc("How much the company owes (loans and bonds; leases left out), what it holds, whether the business pays for itself after spending on equipment (free cash flow), and how many times over its operating profit pays its interest bill (interest cover). Under 1× it doesn't earn enough to pay that bill. Read from the quarterly statements and linked to the SEC filing."))}</h4>
+      <span class="r">as of ${esc(longDate(toDate(b.as_of)))}${b.stale ? " · older than usual" : ""}</span></div>
+    ${read ? `<div class="debt-read">${read}</div>` : ""}
+    <div class="grid debt-grid">${tiles.map(([k, v, s, c]) => `<div class="tile ${c}"><div class="k">${esc(k)}</div>
+      <div class="v mono">${v}</div><div class="s">${esc(s)}</div></div>`).join("")}</div></div></div>`;
+}
+
 const TABS = {
   overview: async t => {
     const o = await api(`/api/overview/${t}`);
     const p = x => x==null ? "—" : num(x*100,1)+"%";
-    return kvHTML([
+    const bal = o.balance;
+    return debtHTML(bal, t) + kvHTML([
         ["Market cap", usd(o.market_cap)], ["P/E (TTM)", num(o.pe,1)],
         ["Forward P/E", num(o.forward_pe,1)], ["Price / book", num(o.price_to_book,1)],
         ["Gross margin", p(o.gross_margin), "12 mo"], ["Operating margin", p(o.operating_margin), "12 mo"],
         ["Net margin", p(o.net_margin), "12 mo"], ["Return on equity", p(o.roe), "12 mo"],
         ["Revenue growth", o.revenue_growth!=null ? pct(o.revenue_growth*100) : "—", "YoY"],
-        ["Debt / equity", o.debt_to_equity==null ? "—" : num(o.debt_to_equity/100,2)+"×",
+        // shown in the Debt and cash panel above when the statements supplied them
+        ...(bal ? [] : [["Debt / equity", o.debt_to_equity==null ? "—" : num(o.debt_to_equity/100,2)+"×",
           o.cash!=null&&o.debt!=null ? (o.cash>=o.debt ? `net cash ${usd(o.cash-o.debt)}` : `net debt ${usd(o.debt-o.cash)}`) : ""],
-        ["Free cash flow", usd(o.fcf), "12 mo"], ["Dividend yield", o.dividend_yield ? num(o.dividend_yield,2)+"%" : "—"],
+          ["Free cash flow", usd(o.fcf), "12 mo"]]),
+        ["Dividend yield", o.dividend_yield ? num(o.dividend_yield,2)+"%" : "—"],
         ["Employees", o.employees ? Number(o.employees).toLocaleString() : "—"],
         ["Sector", esc(o.sector || "—"), o.industry || ""]])
       + `<div class="section"><div class="panel"><div class="panel-h"><h4>About ${esc(t)}</h4></div>
@@ -685,7 +762,7 @@ const TABS = {
     return `<div class="panel"><div class="panel-h"><h4>Headlines${tip(esc(`${n.relevant} of these ${n.total} headlines name ${t} itself; the rest are general market stories the feed attached. The feed doesn't say whether news is good or bad.`))}</h4></div>
       <div class="panel-b">${n.items.map(i=>`<div class="newsrow"><div>
         <div class="h">${/^https?:\/\//i.test(i.url||"")?`<a href="${esc(i.url)}" target="_blank" rel="noopener">${esc(i.title)}</a>`:esc(i.title)}</div>
-        <div class="m">${esc(i.publisher||"")}${i.published?" · "+esc(String(i.published).slice(0,10)):""}</div></div>
+        <div class="m">${esc(i.publisher||"")}${i.published?" · "+esc(whenPublished(i.published)):""}</div></div>
         <span class="badge ${i.mentions_issuer?"brand":"ghost"}">${i.mentions_issuer?esc(t):"unrelated"}</span></div>`).join("")}
         </div></div>`
       + agentSlot("street");
@@ -708,7 +785,7 @@ const TABS = {
         <div class="panel-b">${a.changes.length ? a.changes.map(r=>`<div class="lrow">
           <span class="d mono">${esc(r.date)}</span><span>${esc(r.firm||"")} → ${esc(r.to||"")}</span>
           <span class="badge ${/up/i.test(r.action||"")?"pos":/down/i.test(r.action||"")?"neg":""}">${esc(r.action||"—")}</span>
-        </div>`).join("") : `<div class="empty">No rating changes on record.</div>`}</div></div></div>`
+        </div>`).join("") : `<div class="empty">${a.changes_unavailable ? "Recent upgrades and downgrades can't be fetched right now." : "No rating changes on record."}</div>`}</div></div></div>`
       + srcLine(a.sources) + agentSlot("street");
   },
 
@@ -2172,7 +2249,9 @@ const SECTOR_ETFS = [["XLK","Technology"],["XLC","Communication"],["XLY","Consum
 const TAPE = [["^GSPC","S&P 500"],["^DJI","Dow"],["^IXIC","Nasdaq"],["^RUT","Russell 2000"],
   ["^VIX","VIX"],["^TNX","US 10Y"],["DX-Y.NYB","Dollar"],["CL=F","Crude"],["GC=F","Gold"],
   ["BTC-USD","Bitcoin"],["EURUSD=X","EUR/USD"]];
-const MKT = { q: {}, t: 0 };
+const MKT = { q: {}, t: 0, asof: 0 };
+{ const kept = swrGet("market");          // last visit's prices: painted while fresh ones load
+  if (kept) { kept.d.forEach(q => { MKT.q[q.symbol] = q; }); MKT.asof = kept.t; } }
 
 /* one request for everything the Pro shell and dashboard price: 70-odd symbols */
 async function loadMarket(force) {
@@ -2180,7 +2259,8 @@ async function loadMarket(force) {
   const syms = [...UNIVERSE_SYMS, ...SECTOR_ETFS.map(x => x[0]), ...TAPE.map(x => x[0]), "SPY"];
   const d = await api(`/api/quotes?symbols=${syms.map(encodeURIComponent).join(",")}`);
   d.quotes.forEach(q => { MKT.q[q.symbol] = q; S.q[q.symbol] = S.q[q.symbol] || q; });
-  MKT.t = Date.now();
+  MKT.t = MKT.asof = Date.now();
+  swrPut("market", d.quotes);
   return MKT.q;
 }
 
@@ -2305,16 +2385,40 @@ function sectorsHTML() {
 }
 
 const DOW = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
-function earningsHTML(d) {
+function earningsHTML(d, show = 8) {
   if (!d) return `<div class="skel" style="height:160px;margin:12px"></div>`;
-  if (!d.items?.length) return `<div class="pd-empty">${esc(d.unavailable || "No large companies report this week.")}</div>`;
+  if (!d.items?.length) return `<div class="pd-empty">${esc(d.unavailable || (d.total_reporting
+    ? "The reporting list is unavailable right now." : "No companies report this week."))}</div>`;
+  // Finnhub's per-share figures can be adjusted: CoreWeave's Nov 10 2026 report
+  // is -$1.00 vs -$1.18 here, -$1.27 as filed (GAAP) against Yahoo's -$1.55.
+  // Each source's beat/miss compares like with like, so the verdict holds.
+  const share = v => v == null ? "" : `${v < 0 ? "−" : ""}$${Math.abs(v).toFixed(2)}`;
+  const extra = d.items.filter(e => e.rank > show).length;
   return d.items.map(e => { const dt = new Date(e.date + "T12:00:00");
-    return `<div class="er-row" data-go="${esc(e.symbol)}">
+    const when = e.hour === "bmo" ? "Before open" : e.hour === "amc" ? "After close" : "Time not set";
+    let res;
+    if (e.reported && e.eps_actual != null && e.eps_estimate != null) {
+      // compared in whole cents, as shown: -0.0700 vs -0.0714 is a match, not a beat
+      const a = Math.round(e.eps_actual * 100), f = Math.round(e.eps_estimate * 100);
+      res = `<span class="er-res ${a > f ? "up" : a < f ? "dn" : ""}">${a > f ? "Beat forecast" : a < f ? "Missed forecast" : "Matched forecast"}</span>
+        <div title="Finnhub's figures. They can be on an adjusted basis and differ from the per-share result in the company's filing; the verdict compares like with like.">${share(e.eps_actual)} vs ${share(e.eps_estimate)} a share</div>`;
+    } else if (e.reported) {
+      res = `<span class="er-res">Reported</span><div>Results not in yet</div>`;
+    } else {
+      res = `${when}${e.eps_estimate != null ? `<div>Forecast ${share(e.eps_estimate)} a share</div>` : ""}`;
+    }
+    return `<div class="er-row${e.rank > show ? " extra" : ""}" data-go="${esc(e.symbol)}" title="${esc(`${e.symbol} ${e.reported ? "reported" : "reports"} ${DOW[dt.getDay()]} ${when.toLowerCase()}`)}">
       <div class="dt"><span>${DOW[dt.getDay()]}</span><b>${dt.getDate()}</b></div>
-      <div style="min-width:0"><div class="s">${esc(e.symbol)}</div><div class="n">${esc(e.name || "")}</div></div>
-      <div class="when">${e.hour === "bmo" ? "Before open" : e.hour === "amc" ? "After close" : "Time TBA"}
-        ${e.eps_estimate != null ? `<div>EPS est. ${num(e.eps_estimate)}</div>` : ""}</div></div>`; }).join("");
+      <div style="min-width:0"><div class="s">${esc(e.symbol)}${e.yours ? ` <span class="er-you">yours</span>` : ""}</div><div class="n">${esc(e.name || "")}</div></div>
+      <div class="when">${res}</div></div>`; }).join("")
+    + (extra > 0 ? `<button type="button" class="er-more" data-ermore aria-expanded="false">Show ${extra} more</button>` : "");
 }
+document.addEventListener("click", e => {
+  const b = e.target.closest?.("[data-ermore]"); if (!b) return;
+  const box = b.parentElement, open = !box.classList.contains("open");
+  box.classList.toggle("open", open); b.setAttribute("aria-expanded", String(open));
+  b.textContent = open ? "Show fewer" : `Show ${box.querySelectorAll(".er-row.extra").length} more`;
+});
 
 function newsHTML(items) {
   if (!items) return `<div class="skel" style="height:160px;margin:12px"></div>`;
@@ -2351,7 +2455,7 @@ async function viewDashboardPro(nav) {
     .map(x => `<i style="background:${moveColor(x)}"></i>`).join("")}<span>+3%</span></span>`;
   v.innerHTML = `<div class="page">
     <header class="mk-head">
-      <div><h1>Markets</h1><div class="dateline">${esc(longDate(new Date()))}</div></div>
+      <div><h1>Markets</h1><div class="dateline">${esc(longDate(new Date()))}<span class="asof" id="pdasof" role="status"></span></div></div>
       <form class="quickask" id="heroask" role="search">
         ${IC.spark.replace('class="ico"', "")}
         <input id="heroq" placeholder="Ask about a stock or the market" autocomplete="off" aria-label="Ask the research agent">
@@ -2385,7 +2489,7 @@ async function viewDashboardPro(nav) {
         <div id="pdsig"></div>
         <section class="panel"><div class="panel-h"><h4>Sectors${tip(esc("Today's move in each sector, measured by its SPDR sector fund (XLK for technology, XLF for financials, and so on)."))}</h4></div>
           <div id="sectors"><div class="skel" style="height:220px"></div></div></section>
-        <section class="panel"><div class="panel-h"><h4>Earnings this week${tip(esc("Companies reporting results this week, largest first."))}</h4></div>
+        <section class="panel"><div class="panel-h"><h4>Earnings this week${tip(esc("Every company reporting results this week, Monday to Sunday, in date order. The biggest and most actively traded come first, and stocks you own or watch come before them. A forecast is what analysts expect the company to earn per share. Results and forecasts come from Finnhub and can be on an adjusted basis, so they may differ from the per-share result in the company's own filing."))}</h4></div>
           <div id="earnings">${earningsHTML(null)}</div></section>
       </div>
     </div></div>`;
@@ -2396,8 +2500,15 @@ async function viewDashboardPro(nav) {
   afterRender(v);
   const live = () => nav === undefined || nav === NAV.seq;
 
+  // a quiet line under the date: "Updating..." while kept numbers are showing
+  const asof = (state) => { const el = $("pdasof"); if (!el || !live()) return;
+    el.textContent = state === "updating" ? "Updating prices…"
+      : state === "failed" ? `Showing prices from ${clockTime(MKT.asof)}. Couldn't refresh.`
+      : `Prices as of ${clockTime(MKT.asof)}`;
+    el.classList.toggle("busy", state === "updating"); };
+
   // indices
-  api("/api/indices").then(d => { if (!live() || !$("pdidx")) return;
+  swr("/api/indices", d => { if (!live() || !$("pdidx")) return;
     $("pdidx").innerHTML = idxCellsHTML(d);
     const by = Object.fromEntries(d.indices.map(i => [i.symbol, i]));
     $$("[data-ixp]").forEach(m => { const i = by[m.dataset.ixp]; if (i?.history?.length)
@@ -2406,18 +2517,19 @@ async function viewDashboardPro(nav) {
 
   // one request prices the map, movers, sectors and the watchlist
   const wl = demo ? POPULAR : S.wl;
-  Promise.all([loadMarket(true), wl.length ? api(`/api/sparklines?symbols=${wl.join(",")}`).catch(() => null) : null])
-    .then(([, sp]) => { if (!live()) return;
-      if (sp) Object.assign(S.sparks, sp.sparklines);
-      const mm = $("mmap"); paintMarketMap(mm);
-      if (mm) new ResizeObserver(() => { if ($("mmap") === mm) paintMarketMap(mm); }).observe(mm);
-      const paintMovers = k => { $("movers").innerHTML = moversHTML(k);
-        $$("#movers [data-go]").forEach(r => r.onclick = () => location.hash = "#/t/" + r.dataset.go); };
-      paintMovers("gainers");
-      $$("#mvseg button").forEach(b => b.onclick = () => { $$("#mvseg button").forEach(x => x.classList.toggle("on", x === b)); paintMovers(b.dataset.mv); });
-      $("sectors").innerHTML = sectorsHTML();
-      paintWatch(); loadTape();
-    }).catch(e => { if ($("mmap")) $("mmap").innerHTML = `<div class="pd-empty">Couldn't load prices: ${esc(e.message)}</div>`; });
+  let mvKind = "gainers";
+  const paintMovers = () => { if (!$("movers")) return; $("movers").innerHTML = moversHTML(mvKind);
+    $$("#movers [data-go]").forEach(r => r.onclick = () => location.hash = "#/t/" + r.dataset.go); };
+  $$("#mvseg button").forEach(b => b.onclick = () => { mvKind = b.dataset.mv;
+    $$("#mvseg button").forEach(x => x.classList.toggle("on", x === b)); paintMovers(); });
+  const paintPrices = () => { if (!live()) return;
+    const mm = $("mmap"); if (!mm) return;
+    paintMarketMap(mm);
+    if (!mm._ro) { mm._ro = new ResizeObserver(() => { if ($("mmap") === mm) paintMarketMap(mm); }); mm._ro.observe(mm); }
+    paintMovers();
+    if ($("sectors")) $("sectors").innerHTML = sectorsHTML();
+    paintWatch(); };
+  const sparkPath = wl.length ? `/api/sparklines?symbols=${wl.join(",")}` : null;
 
   const paintWatch = () => {
     const held = new Set((S.pf?.positions || []).map(p => p.ticker));
@@ -2433,13 +2545,27 @@ async function viewDashboardPro(nav) {
       $$("[data-sort]").forEach(x => x.classList.toggle("on", x.dataset.sort === wlSort.key)); paintWatch(); });
   };
 
-  api("/api/calendar/earnings?days=7&limit=8").then(d => { if (live() && $("earnings")) {
+  // prices: draw what this tab or the last visit already has, then refresh
+  const kept = Object.keys(MKT.q).length > 0;
+  if (sparkPath) { const sp = swrGet(sparkPath); if (sp) Object.assign(S.sparks, sp.d.sparklines); }
+  if (kept) { paintPrices(); asof("updating"); }
+  Promise.all([loadMarket(true), sparkPath ? api(sparkPath).catch(() => null) : null])
+    .then(([, sp]) => { if (!live()) return;
+      if (sp) { Object.assign(S.sparks, sp.sparklines); swrPut(sparkPath, sp); }
+      paintPrices(); loadTape(); asof("fresh");
+    }).catch(e => { if (kept) { asof("failed"); return; }
+      if ($("mmap")) $("mmap").innerHTML = `<div class="pd-empty">Couldn't load prices: ${esc(e.message)}</div>`; });
+
+  swr("/api/calendar/earnings?limit=30", d => { if (live() && $("earnings")) {
+    const open = $("earnings").classList.contains("open");
     $("earnings").innerHTML = earningsHTML(d);
-    $$("#earnings [data-go]").forEach(r => r.onclick = () => location.hash = "#/t/" + r.dataset.go); } })
+    $$("#earnings [data-go]").forEach(r => r.onclick = () => location.hash = "#/t/" + r.dataset.go);
+    const more = document.querySelector("#earnings [data-ermore]");
+    if (open && more) { more.textContent = "Show fewer"; more.setAttribute("aria-expanded", "true"); } } })
     .catch(() => { if ($("earnings")) $("earnings").innerHTML = earningsHTML({ items: [], unavailable: "Earnings calendar unavailable." }); });
 
   // market news and today's flagged moves, straight from the data plane (no model call)
-  api("/api/brief").then(b => { if (!live()) return;
+  swr("/api/brief", b => { if (!live()) return;
     if ($("mnews")) $("mnews").innerHTML = newsHTML(b.market_headlines || []);
     const sigs = (b.signals || []).slice(0, 4);
     if (sigs.length && $("pdsig")) { $("pdsig").innerHTML = signalStrip({ ...b, signals: sigs });
@@ -2713,9 +2839,18 @@ $("askform").onsubmit = e => { e.preventDefault();
   if (v) { submitAsk(v); $("ask").value = ""; growAsk(); } };
 
 api("/build").then(b => $("buildstamp").textContent = b.build.slice(-6)).catch(()=>{});
+// The Markets page paints before the server has answered anything: from the
+// last visit's prices, or as skeletons. On Render's free tier a sleeping server
+// takes about a minute to wake, and every one of the awaits below used to stand
+// between the visitor and a blank page for all of it. The real render follows
+// once we know who you are and what you watch.
+try { S.llm = localStorage.getItem("monsoon.llm") === "1"; } catch {}
+const firstHash = (location.hash || "#/dashboard").slice(2).split("/")[0];
+if (firstHash === "dashboard" || firstHash === "") route().catch(() => {});
 // who you are and whether the agent is up, together - then your book
 const [, health] = await Promise.all([loadMe(), api("/api/health").catch(() => ({}))]);
 S.llm = !!health.llm_configured;
+try { if ("llm_configured" in health) localStorage.setItem("monsoon.llm", S.llm ? "1" : "0"); } catch {}
 if (!S.llm) $("rst").textContent = "no key";
 syncSwitch(); applyPalette();
 await replayResume().catch(() => false);          // a replayed "watch this" lands before the list is read

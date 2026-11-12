@@ -83,6 +83,29 @@ likely to be wrong.
   behind a proxy. This is the same idling problem you disliked about free
   Supabase, moved to the compute side — and the proxy makes it worse, not
   better.
+
+  **What is in place now (Nov 2026):**
+  - `.github/workflows/keep-warm.yml` pings `/api/health` every 5 minutes from
+    11:00 to 04:59 UTC (6am–midnight New York in winter). Not around the clock:
+    Render's free tier is **750 instance hours per workspace per calendar
+    month, shared by every free service in it**, and a 31-day month is 744
+    hours — 24/7 leaves almost nothing, and running out suspends every free
+    service until the 1st. The window uses about 560 hours. Spun-down time is
+    free. GitHub pauses schedules in a repo with no commits for 60 days.
+  - The page no longer waits for the server to draw: the Markets page paints
+    the last visit's prices from the browser (marked "Updating prices…") and
+    swaps in fresh numbers when the API answers. The client keeps retrying a
+    sleeping server for 3 minutes before giving up.
+  - The server warms its own caches on start-up (market caps, indices, the
+    earnings calendar, the brief), then loads the agent's libraries in the
+    background, so the dashboard is not kept waiting for LangChain.
+  - `.github/workflows/smoke.yml` runs `evals/smoke.py` against the live site
+    after each deploy and three times a day. It reads the content, not the
+    status code — every Render-only bug so far answered 200 with an empty or
+    wrong body. Run it by hand with `python evals/smoke.py`.
+  - To reproduce Render's data path locally, start the server with
+    `YAHOO_CRUMB_BLOCKED=1`: no Yahoo crumb, chart quotes only, exactly what
+    Render gets.
 - **Long agent requests through the proxy are the untested part.**
   `/api/agent/ask/stream` streams, and an agent run can take 20-60s. Vercel
   imposes its own limits on proxied responses, and I have not verified streaming
@@ -222,6 +245,8 @@ silently ran a default (`gemini-2.5-flash`) that new keys can no longer use.
 | `STORE_PATH` | `data/store.json` | Legacy single-file store, read once to import, then renamed. Leave it. |
 | `TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN` | — | Hosted database instead of a local file. [DATABASE.md](DATABASE.md). |
 | `REDIS_URL`, `REDIS_PREFIX`, `REDIS_STALE_FACTOR`, `REDIS_TIMEOUT` | — | Cache second tier. Below. |
+| `WARMUP` | `1` | On start-up, fetch the dashboard's data (market caps, indices, the earnings calendar, the brief) and then import the agent's libraries, in the background. `0` turns it off - useful for tests that should not touch the network at boot. |
+| `YAHOO_CRUMB_BLOCKED` | unset | `1` makes a local server behave like Render: no Yahoo crumb, chart quotes only, no market caps or calendar from Yahoo. For reproducing Render-only bugs; never set it in production. |
 | `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET` | — | OAuth alongside passwords. Callback `{APP_BASE_URL}/api/auth/callback/github`. |
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | — | Callback `{APP_BASE_URL}/api/auth/callback/google`. Not wired into the UI yet. |
 

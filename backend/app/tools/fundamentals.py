@@ -1,4 +1,5 @@
 from __future__ import annotations
+import asyncio
 from ..providers import edgar, yahoo
 from ._util import empty, fail, ok, pct
 from .registry import tool
@@ -128,7 +129,11 @@ async def growth_rates(ticker: str, **_):
 
 @tool("fundamentals", "debt/equity, current ratio, cash - balance sheet risk")
 async def leverage_liquidity(ticker: str, **_):
-    i = await yahoo.info(ticker)
+    # Debt, cash and free cash flow from the quarterly statements first: Yahoo's
+    # versions never reach Render (the crumb), and define debt and free cash
+    # flow differently anyway. Yahoo still supplies the current and quick ratios.
+    from ..providers import balance
+    i, bal = await asyncio.gather(yahoo.info(ticker), balance.debt_and_cash(ticker))
     keys = {"currentRatio": "current_ratio", "quickRatio": "quick_ratio",
             "totalCash": "total_cash", "totalDebt": "total_debt"}
     d = {v: i[k] for k, v in keys.items() if i.get(k) is not None}
@@ -139,7 +144,30 @@ async def leverage_liquidity(ticker: str, **_):
     if isinstance(de, (int, float)):
         d["debt_to_equity_ratio"] = round(de / 100, 2)
         d["debt_as_pct_of_equity"] = round(de, 1)
-    if isinstance(d.get("total_cash"), (int, float)) and isinstance(d.get("total_debt"), (int, float)):
+    if bal:
+        f = (bal.get("filings") or [{}])[0]
+        src = {"label": f"SEC EDGAR · {ticker.upper()} {f.get('form') or 'filing'} for the quarter to {bal['as_of']}",
+               "url": f.get("url")}
+        d.pop("debt_to_equity_ratio", None); d.pop("debt_as_pct_of_equity", None)
+        d.update({k: v for k, v in {
+            "as_of": bal["as_of"],
+            "total_debt": bal.get("debt"),                 # loans and bonds; leases excluded
+            "debt_due_within_a_year": (bal.get("parts") or {}).get("debt due within a year"),
+            "total_cash": bal.get("cash"),
+            "net_debt": bal.get("net_debt"),               # negative: more cash than debt
+            "free_cash_flow_12m": bal.get("free_cash_flow_12m"),
+            "operating_cash_flow_12m": bal.get("operating_cash_flow_12m"),
+            "capital_spending_12m": bal.get("capex_12m"),
+            "interest_expense_12m": bal.get("interest_expense_12m"),
+            "operating_income_12m": bal.get("operating_income_12m"),
+            # how many times over operating profit pays the interest bill; under 1 it cannot
+            "interest_cover": bal.get("interest_cover"),
+            "debt_to_equity_ratio": bal.get("debt_to_equity"),
+        }.items() if v is not None})
+        if bal.get("financial"):
+            d["note"] = "a bank or insurer: debt and interest are its business, so leverage measures do not apply"
+        d["_src"] = {k: src for k in d if k not in ("current_ratio", "quick_ratio", "_src")}
+    elif isinstance(d.get("total_cash"), (int, float)) and isinstance(d.get("total_debt"), (int, float)):
         d["net_cash_usd"] = d["total_cash"] - d["total_debt"]     # negative = net debt
     return ok("leverage_liquidity", ticker, d) if d else fail("leverage_liquidity", ticker, "no balance sheet data")
 

@@ -1,0 +1,40 @@
+# Keep the Render API awake during the hours people use the site, and let it
+# sleep overnight.
+#
+# Why not around the clock: Render's free tier gives each workspace 750 instance
+# hours a calendar month, shared by every free service in it. A 31-day month is
+# 744 hours, so 24/7 leaves 6 hours for everything else, and running out
+# suspends every free service until the 1st. Spun-down time costs nothing.
+#
+# The window is 11:00-04:59 UTC: 6am-midnight New York in winter, 7am-1am in
+# summer. That is 18 hours a day, about 560 hours a month with the 15 minutes
+# Render takes to spin down after the last ping - roughly 190 hours of margin.
+#
+# Every 5 minutes, not 10: Render sleeps after 15 idle minutes, and GitHub
+# starts scheduled runs late under load, often by 5-15 minutes. At 10, two late
+# runs in a row let it fall asleep. The interval does not change the hours used;
+# being up is what counts, not how often it is asked.
+#
+# GitHub disables schedules in a repository with no commits for 60 days.
+name: keep-warm
+on:
+  schedule:
+    - cron: "*/5 11-23 * * *"
+    - cron: "*/5 0-4 * * *"
+  workflow_dispatch:
+permissions: {}
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Ping the API
+        env:
+          API: ${{ vars.API_URL || 'https://agentic-stocks-dashboard.onrender.com' }}
+        run: |
+          for i in 1 2 3; do
+            code=$(curl -s -o /dev/null -w '%{http_code}' -m 100 "$API/api/health" || true)
+            [ "$code" = "200" ] && { echo "up"; exit 0; }
+            echo "attempt $i: HTTP $code"; sleep 15
+          done
+          exit 1

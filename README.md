@@ -223,17 +223,30 @@ and useless, or readable and wrong.
 
 All numbers below are from runs on **October 19th 2026** unless dated otherwise.
 
-### Automated suites - 389 / 389
+### Automated suites - 403 / 403 (November 11th 2026)
 
 | Suite | Result | Covers |
 |---|---|---|
 | Agent (golden questions, live) | **19 / 19** | routing, tools, grounding, refusals, follow-ups, the screener |
 | App sweep | **96 / 96** | every route end to end on a throwaway database |
-| Regressions | **73 / 73** | one case per bug found during the build |
+| Regressions | **83 / 83** | one case per bug found during the build |
 | Tools | **61 / 61** | the 50 tools against live data |
 | Auth + Sign-in | **68 / 68** | hashing, throttling, the login round trip |
 | Tenancy | **36 / 36** | one account attacking another's ids |
-| Cache · Data plane | **36 / 36** | batching, TTLs, the endpoints the UI reads |
+| Cache · Data plane | **40 / 40** | batching, TTLs, stale-while-revalidate, the endpoints the UI reads |
+
+Agent cost on the golden set: median **5.4 s** per answer (p95 17.0 s), 5 model
+calls, ~12k tokens.
+
+**Production check - [evals/smoke.py](evals/smoke.py), 16 checks.** The suites
+above run on a machine that gets Yahoo's crumb; Render does not, and every
+Render-only bug so far answered 200 with an empty or wrong body: an empty market
+map, an earnings panel that said nobody was reporting the night CoreWeave
+reported, news failing for every ticker, blank debt and free cash flow. This
+reads the live site's content after each deploy and three times a day. Against
+the site as it was on November 11th: **9 / 15** (it found all six). Against the
+fixed code with Render's data path reproduced (`YAHOO_CRUMB_BLOCKED=1`):
+**16 / 16**.
 
 The first pass today was 388 / 389. The one failure was ours: moving the
 disclaimer behind the agent's ⓘ took it out of the page's HTML, and the sweep
@@ -286,6 +299,25 @@ Our NVDA figures against independent sources (Oct 9th 2026):
 | Beta | 1.86-1.89 | Yahoo 2.22 | different method: 1-2 years of daily moves vs 5 years of monthly ones - now labelled, not a bug |
 
 ### Load time
+
+**November 11th 2026 - cold starts and caching.** The hosted server sleeps when
+idle, and a visit that woke it waited on Python imports, empty caches and then
+every data source in turn.
+
+| | Before | After |
+|---|---|---|
+| Server answering after start (local, 3 runs) | 2.0-3.0 s | **1.25-1.86 s** (the agent's LangChain/LangGraph stack now loads in the background) |
+| Markets page while the server is still waking | blank until it answers (42.5 s measured on the live site) | **last visit's prices drawn ~80 ms after the page arrives**, then refreshed |
+| Back to Markets from another page | map blank ~4 s | **redrawn within 150 ms** |
+| Dashboard data on the first request after start | fetched on demand | **0.01-0.02 s** (warmed at start-up) |
+| 68-symbol quote batch, repeat request (Render path) | 1.2 s | **0.03 s** |
+| Comparing a new basket (Render) | 9.4 s | **2.3-4.4 s** (one round of requests instead of three) |
+
+The page paints from what the browser kept and marks it "Updating prices…"
+until fresh numbers arrive; the server does the same with an expired cache
+entry (serves it, refreshes in the background). A GitHub Action keeps the API
+awake during the day only - Render's free tier is 750 hours a month for the
+whole workspace ([HOSTING.md](HOSTING.md)).
 
 Measured in the browser on a freshly started local server (empty data cache),
 before and after the October 19th rebuild:

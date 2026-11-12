@@ -91,7 +91,13 @@ async def _load_info(symbol: str) -> dict:
         "marketCap": _mul(prof.get("marketCapitalization") or m.get("marketCapitalization"), 1e6),
         "sharesOutstanding": _mul(prof.get("shareOutstanding"), 1e6),
         "trailingPE": m.get("peTTM") or m.get("peBasicExclExtraTTM"),
-        "priceToBook": m.get("pbQuarterly") or m.get("pbAnnual"),
+        # Per-share figures, not Finnhub's ratios: its pbQuarterly is priced at
+        # an old close (CRWV 10.8 when price / its own book value is 5.3) and its
+        # indicated yield disagreed with its own dividend (AAPL 0.51% for a
+        # $1.07 dividend on a $348 share: 0.31%). yahoo.attr() turns these into
+        # P/B and yield at the current price.
+        "bookValue": m.get("bookValuePerShareQuarterly") or m.get("bookValuePerShareAnnual"),
+        "trailingAnnualDividendRate": m.get("dividendPerShareTTM"),
         "profitMargins": _pct(m.get("netProfitMarginTTM")),
         "operatingMargins": _pct(m.get("operatingMarginTTM")),
         "grossMargins": _pct(m.get("grossMarginTTM")),
@@ -103,7 +109,6 @@ async def _load_info(symbol: str) -> dict:
                              or m.get("totalDebt/totalEquityAnnual"), 100),
         "currentRatio": m.get("currentRatioQuarterly") or m.get("currentRatioAnnual"),
         "quickRatio": m.get("quickRatioQuarterly") or m.get("quickRatioAnnual"),
-        "dividendYield": m.get("dividendYieldIndicatedAnnual") or m.get("currentDividendYieldTTM"),
         "payoutRatio": _pct(m.get("payoutRatioTTM") or m.get("payoutRatioAnnual")),
         "beta": m.get("beta"),
         "fiftyTwoWeekHigh": m.get("52WeekHigh"), "fiftyTwoWeekLow": m.get("52WeekLow"),
@@ -157,7 +162,7 @@ async def recommendations(symbol: str) -> dict:
         return {}
 
 
-async def earnings_calendar(frm: str, to: str) -> list[dict]:
+async def earnings_calendar(frm: str, to: str, symbol: str = "") -> list[dict]:
     """Every US company reporting between two dates, in ONE call (the free
     tier allows it). Yahoo has no batch equivalent - its calendar is one
     request per ticker, and those are crumb-gated on Render. Cached 6h: dates
@@ -166,7 +171,8 @@ async def earnings_calendar(frm: str, to: str) -> list[dict]:
         return []
     async def load():
         async with httpx.AsyncClient(timeout=15) as c:
-            js = await _get(c, "/calendar/earnings", **{"from": frm, "to": to})
+            js = await _get(c, "/calendar/earnings", **{"from": frm, "to": to,
+                                                         **({"symbol": symbol.upper()} if symbol else {})})
         return js.get("earningsCalendar", []) if isinstance(js, dict) else []
-    val, _ = await cached(("finnhub", "earnings-cal", frm, to), 6 * 3600, load)
+    val, _ = await cached(("finnhub", "earnings-cal", frm, to, symbol.upper()), 6 * 3600, load)
     return val if isinstance(val, list) else []

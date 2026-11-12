@@ -1,6 +1,7 @@
 from __future__ import annotations
+import asyncio
 from datetime import datetime, timezone
-from ..providers import edgar, yahoo
+from ..providers import earnings, edgar, yahoo
 from ._util import empty, fail, ok
 from .registry import tool
 
@@ -15,19 +16,45 @@ def _since(period: str | None) -> str | None:
 
 @tool("events", "next earnings date and the consensus EPS estimate")
 async def next_earnings(ticker: str, **_):
-    cal = await yahoo.attr(ticker, "calendar", ttl=21600) or {}
-    d = cal.get("Earnings Date")
-    if isinstance(d, list) and d:
-        d = d[0]
-    if not d:
-        return empty("next_earnings", ticker, "no scheduled earnings date")
-    out = {"earnings_date": str(d)[:10], "eps_estimate": cal.get("Earnings Average"),
-           "revenue_estimate": cal.get("Revenue Average")}
-    try:
-        out["days_away"] = (datetime.fromisoformat(str(d)[:10]).date() - datetime.now(timezone.utc).date()).days
-    except Exception:
-        pass
+    # shared with the research page: never a date that has already passed, and
+    # Finnhub's schedule where Yahoo's calendar is unavailable (Render)
+    # ...and the report that just happened. Given only "next: Feb 26 2027" the
+    # day after CoreWeave reported, the agent said it had not reported this week.
+    nr, last = await asyncio.gather(earnings.next_report(ticker), _last_report(ticker))
+    if not nr and not last:
+        return empty("next_earnings", ticker, "no scheduled earnings date and no past report on record")
+    out = {}
+    if nr:
+        out = {"earnings_date": nr["date"], "days_away": nr["days_away"],
+               "eps_estimate": nr.get("eps_estimate"), "revenue_estimate": nr.get("revenue_estimate"),
+               "time_of_day": {"bmo": "before the open", "amc": "after the close"}.get(nr.get("hour") or "")}
+    if last:
+        out["last_report"] = last
     return ok("next_earnings", ticker, {k: v for k, v in out.items() if v is not None})
+
+
+async def _last_report(ticker: str) -> dict:
+    """The most recent report on or before today, with whether it was this week."""
+    from ..clock import ny_today, week_of
+    try:
+        raw = await yahoo.attr(ticker, "earnings_dates", ttl=21600) or {}
+    except Exception:
+        return {}
+    today = ny_today()
+    mon, _ = week_of(today)
+    past = sorted(((str(k)[:10], v) for k, v in raw.items()
+                   if str(k)[:10] <= today.isoformat() and v.get("Reported EPS") is not None),
+                  key=lambda kv: kv[0], reverse=True)
+    if not past:
+        return {}
+    d, v = past[0]
+    days_ago = (today - datetime.fromisoformat(d).date()).days
+    est, act = v.get("EPS Estimate"), v.get("Reported EPS")
+    out = {"date": d, "days_ago": days_ago, "reported_this_week": d >= mon.isoformat(),
+           "eps_actual": act, "eps_estimate": est}
+    if est is not None and act is not None:
+        out["beat_estimate"] = act > est
+    return out
 
 
 @tool("events", "past earnings: estimate vs actual, i.e. beat/miss history")

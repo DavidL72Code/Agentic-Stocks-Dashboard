@@ -173,6 +173,12 @@ async def event_study(ticker: str, other: str, **_):
         if len(cand) == 0:
             continue
         day = cand[0]
+        # A report from before the price history starts matched the FIRST bar
+        # of the window, however far away: AMD->NVDA opened its list with the
+        # window's start date, NVDA->CRWV with CRWV's first trading day. A real
+        # reaction is the same session or the next one, a long weekend at most.
+        if (pd.Timestamp(day).normalize() - d).days > 4:
+            continue
         if day in seen:
             continue
         seen.add(day)
@@ -190,8 +196,11 @@ async def event_study(ticker: str, other: str, **_):
     base = float(((r["a"] > 0) == (r["b"] > 0)).mean())
     big = e[e.source_move_pct.abs() > 3]
     capture = float((big.peer_move_pct / big.source_move_pct).median()) if len(big) else None
-    # one-sided binomial vs the baseline
-    p = sum(comb(n, i) * base**i * (1 - base)**(n - i) for i in range(0, same + 1))
+    # One-sided binomial vs the baseline: the chance of seeing AT LEAST this
+    # many same-direction days if earnings days were ordinary days. It summed
+    # the lower tail (0..same), so strong co-movement scored as insignificant:
+    # 9/10 against a 60% baseline gave p=0.994 instead of 0.046.
+    p = sum(comb(n, i) * base**i * (1 - base)**(n - i) for i in range(same, n + 1))
 
     return ok("event_study", ticker, {
         "source": ticker.upper(), "peer": other.upper(),

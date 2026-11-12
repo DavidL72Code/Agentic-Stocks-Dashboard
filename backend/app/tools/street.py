@@ -97,8 +97,20 @@ async def rating_changes(ticker: str, limit: int = 8, **_):
     out = [{"date": str(k)[:10], "firm": v.get("Firm"), "to": v.get("ToGrade"),
             "from": v.get("FromGrade"), "action": v.get("Action")} for k, v in rows]
     if not out:
-        return empty("rating_changes", ticker, "no rating changes on record")
+        return _none_or_unavailable("rating_changes", ticker, "no rating changes on record")
     return ok("rating_changes", ticker, {"changes": out})
+
+
+def _none_or_unavailable(tool_name: str, ticker: str, none_msg: str):
+    """An empty list is evidence of "none" only if the source answered. Where
+    Yahoo refuses the crumb (Render) these lists come back empty because they
+    were never fetched - and the agent wrote "no rating changes occurred
+    following the report" the day after CoreWeave reported. Say unavailable."""
+    if yahoo.crumb_known_blocked():
+        return fail(tool_name, ticker, "could not be fetched: the data source refused the "
+                                       "request. This is NOT evidence that there are none - "
+                                       "do not say there were none.")
+    return empty(tool_name, ticker, none_msg)
 
 
 @tool("street", "largest institutional holders and the % of shares they hold")
@@ -108,7 +120,7 @@ async def institutional_holders(ticker: str, limit: int = 5, **_):
     out = [{"holder": r.get("Holder"), "pct_held": round(r["pctHeld"] * 100, 2) if r.get("pctHeld") else None,
             "shares": r.get("Shares")} for r in rows if r.get("Holder")]
     if not out:
-        return empty("institutional_holders", ticker, "no institutional holder data")
+        return _none_or_unavailable("institutional_holders", ticker, "no institutional holder data")
     return ok("institutional_holders", ticker, {"top_holders": out})
 
 
@@ -119,7 +131,7 @@ async def insider_transactions(ticker: str, limit: int = 6, **_):
     out = [{"insider": r.get("Insider"), "text": r.get("Text"), "shares": r.get("Shares"),
             "value": r.get("Value"), "date": str(r.get("Start Date"))[:10]} for r in rows if r.get("Insider")]
     if not out:
-        return empty("insider_transactions", ticker, "no insider transactions on record")
+        return _none_or_unavailable("insider_transactions", ticker, "no insider transactions on record")
     return ok("insider_transactions", ticker, {"transactions": out})
 
 
@@ -133,6 +145,6 @@ async def short_interest(ticker: str, **_):
         if i.get(k) is not None:
             d[v] = i[k]
     if not d:
-        return empty("short_interest", ticker, "no short interest reported")
+        return _none_or_unavailable("short_interest", ticker, "no short interest reported")
     d["elevated"] = bool(d.get("short_pct_of_float", 0) > 10)
     return ok("short_interest", ticker, d)

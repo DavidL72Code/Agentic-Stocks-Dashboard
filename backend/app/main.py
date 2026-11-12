@@ -1,5 +1,5 @@
 from __future__ import annotations
-import logging, os, pathlib
+import contextlib, logging, os, pathlib
 
 # Load .env before anything else imports - module-level config (model names,
 # base URL) is read at import time, so this has to happen first.
@@ -40,7 +40,50 @@ CORS_ORIGINS = [o.strip().rstrip("/") for o
     "http://localhost:8077", "http://127.0.0.1:8077",
 ]
 
-app = FastAPI(title="Agentic Fintech", version="0.1")
+log = logging.getLogger("monsoon.main")
+
+
+async def _warm() -> None:
+    """Fill the caches a dashboard visit needs, then load the agent's libraries.
+
+    Runs in the background once the server is listening, so it never delays
+    the first request - it only means that request, usually the visitor who
+    woke a sleeping Render instance, finds the market already fetched. The
+    agent stack (LangGraph, LangChain, the OpenAI SDK) is imported last and
+    off the event loop: deferred from start-up so the dashboard is not kept
+    waiting for it, but loaded before anyone asks a question."""
+    import asyncio, importlib, time
+    from . import store
+    from .providers import nasdaq, yahoo
+    t0 = time.time()
+    store.set_current_user(store.GUEST)            # warm the public view only
+    jobs = {"caps": nasdaq.caps(), "indices": data.indices(),
+            "earnings": data.earnings_week(days=7, limit=30), "brief": data.brief(),
+            "spy": yahoo.quote("SPY")}
+    res = await asyncio.gather(*jobs.values(), return_exceptions=True)
+    bad = [k for k, r in zip(jobs, res) if isinstance(r, Exception)]
+    log.info("warm-up: dashboard data in %.1fs%s", time.time() - t0,
+             f" (failed: {', '.join(bad)})" if bad else "")
+    t1 = time.time()
+    try:
+        await asyncio.to_thread(importlib.import_module, f"{__package__}.graph.build")
+        log.info("warm-up: agent stack imported in %.1fs", time.time() - t1)
+    except Exception as e:
+        log.warning("warm-up: agent import failed: %s", e)
+
+
+@contextlib.asynccontextmanager
+async def lifespan(_app):
+    import asyncio
+    task = None
+    if os.environ.get("WARMUP", "1") != "0":
+        task = asyncio.create_task(_warm())
+    yield
+    if task and not task.done():
+        task.cancel()
+
+
+app = FastAPI(title="Agentic Fintech", version="0.1", lifespan=lifespan)
 app.add_middleware(CORSMiddleware,
                    allow_origins=sorted(set(CORS_ORIGINS)),
                    allow_credentials=False,
@@ -71,29 +114,49 @@ app.include_router(auth.me_router)
 app.include_router(data.router)
 app.include_router(agent.router)
 
-BUILD = str(int(__import__("time").time()))
 WEB = pathlib.Path(__file__).resolve().parents[2] / "web"
 
 
-class NoCacheStatic(StaticFiles):
-    """Dev server: never let a browser hold a stale asset."""
+def _build_stamp() -> str:
+    """A fingerprint of the shipped files - name, size and modification time -
+    read on every page load. Stamped from the clock at start-up, every Render
+    wake-up was a "new build" and every visitor re-downloaded ~250KB of app.js
+    and ui.css that had not changed. Stamped once at start-up from content, an
+    edit on a running dev server kept the old URL, and the browser kept the old
+    file (it is served immutable). Four stat() calls per page load cost nothing."""
+    import hashlib
+    h = hashlib.sha1()
+    for f in sorted(WEB.glob("*.*")) if WEB.exists() else []:
+        if f.suffix in (".js", ".css", ".html"):
+            st = f.stat()
+            h.update(f"{f.name}:{st.st_size}:{st.st_mtime_ns}".encode())
+    return h.hexdigest()[:12]
+
+
+class Static(StaticFiles):
+    """Versioned assets (?v=<build>) are immutable: a new build is a new URL.
+    Anything else - charts.js, imported by app.js without a stamp - must be
+    revalidated, which costs a 304 when it has not changed."""
     def file_response(self, *a, **kw):
         r = super().file_response(*a, **kw)
-        r.headers["Cache-Control"] = "no-store, must-revalidate"
+        scope = kw.get("scope") or (a[2] if len(a) > 2 else {})
+        versioned = b"v=" in (scope.get("query_string") or b"")
+        r.headers["Cache-Control"] = ("public, max-age=31536000, immutable" if versioned
+                                      else "no-cache")
         return r
 
 
 if WEB.exists():
-    app.mount("/static", NoCacheStatic(directory=str(WEB)), name="static")
+    app.mount("/static", Static(directory=str(WEB)), name="static")
 
     @app.get("/build")
     async def build():
-        return {"build": BUILD}
+        return {"build": _build_stamp()}
 
     @app.get("/")
     async def index():
         # The shell is read fresh and its asset query stamped at serve time. A
         # hardcoded ?v= goes stale the moment anyone forgets to bump it, which
         # is every time; this way the stamp cannot drift from the build.
-        html = (WEB / "index.html").read_text().replace("__BUILD__", BUILD)
+        html = (WEB / "index.html").read_text().replace("__BUILD__", _build_stamp())
         return HTMLResponse(html, headers={"Cache-Control": "no-store, must-revalidate"})

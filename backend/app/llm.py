@@ -3,9 +3,15 @@ agent plane needs one. Missing key raises a clear, catchable error."""
 from __future__ import annotations
 import asyncio, collections, itertools, json, os, re, time
 from dataclasses import dataclass
-from langchain_core.messages import HumanMessage, SystemMessage
-from langchain_core.rate_limiters import InMemoryRateLimiter
-from langchain_openai import ChatOpenAI
+from typing import TYPE_CHECKING
+
+# LangChain and the OpenAI SDK are imported where they are used, not here: they
+# are ~1.3s of a 3.1s import on a laptop and far more on Render's 0.1 CPU, and
+# /api/health - the first thing every page load waits on - imports this module
+# for the model name. Only the agent needs them.
+if TYPE_CHECKING:
+    from langchain_core.rate_limiters import InMemoryRateLimiter
+    from langchain_openai import ChatOpenAI
 
 # Models are fixed here rather than read from the env: a host whose env had no
 # model variable silently ran a default this key can no longer use.
@@ -64,6 +70,8 @@ def client(model: str, timeout: float | None = None, retries: int = 2) -> ChatOp
         if not k:
             raise NoAPIKey("Set GEMINI_API_KEY to use the agent. "
                            "The dashboard works without it.")
+        from langchain_core.rate_limiters import InMemoryRateLimiter
+        from langchain_openai import ChatOpenAI
         if model not in _limiters:
             lim = InMemoryRateLimiter(requests_per_second=_RPS, check_every_n_seconds=0.1,
                                       max_bucket_size=30)
@@ -176,6 +184,7 @@ async def call(system: str, user: str, fast: bool = False,
     t0 = time.time()
     role = "select" if fast else role
     chain = [model] if model else chain_for(role)
+    from langchain_core.messages import HumanMessage, SystemMessage
     msgs = [SystemMessage(content=system), HumanMessage(content=user)]
     live = [x for x in chain if _dead_until.get(x, 0) < time.time()] or chain[-1:]
     err: Exception | None = None
@@ -264,6 +273,7 @@ async def stream_call(system: str, user: str, role: str = "main", on_text=None) 
     text has gone out, a failure is raised rather than restarted mid-sentence."""
     t0 = time.time()
     chain = chain_for(role)
+    from langchain_core.messages import HumanMessage, SystemMessage
     msgs = [SystemMessage(content=system), HumanMessage(content=user)]
     live = [x for x in chain if _dead_until.get(x, 0) < time.time()] or chain[-1:]
     err: Exception | None = None

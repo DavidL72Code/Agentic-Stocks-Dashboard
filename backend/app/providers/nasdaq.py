@@ -85,3 +85,132 @@ async def screener_rows() -> list[dict]:
     """Every US-listed common stock with price, move, volume, cap and sector."""
     val, _ = await cached(("nasdaq", "screener"), 900, lambda: asyncio.to_thread(_screener_blocking))
     return val or []
+
+
+async def caps() -> dict[str, dict]:
+    """symbol -> {"cap", "px", "name", "dv"} for every US common stock (dv:
+    the last session's dollar volume, price x shares traded).
+
+    Where Yahoo refuses the crumb (Render, every request) quotes come from the
+    v8 chart, which has no market cap - and everything ranked or sized by cap
+    went blank: the market map drew nothing and the earnings panel dropped all
+    1,031 reporters and said "no large companies report this week". This one
+    cached call restores caps for the whole market. `px` is the price the cap
+    was computed at, so a caller can rescale it to a newer price."""
+    async def build():
+        return {r["symbol"]: {"cap": r["market_cap"], "px": r["price"], "name": r["name"],
+                              "dv": (r["price"] or 0) * (r["volume"] or 0)}
+                for r in await screener_rows() if r.get("market_cap")}
+    try:
+        val, _ = await cached(("nasdaq", "caps"), 900, build)
+        return val or {}
+    except Exception as e:                  # a missing cap must never cost the quote
+        log.warning("nasdaq caps failed: %s", e)
+        return {}
+
+
+# ════════════════ company profile + forward EPS, where Yahoo's .info is blocked ════════════════
+PROFILE_URL = "https://api.nasdaq.com/api/company/{}/company-profile"
+FORECAST_URL = "https://api.nasdaq.com/api/analyst/{}/earnings-forecast"
+
+
+def _json_blocking(url: str) -> dict:
+    from curl_cffi import requests as cr
+    r = cr.get(url, headers=HEADERS, impersonate="chrome", timeout=10)
+    r.raise_for_status()
+    return (r.json() or {}).get("data") or {}
+
+
+async def profile(symbol: str) -> dict:
+    """{sector, industry, longBusinessSummary} in Yahoo's key names; {} on error.
+
+    The description is kept only if it names the company or its ticker: Nasdaq's
+    APLD profile describes "SkyAI, Inc. (Nasdaq: SKYA)", and a wrong company's
+    summary on the page is worse than none."""
+    sym = symbol.upper()
+
+    async def load():
+        d = await asyncio.to_thread(_json_blocking, PROFILE_URL.format(sym))
+        v = lambda k: ((d.get(k) or {}).get("value") or "").strip()
+        out = {"sector": v("Sector"), "industry": v("Industry")}
+        desc, name = v("CompanyDescription"), v("CompanyName")
+        first = name.split()[0].lower().strip(",.") if name else ""
+        if desc and (sym.lower() in desc.lower() or (len(first) > 2 and first in desc.lower())):
+            out["longBusinessSummary"] = desc
+        return {k: x for k, x in out.items() if x}
+    try:
+        val, _ = await cached(("nasdaq", "profile", sym), 86400, load)
+        return val or {}
+    except Exception as e:
+        log.warning("nasdaq profile %s failed: %s", sym, e)
+        return {}
+
+
+async def forward_eps(symbol: str) -> float | None:
+    """Consensus EPS for the NEXT fiscal year - the basis of Yahoo's forwardEps
+    (NVDA: 15.75 here vs Yahoo's 15.93; AAPL 10.39 vs 10.55)."""
+    sym = symbol.upper()
+
+    async def load():
+        d = await asyncio.to_thread(_json_blocking, FORECAST_URL.format(sym))
+        rows = ((d.get("yearlyForecast") or {}).get("rows")) or []
+        return _num(rows[1].get("consensusEPSForecast")) if len(rows) > 1 else None
+    try:
+        val, _ = await cached(("nasdaq", "fwd_eps", sym), 43200, load)
+        return val
+    except Exception as e:
+        log.warning("nasdaq forecast %s failed: %s", sym, e)
+        return None
+
+
+# ════════════════ standardized quarterly statements ════════════════
+# The same numbers as the 10-Q/10-K, mapped onto one set of line items. Read
+# straight from XBRL, every company tags its borrowing its own way: Oracle's
+# long-term notes are under a custom tag no us-gaap query can see, CoreWeave
+# files total debt only as a carrying amount - so debt came out at $9B for
+# Oracle (it is $125B) and $0.2B for CoreWeave ($35B). Here they are one row.
+FIN_URL = "https://api.nasdaq.com/api/company/{}/financials?frequency=2"   # 2 = quarterly
+
+
+def _thousands(v):
+    """"$1,000" / "-$102,000" / "--" -> dollars. The table is in thousands."""
+    s = str(v or "").replace("$", "").replace(",", "").strip()
+    if s in ("", "--", "N/A", "NA"):
+        return None
+    try:
+        return float(s) * 1000
+    except ValueError:
+        return None
+
+
+def _iso(mdy: str) -> str | None:
+    try:
+        m, d, y = (int(x) for x in str(mdy).split("/"))
+        return f"{y:04d}-{m:02d}-{d:02d}"
+    except Exception:
+        return None
+
+
+async def statements(symbol: str) -> dict:
+    """{"income"|"balance"|"cashflow": {"ends": [newest first], "rows": {label: [values]}}}"""
+    sym = symbol.upper()
+
+    async def load():
+        d = await asyncio.to_thread(_json_blocking, FIN_URL.format(sym))
+        out = {}
+        for key, tbl in (("income", "incomeStatementTable"), ("balance", "balanceSheetTable"),
+                         ("cashflow", "cashFlowTable")):
+            t = d.get(tbl) or {}
+            h = t.get("headers") or {}
+            cols = sorted(k for k in h if k != "value1")
+            ends = [_iso(h[k]) for k in cols]
+            rows = {r.get("value1"): [_thousands(r.get(k)) for k in cols]
+                    for r in t.get("rows") or [] if r.get("value1")}
+            out[key] = {"ends": ends, "rows": rows}
+        return out
+    try:
+        val, _ = await cached(("nasdaq", "statements", sym), 43200, load)
+        return val or {}
+    except Exception as e:
+        log.warning("nasdaq statements %s failed: %s", sym, e)
+        return {}
