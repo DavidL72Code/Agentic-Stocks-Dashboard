@@ -2584,13 +2584,26 @@ function qBarHTML(symbols, cmp) {
     ${symbols.length > 1 ? `<button class="btn btn-sm btn-ghost" id="showOverlay2">Compare their prices</button>` : ""}</div>`;
 }
 
+/* The price header no longer waits for the overview: the quote and a month of
+   bars draw it, and the overview's extras (sector, forward P/E, yield) are
+   filled in when they land. A ticker nobody had opened took ~6s on Render to
+   produce its overview, and the header - price, change, day range - sat blank
+   for all of it. */
 async function fillQuoteHeader(sym) {
-  const head = $("qhead"); if (!head) return;
-  const [qd, bars, ov] = await Promise.all([
+  if (!$("qhead")) return;
+  const ovP = api(`/api/overview/${encodeURIComponent(sym)}`).catch(() => ({}));
+  const [qd, bars] = await Promise.all([
     api(`/api/quotes?symbols=${encodeURIComponent(sym)}`).catch(() => null),
-    getBars(sym, "1mo", "1d").catch(() => []),
-    api(`/api/overview/${encodeURIComponent(sym)}`).catch(() => ({}))]);
+    getBars(sym, "1mo", "1d").catch(() => [])]);
   if (S.cur !== sym || !$("qhead")) return;
+  paintQuoteHeader(sym, qd, bars, {});
+  const ov = await ovP;
+  if (S.cur !== sym || !$("qhead")) return;
+  paintQuoteHeader(sym, qd, bars, ov || {});
+}
+
+function paintQuoteHeader(sym, qd, bars, ov) {
+  const head = $("qhead"); if (!head) return;
   const q = qd?.quotes?.[0] || {}, last = bars.at(-1) || {}, prev = bars.at(-2) || {};
   const avgVol = bars.length ? bars.slice(-20).reduce((a, b) => a + (b.v || 0), 0) / Math.min(20, bars.length) : null;
   const st = (q.market_state || "").toUpperCase();

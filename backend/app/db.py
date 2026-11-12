@@ -13,7 +13,7 @@ speaks the same dialect over the network. Nothing below changes; only where
 conn() points. See README for the walkthrough.
 """
 from __future__ import annotations
-import asyncio, json, os, pathlib, sqlite3, threading, time, uuid
+import asyncio, json, logging, os, pathlib, sqlite3, threading, time, uuid
 from collections.abc import Mapping
 
 DB_PATH = pathlib.Path(os.environ.get("DB_PATH", "data/monsoon.db"))
@@ -21,6 +21,7 @@ TURSO_URL = os.environ.get("TURSO_DATABASE_URL", "").strip()
 TURSO_TOKEN = os.environ.get("TURSO_AUTH_TOKEN", "").strip()
 LOCAL_USER_ID = "local"          # the implicit single user until auth is switched on
 _local = threading.local()
+log = logging.getLogger("monsoon.db")
 
 
 def backend_name() -> str:
@@ -206,14 +207,40 @@ class _Cursor:
         return self._c.rowcount
 
 
-class _Conn:
-    """sqlite3-shaped wrapper over a libsql connection."""
+def _is_sql_error(e: Exception) -> bool:
+    """A problem with the statement, not with the connection."""
+    m = str(e).upper()
+    return any(k in m for k in ("CONSTRAINT", "SQL_PARSE", "SYNTAX ERROR", "NO SUCH TABLE",
+                                "NO SUCH COLUMN", "DATATYPE MISMATCH"))
 
-    def __init__(self, raw):
+
+class _Conn:
+    """sqlite3-shaped wrapper over a libsql connection.
+
+    The connection is opened once per thread and kept, and a remote Turso
+    connection does not live forever: once it was dropped, every query on that
+    thread failed until the process restarted (Nov 12 2026: /api/me answered
+    500 three times in a row on the live site, 0.14s each, after a quiet spell).
+    A connection-level failure now reopens it; a read is retried once on the
+    fresh connection. A write is not replayed - it may have been part of a
+    transaction the old connection took with it - but the next request works."""
+
+    def __init__(self, raw, reconnect=None):
         self._raw = raw
+        self._reconnect = reconnect
 
     def execute(self, sql, params=()):
-        return _Cursor(self._raw.execute(sql, params))
+        try:
+            return _Cursor(self._raw.execute(sql, params))
+        except Exception as e:
+            if self._reconnect is None or _is_sql_error(e):
+                raise
+            log.warning("database connection failed (%s: %s); reconnecting",
+                        type(e).__name__, str(e)[:120])
+            self._raw = self._reconnect()
+            if sql.lstrip().upper().startswith("SELECT"):
+                return _Cursor(self._raw.execute(sql, params))
+            raise
 
     def executescript(self, script):
         # Not script.split(";"): a ";" inside a comment would cut a statement in
@@ -253,7 +280,9 @@ def _connect_turso():
         raise RuntimeError(
             "TURSO_DATABASE_URL is set but libsql-experimental is not installed. "
             "Run: pip install libsql-experimental") from None
-    c = _Conn(libsql.connect(database=TURSO_URL, auth_token=TURSO_TOKEN))
+    def fresh():
+        return libsql.connect(database=TURSO_URL, auth_token=TURSO_TOKEN)
+    c = _Conn(fresh(), reconnect=fresh)
     c.executescript(SCHEMA)                  # PRAGMAs are the server's business
     return c
 
