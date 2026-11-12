@@ -6,8 +6,25 @@ from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse
 
 from .. import llm
-from ..graph.build import GRAPH, grounding_check
-from ..graph.domains import SUBGRAPHS
+# The graph (LangGraph + LangChain) loads on the first question, not at server
+# start: it is most of the import time, and a cold start on Render is spent
+# waiting for imports before the dashboard - which never touches it - can answer.
+# main.py warms it in the background once the dashboard data is cached.
+
+
+def _graph():
+    from ..graph.build import GRAPH
+    return GRAPH
+
+
+def grounding_check(run):
+    from ..graph.build import grounding_check as gc
+    return gc(run)
+
+
+def _subgraphs():
+    from ..graph.domains import SUBGRAPHS
+    return SUBGRAPHS
 from ..models import DISCLAIMER, AgentRun, RunStep
 from ..providers import yahoo
 from ..tools import TOOLS, DOMAIN_DESC, domain_tools
@@ -94,7 +111,9 @@ def _answer_key(a: "Ask") -> str:
     import hashlib
     from ..store import current_user_id
     seed = _seed(a)
-    raw = json.dumps({"u": current_user_id(), "q": " ".join(a.question.lower().split()),
+    from ..clock import ny_today
+    raw = json.dumps({"u": current_user_id(), "d": ny_today().isoformat(),
+                      "q": " ".join(a.question.lower().split()),
                       "s": seed["selection"], "c": seed["context"], "h": seed["history"]},
                      sort_keys=True)
     return hashlib.sha256(raw.encode()).hexdigest()
@@ -123,7 +142,7 @@ async def ask(a: Ask):
     key = _answer_key(a)
     if (hit := _cache_get(key)):
         return hit
-    out = await GRAPH.ainvoke(_seed(a))
+    out = await _graph().ainvoke(_seed(a))
     run = _run_json(out, a.question, t0)
     _cache_put(key, run)
     return run
@@ -151,7 +170,7 @@ async def ask_stream(a: Ask):
 
         async def run():
             try:
-                async for chunk in GRAPH.astream(_seed(a), stream_mode="updates"):
+                async for chunk in _graph().astream(_seed(a), stream_mode="updates"):
                     await q.put(("update", chunk))
                 await q.put(("end", None))
             except Exception as e:                  # surfaced to the client below
@@ -199,10 +218,10 @@ async def ask_stream(a: Ask):
 async def analyze(a: Analyze):
     """What the per-tab analyze button does: ONE domain subgraph, no router,
     no writer. 1-2 LLM calls."""
-    if a.domain not in SUBGRAPHS:
+    if a.domain not in _subgraphs():
         return {"error": f"unknown domain {a.domain}"}
     q = a.question or f"Summarise the {a.domain} picture for {a.ticker.upper()}."
-    out = await SUBGRAPHS[a.domain].ainvoke(
+    out = await _subgraphs()[a.domain].ainvoke(
         {"domain": a.domain, "ticker": a.ticker.upper(), "question": q,
          "tools": [], "args": {}})
     f = out.get("finding")
@@ -249,6 +268,53 @@ Reply with ONLY JSON:
 {"summary": "one sentence on the day",
  "threads": [{"title": "...", "body": "2-3 sentences", "tickers": ["NVDA"],
               "sources": ["exact headline text you used"]}]}"""
+
+
+# ── does the summary's market direction match the index numbers? ──
+# Nov 11 2026, 4am: "Stocks rallied alongside tech gains driven by CoreWeave
+# earnings" above index cards showing the S&P 500 -0.38% and the Nasdaq -0.74%.
+# A headline ("Stocks rally as CoreWeave soothes") described overnight futures;
+# the model restated it as the day's close. The figure check cannot see this -
+# there is no number in "rallied" - so the direction is checked against the
+# levels the page itself shows.
+_UP = re.compile(r"\b(rall(y|ied|ies|ying)|rose|rises?|rising|gain(s|ed|ing)?|climb(s|ed|ing)?|"
+                 r"jump(s|ed|ing)?|advanc(e|ed|es|ing)|surg(e|ed|es|ing)|soar(s|ed|ing)?|"
+                 r"rebound(s|ed|ing)?|higher|up)\b", re.I)
+_DOWN = re.compile(r"\b(fell|fall(s|ing)?|drop(s|ped|ping)?|slid(e|es|ing)?|declin(e|ed|es|ing)|"
+                   r"slump(s|ed|ing)?|tumbl(e|ed|es|ing)|sank|sink(s|ing)?|lower|down|"
+                   r"retreat(s|ed|ing)?|sell-?off|slip(s|ped|ping)?)\b", re.I)
+_EQUITY = re.compile(r"\b(stocks?|equities|the market|markets|s&p( 500)?|nasdaq|dow|wall street|"
+                     r"tech( stocks| shares)?)\b", re.I)
+_OTHER_ASSET = re.compile(r"\b(yields?|bonds?|treasur\w*|oil|crude|dollar|gold|bitcoin|futures)\b", re.I)
+
+
+def market_direction_conflict(text: str, levels: dict) -> str | None:
+    """The clause that gives US stocks a direction the index levels contradict,
+    or None. Only fires when every major index moved the same way."""
+    chg = [v["change_pct"] for k, v in (levels or {}).items()
+           if k in ("S&P 500", "Nasdaq", "Dow Jones") and isinstance(v, dict)
+           and isinstance(v.get("change_pct"), (int, float))]
+    if not chg or not text:
+        return None
+    if all(c < 0 for c in chg):
+        wrong = _UP
+    elif all(c > 0 for c in chg):
+        wrong = _DOWN
+    else:
+        return None
+    for clause in re.split(r"[,;.]|\b(?:even as|as|after|while|but|whereas|although|though)\b", text):
+        if not clause or not _EQUITY.search(clause) or _OTHER_ASSET.search(clause):
+            continue
+        if wrong.search(clause) and not (_DOWN if wrong is _UP else _UP).search(clause):
+            return clause.strip()
+    return None
+
+
+def _levels_sentence(levels: dict) -> str:
+    parts = [f"the {k} {'rose' if v['change_pct'] > 0 else 'fell'} {abs(v['change_pct']):.2f}%"
+             for k, v in levels.items() if k in ("S&P 500", "Nasdaq", "Dow Jones")
+             and isinstance(v, dict) and isinstance(v.get("change_pct"), (int, float))]
+    return ("At the last close, " + " and ".join(parts) + ".") if parts else ""
 
 
 # The narration is one LLM call over ~24k characters, and the page asks for it on
@@ -319,6 +385,28 @@ async def _curate(data_brief):
         return clean_brief(b, {"summary": "", "threads": []}, steps,
                            f"The written summary is unavailable: {llm.friendly(e)}. "
                            f"The signals and headlines below come straight from the data.")
+
+    # direction: the summary may not contradict the index levels on the page
+    levels = payload["index_levels"]
+    clash = market_direction_conflict(narrative.get("summary", ""), levels)
+    if clash:
+        moves = "; ".join(f"{k} {v['change_pct']:+.2f}%" for k, v in levels.items()
+                          if isinstance(v, dict) and v.get("change_pct") is not None)
+        try:
+            r2 = await llm.call(CURATOR_PROMPT, json.dumps(payload, default=str)[:24000]
+                                + f"\n\nREVISE: your summary said \"{clash}\", but at the last close: {moves}. "
+                                  "A headline about a rally or a slide may describe futures, after-hours "
+                                  "trading or one sector - attribute it to its source and keep the day's "
+                                  "direction consistent with these numbers. Reply with the same JSON.")
+            fixed = llm.parse_json(r2.text) or {}
+            steps.append(RunStep(node="brief.verify", detail=f"direction conflict: {clash[:50]}",
+                                 tokens=r2.tokens, latency_ms=r2.latency_ms, llm=True, model=r2.model))
+            if fixed.get("summary") and not market_direction_conflict(fixed["summary"], levels):
+                narrative = {**narrative, **fixed}
+            else:
+                narrative["summary"] = _levels_sentence(levels)
+        except Exception:
+            narrative["summary"] = _levels_sentence(levels)
 
     # grounding: every quoted source must actually exist in what we fetched
     known = {h["title"] for h in payload["market_headlines"]}

@@ -26,6 +26,7 @@ SCREENER = "https://www.nasdaq.com/market-activity/stocks/screener"
 INFO_SRC: dict[str, str] = {}
 TARGETS_SRC: dict[str, str] = {}
 RECS_SRC: dict[str, str] = {}
+CAL_SRC: dict[str, str] = {}
 
 PRICE = {"quote", "range_52w"}
 HISTORY = {"price_series", "moving_averages", "rsi_momentum", "volatility", "volume_profile",
@@ -81,6 +82,8 @@ def source_for(tool: str, ticker: str, source: str = "") -> tuple[str, str | Non
         return f"Yahoo Finance · {t} insider transactions", yf(t, "insider-transactions/")
     if tool in ("news", "news_history"):
         return f"Yahoo Finance · {t} news (each headline links its article)", yf(t, "news/")
+    if tool == "next_earnings" and CAL_SRC.get(t) == "finnhub":
+        return f"Finnhub · {t} earnings calendar", f"https://finnhub.io/docs/api/earnings-calendar"
     if tool in ("next_earnings", "earnings_surprise_history"):
         return f"Yahoo Finance · {t} earnings", yf(t, "analysis/")
     if tool == "recent_filings":

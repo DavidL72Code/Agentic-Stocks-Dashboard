@@ -1,0 +1,33 @@
+# Does every feature return real content on the LIVE site? See evals/smoke.py:
+# each of the bugs this was written for answered 200 with an empty or wrong
+# body, and each passed local testing because this machine gets Yahoo's crumb
+# and Render does not.
+#
+# Runs after each deploy to main (Render takes a few minutes to build) and
+# three times a day inside the keep-warm window, so it never wakes the server
+# just to test it.
+name: smoke
+on:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "17 14,18,22 * * *"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Wait for Render to deploy this commit
+        if: github.event_name == 'push'
+        run: sleep 420
+      - name: Check the live site's content
+        env:
+          API: ${{ vars.API_URL || 'https://agentic-stocks-dashboard.onrender.com' }}
+        run: python evals/smoke.py --base "$API"

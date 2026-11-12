@@ -210,9 +210,38 @@ async def coalesce(key: Hashable, factory: Callable[[], Awaitable[Any]]) -> Any:
     return await task
 
 
+_background: set[asyncio.Task] = set()
+
+
+def _refresh_later(key: Hashable, ttl: float, factory: Callable[[], Awaitable[Any]]) -> None:
+    """Refetch in the background. One refresh per key at a time: coalesce()
+    joins a fetch that is already running rather than starting another."""
+    if key in _inflight:
+        return
+
+    async def run() -> None:
+        try:
+            val = await coalesce(key, factory)
+            CACHE.set(key, val, ttl)
+            if L2 is not None:
+                await L2.set(key, val, ttl)
+        except Exception as e:            # the old value stays; the next read retries
+            log.info("background refresh of %s failed: %s", key, e)
+
+    t = asyncio.ensure_future(run())
+    _background.add(t)                    # a bare task can be garbage-collected mid-flight
+    t.add_done_callback(_background.discard)
+
+
 async def cached(key: Hashable, ttl: float, factory: Callable[[], Awaitable[Any]],
-                 serve_stale: bool = True) -> tuple[Any, bool]:
+                 serve_stale: bool = True, swr: float | None = None) -> tuple[Any, bool]:
     """Returns (value, is_stale). Falls back to stale data if the fetch fails.
+
+    Stale-while-revalidate: a value that expired less than `swr` seconds ago
+    (default: one more TTL) is returned at once and refreshed in the
+    background, so the reader after an expiry does not wait on Yahoo or the
+    SEC for data that was fine a moment ago. Past that window it blocks and
+    refetches, as before. swr=0 turns it off.
 
     The only place TTL caching happens, which is why Redis slots in here and
     nowhere else: every caller keeps calling this exactly as before.
@@ -220,6 +249,12 @@ async def cached(key: Hashable, ttl: float, factory: Callable[[], Awaitable[Any]
     hit = CACHE.get(key)
     if hit is not None:
         return hit, False
+
+    window = ttl if swr is None else swr
+    held = CACHE._d.get(key)
+    if held is not None and window > 0 and time.time() - held[0] < window:
+        _refresh_later(key, ttl, factory)
+        return held[1], False
 
     # L2: a restart or a sibling worker may already have this
     if L2 is not None:

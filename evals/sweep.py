@@ -194,13 +194,17 @@ def main(run_agent: bool) -> int:
     chk("/api/compare", "compare_rejects_markup", r.status_code == 400, r.status_code,
         "a 'symbol' with markup in it is echoed into the page - it must be refused")
 
-    er = c.get("/api/calendar/earnings?days=7&limit=8").json()
+    er = c.get("/api/calendar/earnings?limit=30").json()
     items = er.get("items") or []
+    lo, hi = er.get("window") or ["", "~"]
+    # the panel lists the week in calendar order; rank says which rows show
+    # before "Show more" (size and trading, your own stocks first)
     chk("/api/calendar/earnings", "earnings_week",
-        (items and all(i.get("symbol") and i.get("date") for i in items)
-         and items == sorted(items, key=lambda i: -(i.get("market_cap") or 0))) or bool(er.get("unavailable")),
-        f"{len(items)} of {er.get('total_reporting')} reporting · {er.get('unavailable') or ''}",
-        "the Pro dashboard lists who reports this week, largest first")
+        (items and all(i.get("symbol") and lo <= (i.get("date") or "") <= hi and i.get("rank") for i in items)
+         and items == sorted(items, key=lambda i: i["date"])
+         and bool(er.get("total_reporting")) == bool(items)) or bool(er.get("unavailable")),
+        f"{len(items)} of {er.get('total_reporting')} reporting, {lo}..{hi} · {er.get('unavailable') or ''}",
+        "the dashboard lists who reports this week, Monday to Sunday, and is never empty while anyone is")
 
     rel = c.get("/api/related/NVDA").json()
     peers = ((rel.get("read_across") or {}).get("peers")) or []

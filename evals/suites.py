@@ -257,6 +257,21 @@ async def suite_regressions():
     add("no_duplicate_move_signal", not ("threshold" in kinds and "move" in kinds),
         str(kinds), "REGRESSION: threshold and sigma signals must not both fire")
 
+    # the brief's summary may not give stocks a direction the index levels contradict
+    from app.routes.agent import market_direction_conflict as mdc
+    down = {"S&P 500": {"change_pct": -0.38}, "Nasdaq": {"change_pct": -0.74}}
+    up = {"S&P 500": {"change_pct": 0.5}, "Nasdaq": {"change_pct": 0.9}}
+    mixed = {"S&P 500": {"change_pct": -0.2}, "Nasdaq": {"change_pct": 0.3}}
+    dir_cases = [
+        ("Stocks rallied alongside tech gains driven by CoreWeave earnings, even as bond yields jumped.", down, True),
+        ("Stocks fell even as bond yields jumped on hot inflation data.", down, False),
+        ("Futures rallied after CoreWeave reported, Reuters said, though the S&P 500 closed lower.", down, False),
+        ("Stocks slid as yields rose.", up, True),
+        ("Stocks rallied.", mixed, False)]
+    wrong = [t[:40] for t, lv, want in dir_cases if bool(mdc(t, lv)) != want]
+    add("brief_direction_matches_indices", not wrong, f"{len(dir_cases) - len(wrong)}/{len(dir_cases)} cases; wrong: {wrong or '-'}",
+        "REGRESSION: 'Stocks rallied' shipped above index cards showing the S&P 500 and Nasdaq down")
+
     # event study: dedupe + correct reaction day + baseline present
     r = await relations.event_study("APLD", other="IREN")
     d = getattr(r, "data", {}) or {}
@@ -264,6 +279,20 @@ async def suite_regressions():
     add("event_study_dedupe", len(dates) == len(set(dates)),
         f"{len(dates)} events, {len(set(dates))} unique",
         "REGRESSION: earnings_dates repeats rows per announcement")
+    evs = [e["date"] for e in d.get("events", [])]
+    # every event must be a real reaction, not the first bar of the window
+    import pandas as _pd
+    bars = await yahoo.bars("APLD", period="2y", interval="1d") if evs else []
+    first = str(_pd.Timestamp(bars[0]["t"], unit="s").date()) if bars else ""
+    add("event_study_no_window_start", not evs or evs[0] != first,
+        f"first event {evs[0] if evs else None}, first bar {first}",
+        "REGRESSION: a report from before the price history matched the window's first bar")
+    # upper tail: with more same-direction days than baseline, p must be < 0.5
+    if d.get("peer_same_direction_pct") is not None and d.get("binomial_p_one_sided") is not None:
+        up = d["peer_same_direction_pct"] > d["baseline_same_direction_pct"]
+        add("event_study_p_direction", (d["binomial_p_one_sided"] < 0.5) == up or d["n_events"] < 3,
+            f"{d['peer_same_direction_pct']}% vs baseline {d['baseline_same_direction_pct']}%, p={d['binomial_p_one_sided']}",
+            "REGRESSION: the p-value summed the lower tail, so strong co-movement read as chance")
     add("event_study_baseline", d.get("baseline_same_direction_pct") is not None
         and d.get("binomial_p_one_sided") is not None,
         f"baseline {d.get('baseline_same_direction_pct')}%, p={d.get('binomial_p_one_sided')}",
@@ -655,6 +684,17 @@ async def suite_regressions():
     add("url_digits_never_ground", unverified_figures("Revenue was 1045810 dollars.", [vm]) == [1045810.0],
         unverified_figures("Revenue was 1045810 dollars.", [vm]),
         "digits inside a stored link (a CIK, an accession number) must not make an invented figure look grounded")
+
+    # a ratio written as money is grounded only when it is said as cents
+    lq = DomainFinding(domain="fundamentals", ticker="CRWV", narrative="x", evidence=[
+        tr("leverage_liquidity", "CRWV", {"current_ratio": 0.46, "total_debt": 35.29e9},
+           "https://www.sec.gov/edgar/browse/?CIK=1769628")])
+    ok_c = unverified_figures("It has 46 cents of short-term assets for every $1 of bills due.", [lq])
+    bare = unverified_figures("It has 46 of short-term assets.", [lq])
+    wrong = unverified_figures("It has 64 cents of short-term assets for every $1 of bills due.", [lq])
+    add("ratio_as_cents_grounds", ok_c == [] and bare == [46.0] and wrong == [64.0],
+        f"'46 cents' {ok_c}, bare 46 {bare}, '64 cents' {wrong}",
+        "the plain-language rules turn a 0.46 ratio into '46 cents per $1'; the figure check flagged it")
 
     # ── year-to-date is measured from last year's final close ──
     import datetime as _dt

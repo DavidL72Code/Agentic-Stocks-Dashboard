@@ -1,5 +1,6 @@
 """Top-level graph: guard -> route -> Send(domain subgraphs) -> writer."""
 from __future__ import annotations
+from ..clock import clock_line
 import json, os, re, time
 from langgraph.graph import END, START, StateGraph
 from .plain import PLAIN_RULES
@@ -236,6 +237,15 @@ PERF_RE = re.compile(
     r"out ?perform\w*|under ?perform\w*|beat\w*|lag\w*|better|worse|"
     r"relative|trailing|ahead of|behind)\b", re.I)
 
+# A bare price question needs the price and nothing else. The router sent
+# "What is NVDA trading at today?" to the earnings specialist as well (eval,
+# Nov 2026) - a slower answer padded with a report date nobody asked about.
+# Anchored at both ends, so "trading at relative to its earnings" is NOT this.
+PRICE_ONLY_RE = re.compile(
+    r"^\s*(what('s| is)|where('s| is)|how much is)\s+(the\s+)?\$?[A-Za-z.]{1,6}('s)?\s+"
+    r"(stock\s+|share\s+)?(trading at|price|stock price|share price|at|worth)"
+    r"(\s+(today|now|right now))?\s*\??\s*$", re.I)
+
 TICKER_RE = re.compile(r"\b[A-Z]{1,5}\b")
 
 # The window the user asked about, read from their words. Backs up the router,
@@ -336,7 +346,7 @@ async def route(state: ResearchState) -> dict:
                    f"{about}.]")
     route_error = ""
     try:
-        r = await llm.call(ROUTE_PROMPT, prompt)
+        r = await llm.call(ROUTE_PROMPT, clock_line() + "\n\n" + prompt)
         j = llm.parse_json(r.text) or {}
         tok, ms, mdl = r.tokens, r.latency_ms, r.model
     except llm.NoAPIKey as e:
@@ -406,6 +416,11 @@ async def route(state: ResearchState) -> dict:
                     question=f"How does {sym} compare with its peer cohort over the "
                              f"last year, adjusted for beta and company size?",
                     tools=["peer_set", "peer_performance"], args={}))
+
+    if tasks and PRICE_ONLY_RE.search(resolved or state["question"]):
+        mk = [t for t in tasks if t["domain"] == "market"]
+        tasks = mk or [Task(id="q0", domain="market", ticker=tasks[0]["ticker"],
+                            question=state["question"], tools=[], args={})]
 
     # A rebound or trend question ALWAYS gets the stock's past lows (APLD,
     # Oct 2026: answered from today's RSI and sentiment while its own record -
@@ -731,7 +746,7 @@ async def writer(state: ResearchState) -> dict:
         emit("write", mode="edit", findings=1)
         try:
             r = await llm.stream_call(POLISH_PROMPT + clause,
-                                      f"Question: {q_of(state)}\n\n"
+                                      f"{clock_line()}\n\nQuestion: {q_of(state)}\n\n"
                                       f"Specialist ({f.domain}) wrote:\n{f.narrative}",
                                       on_text=_draft)
             j = llm.parse_json(r.text) or {}
@@ -759,7 +774,7 @@ async def writer(state: ResearchState) -> dict:
     emit("write", mode="compose", findings=len(findings))
     try:
         r = await llm.stream_call(WRITER_PROMPT + clause,
-                                  f"Question: {q_of(state)}\n\n" + writer_payload(findings),
+                                  f"{clock_line()}\n\nQuestion: {q_of(state)}\n\n" + writer_payload(findings),
                                   on_text=_draft)
         j = llm.parse_json(r.text) or {}
         asks = _requested(j, free, state) if clause else []
@@ -914,7 +929,7 @@ async def _verify_and_repair(state, ans, findings, step):
 
     try:
         fix = await llm.call(REPAIR_PROMPT,
-                             f"Question: {q_of(state)}\n\n"
+                             f"{clock_line()}\n\nQuestion: {q_of(state)}\n\n"
                              f"Problems:\n- " + "\n- ".join(problems) +
                              f"\n\nDraft:\n{ans}")
         cand = tidy(str((llm.parse_json(fix.text) or {}).get("answer") or "").strip())
@@ -1008,6 +1023,7 @@ def unverified_figures(answer: str, findings) -> list[float]:
     """
     ev: set[float] = set()
     ev_down: set[float] = set()      # magnitudes of negative values: "fell 4%" for -3.95
+    ev_cents: set[float] = set()     # a ratio told as money: 0.46 -> "46 cents for every $1"
     for f in findings:
         evidence = f.evidence if hasattr(f, "evidence") else f.get("evidence", [])
         for e in evidence:
@@ -1018,6 +1034,8 @@ def unverified_figures(answer: str, findings) -> list[float]:
                 if n < 0:
                     for v in (-n, round(-n, 2), round(-n, 1), round(-n)):
                         ev_down.add(float(v))
+                if 0 < abs(n) < 10:
+                    ev_cents.add(float(round(abs(n) * 100))); ev_cents.add(round(abs(n) * 100, 1))
                 for unit in (1e3, 1e6, 1e9, 1e12):
                     if abs(n) >= unit:
                         ev.add(round(n / unit, 3)); ev.add(round(n / unit, 2))
@@ -1046,6 +1064,12 @@ def unverified_figures(answer: str, findings) -> list[float]:
         # 4% fall is still caught.
         if any(round(c, 2) in ev_down or round(c, 1) in ev_down or round(c) in ev_down for c in cands) \
                 and _DOWN.search(text[max(0, m.start() - 45): m.end() + 45]):
+            continue
+        # The plain-language rules ask for ratios as money ("46 cents of short-term
+        # assets for every $1 of bills" for a current ratio of 0.46). Accepted only
+        # when "cents" follows the number, so a bare 46 still has to be in the data.
+        if (round(raw) in ev_cents or round(raw, 1) in ev_cents) \
+                and re.match(r"\s*(cents?\b|¢)", text[m.end(): m.end() + 10], re.I):
             continue
         bad.append(raw)
     return bad

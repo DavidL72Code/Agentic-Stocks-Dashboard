@@ -9,7 +9,7 @@ from .. import store
 from ..cache import CACHE, cache_stats
 from fastapi.responses import Response
 
-from ..providers import edgar, logos, sentiment, yahoo
+from ..providers import earnings, edgar, logos, sentiment, yahoo
 from ..providers.yahoo import clean          # scrubs pandas NaN/Inf -> None
 from ..tools import TOOLS
 from ..tools.sources import sec_filing_url
@@ -108,7 +108,8 @@ def _ttm_source(symbol: str, tt: dict) -> dict:
 
 @router.get("/overview/{symbol}")
 async def overview(symbol: str):
-    i, q, tt = await asyncio.gather(yahoo.info(symbol), yahoo.quote(symbol), _ttm(symbol))
+    i, q, tt, bal = await asyncio.gather(yahoo.info(symbol), yahoo.quote(symbol), _ttm(symbol),
+                                         _balance(symbol))
     q = q or {}
     keys = {"marketCap": "market_cap", "trailingPE": "pe", "forwardPE": "forward_pe",
             "priceToBook": "price_to_book", "profitMargins": "net_margin",
@@ -129,7 +130,42 @@ async def overview(symbol: str):
         o["sources"] = [_ttm_source(symbol, tt)] + _sources(symbol, ("quote", "leverage_liquidity"))
     else:
         o["sources"] = _sources(symbol, ("profitability", "quote"))
+    if bal:
+        _apply_balance(o, bal)
+        o["sources"] = [_balance_source(symbol, bal)] + o["sources"]
     return clean(o)
+
+
+async def _balance(symbol: str) -> dict:
+    """Debt, cash and free cash flow; never takes a panel down with it."""
+    from ..providers import balance
+    try:
+        return await asyncio.wait_for(balance.debt_and_cash(symbol), 15)
+    except Exception as e:
+        log.warning("balance %s failed: %s", symbol, e)
+        return {}
+
+
+def _apply_balance(o: dict, bal: dict) -> None:
+    """One definition everywhere. Yahoo's totalDebt adds leases (Oracle: $169B
+    against $125B of borrowing) and its freeCashflow is a different measure
+    (NVDA $41.8B against $127.0B of operating cash flow less capital spending),
+    and neither reaches Render at all - so the statements' figures win."""
+    o["balance"] = bal
+    for src, dst in (("cash", "cash"), ("debt", "debt"), ("free_cash_flow_12m", "fcf")):
+        if bal.get(src) is not None:
+            o[dst] = bal[src]
+    if bal.get("debt_to_equity") is not None:
+        o["debt_to_equity"] = round(bal["debt_to_equity"] * 100, 1)   # the page reads a percent
+
+
+def _balance_source(symbol: str, bal: dict) -> dict:
+    f = (bal.get("filings") or [{}])[0]
+    via = "Nasdaq's standardized statements" if bal.get("source") == "nasdaq" else "the filing's XBRL"
+    what = f"{f.get('form')} filed {f.get('filed') or ''}".strip() if f else "quarterly filing"
+    return {"label": f"SEC EDGAR · {symbol.upper()} {what}: debt, cash and cash flow to "
+                     f"{bal.get('as_of')} (read via {via})",
+            "url": f.get("url")}
 
 
 def _sources(symbol: str, tools) -> list[dict]:
@@ -150,7 +186,7 @@ async def financials(symbol: str):
         edgar.concept(symbol, "revenue", 8), edgar.concept(symbol, "net_income", 8),
         edgar.concept(symbol, "operating_income", 8),
         edgar.concept(symbol, "gross_profit", 8),
-        yahoo.attr(symbol, "calendar", 21600),
+        earnings.next_report(symbol),
         yahoo.attr(symbol, "earnings_dates", 21600), _ttm(symbol))
     by: dict[str, dict] = {}
     for label, rows in (("revenue", rev), ("net_income", ni),
@@ -168,21 +204,11 @@ async def financials(symbol: str):
         if qq.get("revenue") and qq.get("gross_profit"):
             qq["gross_margin"] = round(qq["gross_profit"] / qq["revenue"] * 100, 1)
     # --- upcoming earnings + what the street expects ---
-    cal = cal or {}
-    nxt = cal.get("Earnings Date")
-    if isinstance(nxt, list) and nxt:
-        nxt = nxt[0]
-    upcoming = {"date": str(nxt)[:10] if nxt else None,
-                "eps_estimate": cal.get("Earnings Average"),
-                "eps_low": cal.get("Earnings Low"), "eps_high": cal.get("Earnings High"),
-                "revenue_estimate": cal.get("Revenue Average"),
-                "revenue_low": cal.get("Revenue Low"), "revenue_high": cal.get("Revenue High")}
-    if upcoming["date"]:
-        try:
-            d = datetime.fromisoformat(upcoming["date"]).date()
-            upcoming["days_away"] = (d - datetime.now(timezone.utc).date()).days
-        except Exception:
-            pass
+    # (cal is earnings.next_report(): never a date that has passed, and
+    # Finnhub's schedule where Yahoo's calendar is unavailable)
+    upcoming = {k: (cal or {}).get(k) for k in
+                ("date", "days_away", "hour", "eps_estimate", "eps_low", "eps_high",
+                 "revenue_estimate", "revenue_low", "revenue_high", "source")}
 
     # --- did each past report beat or miss? ---
     track = []
@@ -256,9 +282,15 @@ async def analysts(symbol: str):
              for k, lab in (("strongBuy", "Strong buy"), ("buy", "Buy"), ("hold", "Hold"),
                             ("sell", "Sell"), ("strongSell", "Strong sell"))]
             if cur else [])
+    # Where Yahoo refuses the crumb the list is empty because it could not be
+    # fetched, not because nobody changed a rating - so say that, and do not
+    # credit Yahoo with a list it never supplied.
+    unavailable = not rows and yahoo.crumb_known_blocked()
     return clean({
         "symbol": symbol.upper(),
-        "sources": _sources(symbol, ("analyst_ratings", "price_targets", "rating_changes")),
+        "sources": _sources(symbol, ("analyst_ratings", "price_targets")
+                            + (() if unavailable else ("rating_changes",))),
+        "changes_unavailable": unavailable,
         "consensus": {k: i.get(k) for k in
                       ("recommendationKey", "recommendationMean", "numberOfAnalystOpinions")
                       if i.get(k) is not None},
@@ -274,13 +306,9 @@ async def analysts(symbol: str):
 @router.get("/events/{symbol}")
 async def events(symbol: str):
     cal, ed, fil = await asyncio.gather(
-        yahoo.attr(symbol, "calendar", 21600),
+        earnings.next_report(symbol),
         yahoo.attr(symbol, "earnings_dates", 21600),
         edgar.filings(symbol, 8))
-    cal = cal or {}
-    d = cal.get("Earnings Date")
-    if isinstance(d, list) and d:
-        d = d[0]
     hist = []
     for k, v in sorted((ed or {}).items(), key=lambda kv: str(kv[0]), reverse=True):
         est, act = v.get("EPS Estimate"), v.get("Reported EPS")
@@ -291,8 +319,8 @@ async def events(symbol: str):
         if len(hist) >= 6:
             break
     return clean({"symbol": symbol.upper(),
-                  "next_earnings": str(d)[:10] if d else None,
-                  "eps_estimate": cal.get("Earnings Average"),
+                  "next_earnings": cal.get("date"), "days_away": cal.get("days_away"),
+                  "eps_estimate": cal.get("eps_estimate"),
                   "surprise_history": hist, "filings": fil,
                   "sources": _sources(symbol, ("next_earnings",))
                              + _sources(symbol, ("recent_filings",))})
@@ -648,23 +676,16 @@ async def _ticker_signals(sym: str, q: dict, seen_peers: set | None = None) -> l
         pass
 
     # 5. earnings inside a week
-    cal = await yahoo.attr(sym, "calendar", 21600) or {}
-    d2 = cal.get("Earnings Date")
-    if isinstance(d2, list) and d2:
-        d2 = d2[0]
-    if d2:
-        try:
-            days = (datetime.fromisoformat(str(d2)[:10]).date()
-                    - datetime.now(timezone.utc).date()).days
-            if 0 <= days <= 7:
-                sig.append({"kind": "earnings", "severity": 3.0 - days * 0.15,
-                            "headline": f"{sym} reports in {days} day{'s' if days != 1 else ''}",
-                            "detail": f"{str(d2)[:10]}"
-                                      + (f" \u00b7 EPS est {cal['Earnings Average']:.2f}"
-                                         if cal.get("Earnings Average") else ""),
-                            "value": days})
-        except Exception:
-            pass
+    nr = await earnings.next_report(sym)
+    days = nr.get("days_away")
+    if days is not None and 0 <= days <= 7:
+        sig.append({"kind": "earnings", "severity": 3.0 - days * 0.15,
+                    "headline": f"{sym} reports today" if days == 0
+                                else f"{sym} reports in {days} day{'s' if days != 1 else ''}",
+                    "detail": nr["date"]
+                              + (f" \u00b7 forecast ${nr['eps_estimate']:.2f} a share"
+                                 if nr.get("eps_estimate") is not None else ""),
+                    "value": days})
 
     # A big move with no explanation is just an alarm. Attach what the data can
     # actually say: did the whole cohort move too, did it just report, did volume
@@ -740,112 +761,6 @@ async def _explain_move(sym: str, chg: float, sig: list[dict], q: dict) -> dict:
     if "read" not in why and "earnings" not in why and "headlines" not in why:
         why["read"] = "no company news, earnings or peer move explains this yet"
     return why
-
-    bars = await yahoo.bars(sym, period="3mo", interval="1d")
-    closes = [b["c"] for b in bars if b.get("c")]
-    vols = [b["v"] for b in bars if b.get("v")]
-
-    # 1a. hard threshold: a big move is always worth saying, however jumpy the
-    #     ticker normally is. A 1.5-sigma test alone lets a 6% day on a volatile
-    #     name slip through, which is exactly the day you want to hear about.
-    big_move = chg is not None and abs(chg) >= BIG_MOVE_PCT
-    if big_move:
-        sig.append({"kind": "threshold",
-                    "severity": round(3.0 + min(abs(chg) - BIG_MOVE_PCT, 10) * 0.2, 2),
-                    "headline": f"{sym} {'up' if chg>0 else 'down'} {abs(chg):.2f}%",
-                    "detail": f"crossed the ±{BIG_MOVE_PCT:.0f}% threshold",
-                    "value": chg})
-
-    # 1b. move measured against this ticker's OWN daily volatility, for the
-    #     smaller moves that are still unusual for that name
-    if chg is not None and len(closes) > 25:
-        rets = [(closes[i] / closes[i - 1] - 1) * 100 for i in range(1, len(closes))][-20:]
-        mean = sum(rets) / len(rets)
-        sd = (sum((r - mean) ** 2 for r in rets) / len(rets)) ** 0.5
-        z = abs(chg - mean) / sd if sd else 0
-        if big_move:
-            # fold the context into the threshold signal rather than firing twice
-            if sd:
-                sig[-1]["detail"] += f" · {z:.1f}x its normal daily move (20-day sd {sd:.2f}%)"
-        elif z >= 1.5:
-            sig.append({"kind": "move", "severity": round(z, 1),
-                        "headline": f"{sym} {'up' if chg>0 else 'down'} {abs(chg):.2f}%",
-                        "detail": f"{z:.1f}x its normal daily move (20-day sd {sd:.2f}%)",
-                        "value": chg})
-
-    # 2. unusual participation
-    if len(vols) > 21 and vols[-1]:
-        avg = sum(vols[-21:-1]) / 20
-        ratio = vols[-1] / avg if avg else 0
-        if ratio >= 1.5:
-            sig.append({"kind": "volume", "severity": round(min(ratio, 5), 1),
-                        "headline": f"{sym} volume {ratio:.1f}x average",
-                        "detail": f"{vols[-1]:,} vs {int(avg):,} 20-day average",
-                        "value": ratio})
-
-    # 3. at the edge of the 52-week range
-    hi, lo = q.get("fiftyTwoWeekHigh"), q.get("fiftyTwoWeekLow")
-    if hi and px >= hi * 0.98:
-        sig.append({"kind": "high", "severity": 2.0,
-                    "headline": f"{sym} near its 52-week high",
-                    "detail": f"${px:,.2f} vs ${hi:,.2f} high", "value": px})
-    elif lo and px <= lo * 1.02:
-        sig.append({"kind": "low", "severity": 2.0,
-                    "headline": f"{sym} near its 52-week low",
-                    "detail": f"${px:,.2f} vs ${lo:,.2f} low", "value": px})
-
-    # 4. the adjacent cohort - a peer moving hard is news for this ticker too
-    try:
-        from ..tools import TOOLS
-        pm = await TOOLS["peer_moves"].fn(sym)
-        d = getattr(pm, "data", None)
-        if d and d.get("peers") and seen_peers is not None:
-            seen_peers.update(p["ticker"] for p in d["peers"])
-        if d and d.get("peers"):
-            gap = d.get("gap_vs_peers_pct")
-            big = d["biggest_mover"]
-            # (a) the ticker is breaking away from its own group
-            if gap is not None and abs(gap) >= 3:
-                sig.append({"kind": "peer_gap", "severity": round(min(abs(gap) / 2, 4), 1),
-                            "headline": f"{sym} {'outrunning' if gap > 0 else 'lagging'} its peer group",
-                            "detail": f"{sym} {chg:+.2f}% vs peer average "
-                                      f"{d['peer_average_pct']:+.2f}% ({len(d['peers'])} peers)",
-                            "value": gap})
-            # (b) an adjacent name moved hard even if this one did not
-            elif abs(big["change_pct"]) >= 5:
-                sig.append({"kind": "peer_move", "severity": round(min(abs(big["change_pct"]) / 3, 3), 1),
-                            "headline": f"{big['ticker']} moved {big['change_pct']:+.2f}% — adjacent to {sym}",
-                            "detail": f"peer group average {d['peer_average_pct']:+.2f}%; "
-                                      f"{sym} {chg:+.2f}%",
-                            "value": big["change_pct"]})
-    except Exception:
-        pass
-
-    # 5. earnings inside a week
-    cal = await yahoo.attr(sym, "calendar", 21600) or {}
-    d = cal.get("Earnings Date")
-    if isinstance(d, list) and d:
-        d = d[0]
-    if d:
-        try:
-            days = (datetime.fromisoformat(str(d)[:10]).date()
-                    - datetime.now(timezone.utc).date()).days
-            if 0 <= days <= 7:
-                sig.append({"kind": "earnings", "severity": 3.0 - days * 0.15,
-                            "headline": f"{sym} reports in {days} day{'s' if days != 1 else ''}",
-                            "detail": f"{str(d)[:10]}"
-                                      + (f" · EPS est {cal['Earnings Average']:.2f}"
-                                         if cal.get("Earnings Average") else ""),
-                            "value": days})
-        except Exception:
-            pass
-    # A big move with no explanation is just an alarm. Attach what the data can
-    # actually say: did the whole cohort move too (sector, not company), did it
-    # just report, did volume confirm, and which headlines name the issuer.
-    big = next((x for x in sig if x["kind"] == "threshold"), None)
-    if big is not None:
-        big["why"] = await _explain_move(sym, chg, sig, q)
-    return sig
 
 
 async def _market_only_brief(reason: str) -> dict:
@@ -1081,17 +996,24 @@ async def compare(symbols: str = Query(..., min_length=1), period: str = "6mo"):
     if not syms:
         raise HTTPException(400, "give at least one valid symbol")
 
-    quotes, *series = await asyncio.gather(
+    # One round, not three: quotes and bars, then company info, then filings
+    # used to run back to back - 9.4s for a new basket on Render. None of them
+    # depends on another.
+    n = len(syms)
+    res = await asyncio.gather(
         yahoo.quotes(syms),
         *(yahoo.bars(s, FETCH.get(period, period), "1d") for s in syms),
+        *(yahoo.info(s) for s in syms),
+        *(_ttm(s) for s in syms),
+        *(_balance(s) for s in syms),
         return_exceptions=True)
-    quotes = quotes if isinstance(quotes, dict) else {}
+    quotes = res[0] if isinstance(res[0], dict) else {}
+    series, infos, tts = res[1:1 + n], res[1 + n:1 + 2 * n], res[1 + 2 * n:1 + 3 * n]
+    bals = {s: (b if isinstance(b, dict) else {}) for s, b in zip(syms, res[1 + 3 * n:])}
     # the same window the agent's returns use, so a chart ends on the cited figure
     bars = {s: _window(b, period) if isinstance(b, list) else [] for s, b in zip(syms, series)}
-
-    infos = await asyncio.gather(*(yahoo.info(s) for s in syms), return_exceptions=True)
     infos = {s: (i if isinstance(i, dict) else {}) for s, i in zip(syms, infos)}
-    ttms = dict(zip(syms, await asyncio.gather(*(_ttm(s) for s in syms))))
+    ttms = {s: (t if isinstance(t, dict) else None) for s, t in zip(syms, tts)}
 
     # normalise every path to 100 at the first shared date, so a $40 stock and a
     # $900 stock are actually comparable
@@ -1138,6 +1060,13 @@ async def compare(symbols: str = Query(..., min_length=1), period: str = "6mo"):
             "high_52w": q.get("fiftyTwoWeekHigh"), "low_52w": q.get("fiftyTwoWeekLow"),
         })
         _ttm_margins(rows[-1], ttms.get(s))
+        b = bals.get(s) or {}
+        if b:
+            rows[-1].update({"debt": b.get("debt"), "cash": b.get("cash"), "net_debt": b.get("net_debt"),
+                             "fcf_12m": b.get("free_cash_flow_12m"),
+                             "interest_cover": b.get("interest_cover"), "balance_as_of": b.get("as_of")})
+            if b.get("debt_to_equity") is not None:
+                rows[-1]["debt_to_equity"] = round(b["debt_to_equity"] * 100, 1)
 
     # how much of a basket this really is - correlation across the set
     corr = []
@@ -1167,32 +1096,67 @@ async def compare(symbols: str = Query(..., min_length=1), period: str = "6mo"):
 
 @router.get("/calendar/earnings")
 async def earnings_week(days: int = Query(7, ge=1, le=14), limit: int = Query(10, ge=1, le=30)):
-    """Who reports in the next `days`, biggest companies first.
+    """Who reports this week - already reported and still to come - biggest first.
 
-    The calendar lists every filer - most weeks that is hundreds of micro caps.
-    Revenue estimate is a free size proxy to cut it to 80 candidates, then one
-    batched quote call supplies names and market caps to rank the rest."""
+    Three things this used to get wrong, each of which made it tell people a
+    company was not reporting when it had just reported:
+      * the window started at today, so on a Wednesday Monday's and Tuesday's
+        reports were gone. It now starts on Monday of the current week;
+      * "today" was the server's date, UTC, which rolls over at 7-8pm New York
+        time - exactly when after-close reports land. Dates are New York dates;
+      * ranking needed market caps from Yahoo quotes, which Render never gets
+        (crumb blocked), so every one of 1,031 reporters was dropped and the
+        panel said none. Caps now come from Nasdaq's screener, and a company
+        with no cap is ranked by revenue estimate rather than discarded.
+    Ranked by size AND by how much the stock is trading (the geometric mean of
+    market cap and dollar volume): by size alone CoreWeave, which traded $4B the
+    day it reported, sat 11th behind quieter giants and fell off an 8-row panel.
+    The visitor's own watchlist and holdings are listed first."""
     from datetime import timedelta
-    from ..providers import finnhub
+    from zoneinfo import ZoneInfo
+    from ..providers import finnhub, nasdaq
     if not finnhub.enabled():
         return {"items": [], "unavailable": "earnings calendar needs FINNHUB_API_KEY"}
-    today = date.today()
-    rows = await finnhub.earnings_calendar(today.isoformat(),
-                                           (today + timedelta(days=days)).isoformat())
-    rows = [r for r in rows if r.get("symbol") and "." not in r["symbol"]]
-    rows.sort(key=lambda r: r.get("revenueEstimate") or 0, reverse=True)
-    cand = rows[:80]
-    q = await yahoo.quotes([r["symbol"] for r in cand]) if cand else {}
-    items = []
-    for r in cand:
-        qq = q.get(r["symbol"]) or {}
-        cap = qq.get("marketCap")
-        if not cap:
+    now = datetime.now(ZoneInfo("America/New_York"))
+    today = now.date()
+    start = today - timedelta(days=today.weekday())          # Monday
+    end = start + timedelta(days=6)                           # Sunday: this week, not the next 7 days
+    rows, cmap = await asyncio.gather(
+        finnhub.earnings_calendar(start.isoformat(), end.isoformat()),
+        nasdaq.caps())
+    try:
+        d = store.load()
+        mine = {t.upper() for t in d.get("watchlist", [])} | {
+            (p.get("ticker") or "").upper() for a in d.get("portfolios", []) for p in a.get("positions", [])}
+    except Exception:
+        mine = set()
+    seen, items = set(), []
+    for r in rows:
+        sym = (r.get("symbol") or "").upper()
+        if not sym or "." in sym or sym in seen or not r.get("date"):
             continue
-        items.append({"symbol": r["symbol"], "name": qq.get("shortName") or qq.get("longName"),
-                      "date": r.get("date"), "hour": r.get("hour") or "",
-                      "eps_estimate": r.get("epsEstimate"),
-                      "revenue_estimate": r.get("revenueEstimate"), "market_cap": cap})
-    items.sort(key=lambda x: x["market_cap"], reverse=True)
-    return clean({"items": items[:limit], "window_days": days,
-                  "total_reporting": len(rows), "source": "finnhub calendar"})
+        seen.add(sym)
+        c = cmap.get(sym) or {}
+        day = r["date"]
+        # after close today counts as reported only once the numbers are in
+        reported = (r.get("epsActual") is not None or r.get("revenueActual") is not None
+                    or day < today.isoformat()
+                    or (day == today.isoformat() and r.get("hour") == "bmo" and now.hour >= 10))
+        items.append({"symbol": sym, "name": c.get("name"), "date": day, "hour": r.get("hour") or "",
+                      "reported": reported,
+                      "eps_estimate": r.get("epsEstimate"), "eps_actual": r.get("epsActual"),
+                      "revenue_estimate": r.get("revenueEstimate"),
+                      "revenue_actual": r.get("revenueActual"),
+                      "market_cap": c.get("cap"), "yours": sym in mine,
+                      "_rank": (c["cap"] * c["dv"]) ** 0.5 if c.get("dv") else (c.get("cap") or 0) * 0.07})
+    items.sort(key=lambda x: (x["yours"], x["_rank"], x["revenue_estimate"] or 0), reverse=True)
+    for i, x in enumerate(items, 1):
+        x.pop("_rank")
+        x["rank"] = i                        # the UI shows the top few, expandable to the rest
+    top = items[:limit]
+    # shown in calendar order: what already reported, then what is coming
+    order = {"bmo": 0, "dmh": 1, "": 2, "amc": 3}
+    top.sort(key=lambda x: (x["date"], order.get(x["hour"], 2)))
+    return clean({"items": top, "window": [start.isoformat(), end.isoformat()],
+                  "window_days": days, "total_reporting": len(items),
+                  "source": "finnhub calendar; market caps from nasdaq"})

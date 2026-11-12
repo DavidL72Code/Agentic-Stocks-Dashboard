@@ -6,7 +6,7 @@ vs 3 requests per ticker for .info. yf.download does NOT batch - it only
 parallelises - so it is not used here.
 """
 from __future__ import annotations
-import asyncio, logging, math, threading, time
+import asyncio, logging, math, os, threading, time
 from typing import Any
 import pandas as pd, yfinance as yf
 from yfinance.data import YfData
@@ -23,7 +23,7 @@ QUOTE_FIELDS = (
     "symbol,shortName,longName,regularMarketPrice,regularMarketChange,"
     "regularMarketChangePercent,regularMarketVolume,averageDailyVolume3Month,"
     "marketCap,trailingPE,forwardPE,priceToBook,fiftyTwoWeekHigh,fiftyTwoWeekLow,"
-    "fiftyDayAverage,twoHundredDayAverage,marketState,currency,exchange"
+    "fiftyDayAverage,twoHundredDayAverage,marketState,currency,exchange,quoteType"
 )
 
 
@@ -43,7 +43,7 @@ def _warm_session() -> None:
 # block, not a rate limit. Every crumb-gated call then fails, but only after a
 # round trip. Check once an hour and skip those calls while blocked, so a new
 # ticker does not pay for three requests that cannot succeed.
-CRUMB_ATTRS = {"info", "recommendations", "upgrades_downgrades"}
+CRUMB_ATTRS = {"info", "recommendations", "upgrades_downgrades", "calendar"}
 _crumb = {"checked": 0.0, "ok": True}
 _crumb_lock = threading.Lock()
 
@@ -54,7 +54,23 @@ def _block_crumb(reason: str) -> None:
     _crumb.update(checked=time.time(), ok=False)
 
 
+# Set YAHOO_CRUMB_BLOCKED=1 to run locally the way Render runs: no crumb, chart
+# quotes only, no market caps from Yahoo. Every Render-only failure so far (an
+# empty market map, an earnings panel that said nobody was reporting) passed
+# local testing because this machine gets the crumb.
+_FORCE_BLOCKED = os.environ.get("YAHOO_CRUMB_BLOCKED", "") == "1"
+
+
+def crumb_known_blocked() -> bool:
+    """True once a check has found the crumb refused. Never makes a request
+    itself - safe on the event loop, unlike crumb_ok()."""
+    return _FORCE_BLOCKED or not _crumb["ok"]
+
+
 def crumb_ok() -> bool:
+    if _FORCE_BLOCKED:
+        _crumb.update(checked=time.time(), ok=False)
+        return False
     with _crumb_lock:
         if time.time() - _crumb["checked"] < 3600:
             return _crumb["ok"]
@@ -110,16 +126,35 @@ def _chart_quote(session, symbol: str) -> dict | None:
             "fiftyTwoWeekHigh": m.get("fiftyTwoWeekHigh"),
             "fiftyTwoWeekLow": m.get("fiftyTwoWeekLow"),
             "marketState": _market_state(m), "currency": m.get("currency"),
-            "exchange": m.get("exchangeName"), "_source": "yahoo-chart"}
+            "exchange": m.get("exchangeName"), "quoteType": m.get("instrumentType"),
+            "_source": "yahoo-chart"}
+
+
+# Without the crumb every quote is its own chart request: the dashboard's 68
+# symbols cost 68 requests and ~1.2s on EVERY load and every 30s refresh, warm
+# or not (0.11s locally, where one v7 call covers them all). Twenty seconds of
+# reuse means concurrent visitors and the refresh timer share one fetch, and a
+# price is never more than 20s behind what Yahoo would have said.
+CHART_TTL = 20.0
+_chart_hits: dict[str, tuple[float, dict]] = {}
 
 
 def _chart_quotes(symbols: list[str]) -> dict[str, dict]:
     from concurrent.futures import ThreadPoolExecutor
     from curl_cffi import requests as cr
-    s = cr.Session(impersonate="chrome")
-    with ThreadPoolExecutor(max_workers=8) as ex:
-        rows = ex.map(lambda sym: _chart_quote(s, sym), symbols)
-    return {r["symbol"]: r for r in rows if r}
+    now = time.time()
+    out = {sym: hit[1] for sym in symbols
+           if (hit := _chart_hits.get(sym)) and now - hit[0] < CHART_TTL}
+    todo = [sym for sym in symbols if sym not in out]
+    if todo:
+        s = cr.Session(impersonate="chrome")
+        with ThreadPoolExecutor(max_workers=12) as ex:
+            rows = list(ex.map(lambda sym: _chart_quote(s, sym), todo))
+        for r in rows:
+            if r:
+                _chart_hits[r["symbol"]] = (now, r)
+                out[r["symbol"]] = r
+    return out
 
 
 def _quotes_blocking(symbols: list[str]) -> dict[str, dict]:
@@ -149,19 +184,54 @@ async def _quotes_batch(symbols: list[str]) -> dict[str, dict]:
 QUOTE_LOADER = BatchLoader(_quotes_batch, window=0.02, max_batch=100)
 
 
+async def _fill_caps(rows: dict[str, Any], early: asyncio.Future | None = None) -> dict[str, Any]:
+    """Market cap for quotes that came back without one (the chart fallback).
+
+    Nasdaq's cap is computed at its own last price, up to 15 minutes old, so it
+    is rescaled to the quote's price: shares x the price the row shows."""
+    # only stocks have a market cap: an index or ETF never will, and asking for
+    # one cost every /api/indices call a screener fetch
+    need = [k for k, v in rows.items() if v and v.get("marketCap") is None
+            and (v.get("quoteType") or "EQUITY") == "EQUITY" and not k.startswith("^") and "=" not in k]
+    if not need:
+        return rows
+    cmap = await (early if early is not None else nasdaq.caps())
+    for k in need:
+        c = cmap.get(k)
+        if not c:
+            continue
+        cap, px, npx = c["cap"], rows[k].get("regularMarketPrice"), c.get("px")
+        if px and npx:
+            cap = cap * px / npx
+        rows[k] = {**rows[k], "marketCap": round(cap), "_cap_source": "nasdaq"}
+    return rows
+
+
+def _early_caps() -> asyncio.Future | None:
+    """Start the cap lookup alongside the quote fetch when the crumb is already
+    known to be blocked, so a cold screener call overlaps the quotes instead of
+    following them."""
+    return None if _crumb["ok"] else asyncio.ensure_future(nasdaq.caps())
+
+
 async def quote(symbol: str) -> dict | None:
     """Per-ticker semantics, batched transport. A failed batch returns None, as
     quotes() already does: callers treat a missing quote as optional, and a
     Yahoo outage must not turn /overview and /news into 500s."""
+    sym = symbol.upper()
+    early = _early_caps()
     try:
-        return await QUOTE_LOADER.load(symbol.upper())
+        q = await QUOTE_LOADER.load(sym)
     except Exception as e:
         log.warning("quote %s failed: %s", symbol, e)
         return None
+    return (await _fill_caps({sym: q}, early))[sym] if q else q
 
 
 async def quotes(symbols: list[str]) -> dict[str, dict]:
-    return await QUOTE_LOADER.load_many([s.upper() for s in symbols])
+    early = _early_caps()
+    rows = await QUOTE_LOADER.load_many([s.upper() for s in symbols])
+    return await _fill_caps(rows, early)
 
 
 # ---------------- single-symbol endpoints (no batch endpoint exists) -------------
@@ -235,6 +305,23 @@ async def attr(symbol: str, name: str, ttl: float = 86400) -> Any:
         val = {**fh, **{k: v for k, v in (val or {}).items() if v is not None}}
         if fh:
             _src.INFO_SRC[symbol.upper()] = "finnhub"
+            q = await quote(symbol)
+            px = (q or {}).get("regularMarketPrice")
+            prof, fwd = await asyncio.gather(nasdaq.profile(symbol), nasdaq.forward_eps(symbol))
+            # Nasdaq's industry beats Finnhub's ("Semiconductors", not "Technology")
+            val = {**val, **prof}
+            if fwd is not None:
+                val["forwardEps"] = fwd
+            if px:
+                val["currentPrice"] = px
+                if val.get("forwardPE") is None and fwd and fwd > 0:   # no P/E on a loss
+                    val["forwardPE"] = round(px / fwd, 2)
+                if val.get("priceToBook") is None and val.get("bookValue"):
+                    val["priceToBook"] = round(px / val["bookValue"], 2)
+                if val.get("dividendYield") is None:
+                    dps = val.get("trailingAnnualDividendRate")
+                    # percent, as Yahoo's own dividendYield is; 0 for a non-payer
+                    val["dividendYield"] = round(dps / px * 100, 2) if dps else 0.0
     # Price targets: Yahoo's need the crumb and Finnhub's need a paid plan
     if name == "info" and not (val or {}).get("targetMeanPrice"):
         tg = await nasdaq.targets(symbol)
@@ -336,7 +423,15 @@ async def news_for(symbol: str, limit: int = 10) -> list[dict]:
     we fall through to it rather than showing the user nothing.
     """
     async def load() -> list[dict]:
-        raw = await asyncio.to_thread(_attr_blocking, symbol.upper(), "news")
+        # yfinance 1.7 RAISES here ("YAHOO! FINANCE IS CURRENTLY DOWN") where it
+        # used to return []. Only the empty case fell through to search, so the
+        # exception became a 500 on /api/news for every ticker and an empty
+        # market-news panel - while the search path worked the whole time.
+        try:
+            raw = await asyncio.to_thread(_attr_blocking, symbol.upper(), "news")
+        except Exception as e:
+            log.info("news: .news failed for %s (%s), falling back to search", symbol, e)
+            raw = []
         items = []
         for n in (raw or [])[:limit]:
             c = n.get("content") or {}
@@ -353,5 +448,9 @@ async def news_for(symbol: str, limit: int = 10) -> list[dict]:
         log.info("news: .news empty for %s, falling back to search", symbol)
         return await asyncio.to_thread(_news_search_blocking, symbol.upper(), limit)
 
-    val, _ = await cached(("news", symbol.upper(), limit), 900, load)
+    try:
+        val, _ = await cached(("news", symbol.upper(), limit), 900, load)
+    except Exception as e:                  # headlines are optional; never a 500
+        log.warning("news %s failed on both paths: %s", symbol, e)
+        return []
     return val

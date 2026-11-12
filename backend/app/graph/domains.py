@@ -8,6 +8,7 @@ This is where the multi-agent part actually lives. Each domain agent:
   - never sees any other domain's evidence
 """
 from __future__ import annotations
+from ..clock import clock_line
 import asyncio, json, time
 from langgraph.graph import END, START, StateGraph
 import operator
@@ -124,7 +125,7 @@ def build_domain(domain: str):
         try:
             r = await llm.call(
                 SELECT_PROMPT.format(domain=domain, desc=desc, catalog=catalog(domain)),
-                f"Ticker: {s['ticker']}\nQuestion: {s['question']}", role="select")
+                f"{clock_line()}\nTicker: {s['ticker']}\nQuestion: {s['question']}", role="select")
             j = llm.parse_json(r.text) or {}
             sel = [t for t in j.get("tools", []) if t in names][:5]
             reason = str(j.get("reason_skipped", ""))[:240]
@@ -180,6 +181,7 @@ def build_domain(domain: str):
                 skip_reason=s.get("skip_reason", ""), confidence="unavailable"),
                 "steps": [RunStep(node=f"{domain}.synthesize", detail="skipped - no data")]}
         emit("synth", domain=domain, ticker=s["ticker"])
+        payload = {"today": clock_line(), **payload}
         body = json.dumps(payload, default=str)
         if len(body) > 12000:      # trim lists rather than cutting the JSON mid-value
             from .build import present_short

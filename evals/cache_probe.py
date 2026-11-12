@@ -15,7 +15,7 @@ round-trip block runs against that instead.
     python evals/cache_probe.py
 """
 from __future__ import annotations
-import asyncio, json, os, sys, time
+import asyncio, time, json, os, sys
 
 sys.path.insert(0, os.getcwd())
 sys.path.insert(0, os.path.join(os.getcwd(), "backend"))
@@ -49,6 +49,25 @@ async def main() -> int:
     chk("l1_still_caches", v1 == v2 and calls["n"] == 1,
         f"{calls['n']} upstream call(s) for 2 reads",
         "with no Redis the in-process tier must behave exactly as before")
+
+    print("\n── stale-while-revalidate ──")
+    calls["n"] = 0
+    C.CACHE._d.clear()
+    await C.cached(("probe", "swr"), 0.05, fetch)              # v1
+    await asyncio.sleep(0.08)                                   # expired, inside the window
+    t0 = time.time()
+    got, stale = await C.cached(("probe", "swr"), 0.05, fetch)
+    served_ms = (time.time() - t0) * 1000
+    chk("swr_serves_expired_at_once", got == {"v": 1} and not stale and served_ms < 20,
+        f"returned v{got['v']} in {served_ms:.1f}ms", "an expired value must not make the reader wait")
+    await asyncio.sleep(0.02)                                   # let the background refresh land
+    chk("swr_refreshes_in_background", C.CACHE.get(("probe", "swr")) == {"v": 2} and calls["n"] == 2,
+        f"{calls['n']} upstream calls, cache now v{(C.CACHE.get_stale(('probe', 'swr')) or {}).get('v')}",
+        "the next reader gets the refreshed value")
+    await asyncio.sleep(0.2)                                    # far past ttl + window
+    got, _ = await C.cached(("probe", "swr"), 0.05, fetch)
+    chk("swr_window_is_bounded", got == {"v": 3},
+        f"blocked and refetched: v{got['v']}", "a value long past its window is refetched, not served")
 
     print("\n── keys: readable, and collision-safe ──")
     k = C.RedisL2.key(("bars", "NVDA", "1mo", "1d"))
@@ -177,9 +196,12 @@ async def main() -> int:
     src = inspect.getsource(yahoo.quote) + inspect.getsource(yahoo.quotes)
     chk("live_prices_are_not_ttl_cached", "cached(" not in src,
         "quote()/quotes() go straight through BatchLoader",
-        "prices must be fetched every time. Batching coalesces concurrent "
-        "callers into one request; a TTL cache would serve a stale price, and "
-        "L2 would make it stale across restarts too")
+        "prices must not go through cached(): its stale-while-revalidate and "
+        "L2 would serve an old price, across restarts too")
+    chk("chart_quote_reuse_is_short", 0 < yahoo.CHART_TTL <= 20,
+        f"chart-path quotes reused for {yahoo.CHART_TTL:.0f}s",
+        "where there is no crumb each quote is its own request; reuse is "
+        "allowed for seconds, never minutes")
     chk("bars_are_cached", "cached(" in inspect.getsource(yahoo.bars),
         "bars() goes through cached()",
         "charts, financials, news and logos are what L2 is for")
