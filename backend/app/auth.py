@@ -352,8 +352,10 @@ me_router = APIRouter(prefix="/api")
 @me_router.get("/me")
 async def me(request: Request):
     uid = (request.scope.get("state") or {}).get("user_id") or store.current_user_id()
-    u = db.get_user(uid) or {}
     guest = AUTH_ENABLED and uid in ("", store.GUEST)
+    # A guest has no row to read. Looking one up anyway made every page load's
+    # first call depend on the hosted database - and fail with it.
+    u = {} if guest else (db.get_user(uid) or {})
     return {"id": store.GUEST if guest else (uid or db.LOCAL_USER_ID),
             "name": "Guest" if guest else u.get("name"),
             "username": None if guest else u.get("username"),

@@ -157,6 +157,81 @@ def _chart_quotes(symbols: list[str]) -> dict[str, dict]:
     return out
 
 
+# ---------------- spark: twenty prices per request, no crumb ----------------
+# The chart fallback is one request per symbol: the dashboard's 61-symbol batch
+# took 4.6s on Render's 0.1 CPU (live, Nov 12 2026), and the market map, movers,
+# sectors and tape all wait on it. v8/finance/spark answers 20 symbols at a time
+# without the crumb (0.15s locally) - price and previous close only, which is
+# all a large batch needs. Names and market caps are filled from Nasdaq; the
+# chart path, with its 52-week range and volume, stays for small batches (a
+# research page's own quote).
+SPARK_URL = "https://query1.finance.yahoo.com/v8/finance/spark"
+SPARK_MIN = 9            # batches this big go to spark
+_spark_hits: dict[str, tuple[float, dict]] = {}
+
+
+def _clock_state(last_bar: int | None) -> str:
+    """REGULAR / PRE / POST / CLOSED from the New York clock. A weekday with no
+    bar dated today is a holiday, which the clock alone would call open."""
+    from ..clock import ny_now
+    from datetime import datetime
+    n = ny_now()
+    if n.weekday() >= 5:
+        return "CLOSED"
+    m = n.hour * 60 + n.minute
+    state = "PRE" if 240 <= m < 570 else "REGULAR" if 570 <= m < 960 else "POST" if 960 <= m < 1200 else "CLOSED"
+    if state == "REGULAR" and last_bar:
+        if datetime.fromtimestamp(last_bar, n.tzinfo).date() != n.date():
+            return "CLOSED"
+    return state
+
+
+def _spark_quotes(symbols: list[str]) -> dict[str, dict]:
+    from concurrent.futures import ThreadPoolExecutor
+    from curl_cffi import requests as cr
+    now = time.time()
+    out = {sym: hit[1] for sym in symbols
+           if (hit := _spark_hits.get(sym)) and now - hit[0] < CHART_TTL}
+    todo = [sym for sym in symbols if sym not in out]
+    if not todo:
+        return out
+    s = cr.Session(impersonate="chrome")
+    chunks = [todo[i:i + 20] for i in range(0, len(todo), 20)]
+
+    def one(chunk):
+        try:
+            r = s.get(SPARK_URL, params={"symbols": ",".join(chunk), "range": "1d", "interval": "1d"},
+                      timeout=10)
+            return r.json() if r.status_code == 200 else {}
+        except Exception as e:
+            log.info("spark %s... failed: %s", chunk[0], e)
+            return {}
+    with ThreadPoolExecutor(max_workers=len(chunks)) as ex:
+        parts = list(ex.map(one, chunks))
+    for d in parts:
+        for sym, x in (d or {}).items() if isinstance(d, dict) else ():
+            closes = [c for c in (x.get("close") or []) if c is not None]
+            prev = x.get("chartPreviousClose") or x.get("previousClose")
+            if not closes:
+                continue
+            px = closes[-1]
+            row = {"symbol": sym, "regularMarketPrice": px,
+                   "regularMarketChange": round(px - prev, 4) if prev else None,
+                   "regularMarketChangePercent": round((px / prev - 1) * 100, 4) if prev else None,
+                   "marketState": _clock_state((x.get("timestamp") or [None])[-1]),
+                   "_source": "yahoo-spark"}
+            # descriptive fields from the last full chart quote, however old -
+            # never its 52-week range, which a new high would make wrong
+            hit = _chart_hits.get(sym)
+            if hit:
+                for k in ("shortName", "longName", "currency", "exchange", "quoteType"):
+                    if hit[1].get(k) is not None:
+                        row[k] = hit[1][k]
+            _spark_hits[sym] = (now, row)
+            out[sym] = row
+    return out
+
+
 def _quotes_blocking(symbols: list[str]) -> dict[str, dict]:
     out: dict[str, dict] = {}
     if crumb_ok():
@@ -171,6 +246,9 @@ def _quotes_blocking(symbols: list[str]) -> dict[str, dict]:
             if any(c in str(e) for c in ("401", "429", "Crumb")):
                 _block_crumb(f"v7 quote: {e}")
     missing = [s for s in symbols if s not in out]
+    if len(missing) >= SPARK_MIN:
+        out.update(_spark_quotes(missing))
+        missing = [s for s in symbols if s not in out]
     if missing:
         out.update(_chart_quotes(missing))
     return out
@@ -204,6 +282,8 @@ async def _fill_caps(rows: dict[str, Any], early: asyncio.Future | None = None) 
         if px and npx:
             cap = cap * px / npx
         rows[k] = {**rows[k], "marketCap": round(cap), "_cap_source": "nasdaq"}
+        if not rows[k].get("shortName") and c.get("name"):
+            rows[k]["shortName"] = c["name"]
     return rows
 
 
@@ -301,13 +381,17 @@ async def attr(symbol: str, name: str, ttl: float = 86400) -> Any:
     if name == "info":
         _src.INFO_SRC[symbol.upper()] = "yahoo"
     if name == "info" and len(val or {}) < 5 and finnhub.enabled():
-        fh = await finnhub.info(symbol)
+        # Every fallback at once. Chained - Finnhub, then the quote, then Nasdaq's
+        # profile and forecast, then its price targets - a research page for a
+        # ticker nobody had opened took 6.1s on Render (live, Nov 12 2026); none
+        # of these waits on another.
+        fh, q, prof, fwd, tg = await asyncio.gather(
+            finnhub.info(symbol), quote(symbol), nasdaq.profile(symbol),
+            nasdaq.forward_eps(symbol), nasdaq.targets(symbol))
         val = {**fh, **{k: v for k, v in (val or {}).items() if v is not None}}
         if fh:
             _src.INFO_SRC[symbol.upper()] = "finnhub"
-            q = await quote(symbol)
             px = (q or {}).get("regularMarketPrice")
-            prof, fwd = await asyncio.gather(nasdaq.profile(symbol), nasdaq.forward_eps(symbol))
             # Nasdaq's industry beats Finnhub's ("Semiconductors", not "Technology")
             val = {**val, **prof}
             if fwd is not None:
@@ -322,8 +406,13 @@ async def attr(symbol: str, name: str, ttl: float = 86400) -> Any:
                     dps = val.get("trailingAnnualDividendRate")
                     # percent, as Yahoo's own dividendYield is; 0 for a non-payer
                     val["dividendYield"] = round(dps / px * 100, 2) if dps else 0.0
+        if tg and not val.get("targetMeanPrice"):
+            _src.TARGETS_SRC[symbol.upper()] = "nasdaq"
+            val = {**val, **tg}
+            if val.get("currentPrice") is None and (q or {}).get("regularMarketPrice") is not None:
+                val["currentPrice"] = q["regularMarketPrice"]
     # Price targets: Yahoo's need the crumb and Finnhub's need a paid plan
-    if name == "info" and not (val or {}).get("targetMeanPrice"):
+    elif name == "info" and not (val or {}).get("targetMeanPrice"):
         tg = await nasdaq.targets(symbol)
         if tg:
             _src.TARGETS_SRC[symbol.upper()] = "nasdaq"
