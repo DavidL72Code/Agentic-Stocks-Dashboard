@@ -62,19 +62,37 @@ async def _warm() -> None:
             "spy": yahoo.quote("SPY")}
     res = await asyncio.gather(*jobs.values(), return_exceptions=True)
     bad = [k for k, r in zip(jobs, res) if isinstance(r, Exception)]
+    from .status import WARM
+    WARM.update(dashboard_s=round(time.time() - t0, 2), failed=bad)
     log.info("warm-up: dashboard data in %.1fs%s", time.time() - t0,
              f" (failed: {', '.join(bad)})" if bad else "")
     t1 = time.time()
     try:
         await asyncio.to_thread(importlib.import_module, f"{__package__}.graph.build")
+        WARM["agent_import_s"] = round(time.time() - t1, 2)
         log.info("warm-up: agent stack imported in %.1fs", time.time() - t1)
     except Exception as e:
         log.warning("warm-up: agent import failed: %s", e)
+    WARM["done_after_s"] = round(time.time() - t0, 2)
+
+
+IO_THREADS = 32
 
 
 @contextlib.asynccontextmanager
 async def lifespan(_app):
     import asyncio
+    from concurrent.futures import ThreadPoolExecutor
+    from .status import WARM
+    # Every blocking fetch (yfinance, Nasdaq, Yahoo's chart and spark) runs on
+    # the default thread pool, which Python sizes from the CPU count: 5 threads
+    # on a 1-CPU host. Nine research calls each waiting on several of them
+    # queued behind one another - a single one-symbol quote took 4.5s on Render
+    # while it waited for a free thread (live, Nov 12 2026). The threads spend
+    # their time waiting on the network, so 32 of them cost almost nothing.
+    asyncio.get_running_loop().set_default_executor(
+        ThreadPoolExecutor(max_workers=IO_THREADS, thread_name_prefix="io"))
+    WARM.update(cpu_count=os.cpu_count(), io_threads=IO_THREADS)
     task = None
     if os.environ.get("WARMUP", "1") != "0":
         task = asyncio.create_task(_warm())

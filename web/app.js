@@ -418,14 +418,21 @@ async function getBars(sym, period, interval) {
   BARS.set(k, { t: Date.now(), bars });
   return bars;
 }
-/* warm every timeframe in the background so switching is instant */
+/* warm every timeframe in the background so switching is instant - but only
+   once what is on screen has loaded. Started at once, five more history fetches
+   competed with the header, overview and filings for Render's 0.1 CPU on every
+   research page open. */
 function prefetchFrames(sym) {
   const order = ["1M","1D","5D","6M","1Y","5Y"];        // visible first, then the rest
-  order.reduce((chain, k) => chain.then(() => {
+  const start = Date.now();
+  const ready = () => document.querySelector("#tabbody .kv, #tabbody .debtp, #tabbody .empty") || Date.now() - start > 2500;
+  const go = () => order.reduce((chain, k) => chain.then(() => {
     if (S.cur !== sym) return;                          // user moved on - stop
     const [p, i] = TF[k];
     return getBars(sym, p, i).catch(()=>{});
   }), Promise.resolve());
+  const wait = () => { if (S.cur !== sym) return; ready() ? go() : setTimeout(wait, 150); };
+  setTimeout(wait, 150);
 }
 let chartRO = null;
 function buildChart() {

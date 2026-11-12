@@ -22,11 +22,13 @@ log = logging.getLogger("routes.data")
 @router.get("/health")
 async def health():
     from ..llm import MODEL, api_key, status
+    from ..status import WARM
     from .. import db
     return clean({"ok": True, "llm_configured": bool(api_key()), "model": MODEL,
                   "models": status(),
                   "db": db.backend_name(),
                   "tools": len(TOOLS), "cache": cache_stats(),
+                  "warm_up": WARM,
                   "quote_batches": yahoo.QUOTE_LOADER.batches,
                   "quote_keys_served": yahoo.QUOTE_LOADER.keys_served})
 
