@@ -173,7 +173,11 @@ async def suite_tools():
         except Exception as e:
             return None, f"RAISED {type(e).__name__}: {e}", int((time.time()-t0)*1000)
         kind = "data" if isinstance(r, ToolResult) else \
-               ("empty" if getattr(r, "kind", "") == "empty" else "error")
+               ("empty" if getattr(r, "kind", "") == "empty" else
+                # a source that refused the request is reported as unavailable,
+                # not as "none on record" - which is what Render always gets,
+                # and what this machine gets once Yahoo rate-limits a long run
+                "unavailable" if "could not be fetched" in str(getattr(r, "reason", "")) else "error")
         return r, kind, int((time.time() - t0) * 1000)
 
     # every tool must return a typed result, never raise
@@ -185,7 +189,7 @@ async def suite_tools():
         if name in ("event_study", "read_across", "correlation"):
             kw = {"other": "AMD"}
         r, kind, ms = await run(name, tick, **kw)
-        want = ("data",) if t.domain == "portfolio" else ("data", "empty")
+        want = ("data",) if t.domain == "portfolio" else ("data", "empty", "unavailable")
         out.append({"id": f"tool:{name}", "pass": kind in want,
                     "detail": f"{kind} ({t.domain}{', derived' if t.derived else ''})",
                     "ms": ms, "why": "must return typed data or a typed empty, never raise"})
