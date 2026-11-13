@@ -3,29 +3,59 @@
   "buildCommand": "sh scripts/build-web.sh",
   "outputDirectory": "web",
   "rewrites": [
-    { "source": "/static/:path*", "destination": "/:path*" },
-    { "source": "/api/:path*", "destination": "https://agentic-stocks-dashboard.onrender.com/api/:path*" },
-    { "source": "/build", "destination": "https://agentic-stocks-dashboard.onrender.com/build" }
+    {
+      "source": "/static/:path*",
+      "destination": "/:path*"
+    },
+    {
+      "source": "/api/:path*",
+      "destination": "https://agentic-stocks-dashboard.onrender.com/api/:path*"
+    },
+    {
+      "source": "/build",
+      "destination": "https://agentic-stocks-dashboard.onrender.com/build"
+    }
   ],
   "headers": [
     {
       "source": "/api/:path*",
       "headers": [
-        { "key": "x-vercel-enable-rewrite-caching", "value": "0" },
-        { "key": "Cache-Control", "value": "no-store, private" }
+        {
+          "key": "x-vercel-enable-rewrite-caching",
+          "value": "1"
+        },
+        {
+          "key": "Cache-Control",
+          "value": "no-store, private"
+        }
       ]
     },
     {
       "source": "/(index.html)?",
-      "headers": [{ "key": "Cache-Control", "value": "no-store, must-revalidate" }]
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "no-store, must-revalidate"
+        }
+      ]
     },
     {
       "source": "/:file(app.js|ui.css)",
-      "headers": [{ "key": "Cache-Control", "value": "public, max-age=31536000, immutable" }]
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=31536000, immutable"
+        }
+      ]
     },
     {
       "source": "/charts.js",
-      "headers": [{ "key": "Cache-Control", "value": "no-cache" }]
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "no-cache"
+        }
+      ]
     }
   ]
 }

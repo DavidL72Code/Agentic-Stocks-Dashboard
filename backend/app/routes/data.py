@@ -1113,7 +1113,7 @@ async def earnings_week(days: int = Query(7, ge=1, le=14), limit: int = Query(10
     Ranked by size AND by how much the stock is trading (the geometric mean of
     market cap and dollar volume): by size alone CoreWeave, which traded $4B the
     day it reported, sat 11th behind quieter giants and fell off an 8-row panel.
-    The visitor's own watchlist and holdings are listed first."""
+    The page lists the visitor's own watchlist and holdings first."""
     from datetime import timedelta
     from zoneinfo import ZoneInfo
     from ..providers import finnhub, nasdaq
@@ -1126,12 +1126,9 @@ async def earnings_week(days: int = Query(7, ge=1, le=14), limit: int = Query(10
     rows, cmap = await asyncio.gather(
         finnhub.earnings_calendar(start.isoformat(), end.isoformat()),
         nasdaq.caps())
-    try:
-        d = store.load()
-        mine = {t.upper() for t in d.get("watchlist", [])} | {
-            (p.get("ticker") or "").upper() for a in d.get("portfolios", []) for p in a.get("positions", [])}
-    except Exception:
-        mine = set()
+    # No per-visitor ranking here: the answer is the same for everyone so the
+    # CDN can serve it while this server sleeps. The page marks your own
+    # watchlist and holdings and lifts them to the top itself.
     seen, items = set(), []
     for r in rows:
         sym = (r.get("symbol") or "").upper()
@@ -1149,9 +1146,9 @@ async def earnings_week(days: int = Query(7, ge=1, le=14), limit: int = Query(10
                       "eps_estimate": r.get("epsEstimate"), "eps_actual": r.get("epsActual"),
                       "revenue_estimate": r.get("revenueEstimate"),
                       "revenue_actual": r.get("revenueActual"),
-                      "market_cap": c.get("cap"), "yours": sym in mine,
+                      "market_cap": c.get("cap"),
                       "_rank": (c["cap"] * c["dv"]) ** 0.5 if c.get("dv") else (c.get("cap") or 0) * 0.07})
-    items.sort(key=lambda x: (x["yours"], x["_rank"], x["revenue_estimate"] or 0), reverse=True)
+    items.sort(key=lambda x: (x["_rank"], x["revenue_estimate"] or 0), reverse=True)
     for i, x in enumerate(items, 1):
         x.pop("_rank")
         x["rank"] = i                        # the UI shows the top few, expandable to the rest

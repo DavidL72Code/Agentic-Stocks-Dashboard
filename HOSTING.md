@@ -85,6 +85,19 @@ likely to be wrong.
   better.
 
   **What is in place now (Nov 2026):**
+  - **The server keeps itself awake** (Nov 12, after a visit at 9pm New York
+    time waited a minute on a sleeping server): every 10 minutes from 6am to
+    midnight New York time it requests its own public address
+    (`RENDER_EXTERNAL_URL`), which Render counts as inbound traffic. The GitHub
+    job below turned out to be only a backstop - GitHub ran its "every 5
+    minutes" schedule at 11:45, 18:43 and 23:53 UTC that day.
+  - **Public market data is cached at Vercel's edge** (`Vercel-CDN-Cache-Control:
+    max-age=20, stale-while-revalidate=86400`, sent only by endpoints whose
+    answer is the same for every visitor - quotes, indices, charts, company
+    pages, the earnings calendar). Overnight, a visit to a sleeping server gets
+    the last prices from the edge at once while the edge's refresh wakes it.
+    Anything with an account behind it stays `no-store, private`, and the sweep
+    checks in code that no edge-cacheable route reads the session.
   - `.github/workflows/keep-warm.yml` pings `/api/health` every 5 minutes from
     11:00 to 04:59 UTC (6am–midnight New York in winter). Not around the clock:
     Render's free tier is **750 instance hours per workspace per calendar
@@ -245,6 +258,7 @@ silently ran a default (`gemini-2.5-flash`) that new keys can no longer use.
 | `STORE_PATH` | `data/store.json` | Legacy single-file store, read once to import, then renamed. Leave it. |
 | `TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN` | — | Hosted database instead of a local file. [DATABASE.md](DATABASE.md). |
 | `REDIS_URL`, `REDIS_PREFIX`, `REDIS_STALE_FACTOR`, `REDIS_TIMEOUT` | — | Cache second tier. Below. |
+| `RENDER_EXTERNAL_URL` | set by Render | The service's public address. When present, the server pings itself there every 10 minutes from 6am to midnight New York time, so it does not fall asleep in the daytime (GitHub's schedule alone ran hours apart). Locally it is unset and nothing is pinged. |
 | `WARMUP` | `1` | On start-up, fetch the dashboard's data (market caps, indices, the earnings calendar, the brief) and then import the agent's libraries, in the background. `0` turns it off - useful for tests that should not touch the network at boot. |
 | `YAHOO_CRUMB_BLOCKED` | unset | `1` makes a local server behave like Render: no Yahoo crumb, chart quotes only, no market caps or calendar from Yahoo. For reproducing Render-only bugs; never set it in production. |
 | `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET` | — | OAuth alongside passwords. Callback `{APP_BASE_URL}/api/auth/callback/github`. |

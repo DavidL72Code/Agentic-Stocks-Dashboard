@@ -2394,6 +2394,15 @@ function sectorsHTML() {
 const DOW = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
 function earningsHTML(d, show = 8) {
   if (!d) return `<div class="skel" style="height:160px;margin:12px"></div>`;
+  // your watchlist and holdings first - decided here, so the server's answer is
+  // the same for everyone and can be served from the CDN while it sleeps
+  if (d.items?.length) {
+    const mine = new Set([...(S.wl || []), ...((S.pf?.positions || []).map(p => p.ticker))]);
+    const ranked = d.items.map(e => ({ ...e, yours: mine.has(e.symbol) }))
+      .sort((a, b) => (b.yours - a.yours) || (a.rank - b.rank));
+    const top = new Set(ranked.slice(0, show).map(e => e.symbol));
+    d = { ...d, items: d.items.map(e => ({ ...e, yours: mine.has(e.symbol), rank: top.has(e.symbol) ? 0 : 999 })) };
+  }
   if (!d.items?.length) return `<div class="pd-empty">${esc(d.unavailable || (d.total_reporting
     ? "The reporting list is unavailable right now." : "No companies report this week."))}</div>`;
   // Finnhub's per-share figures can be adjusted: CoreWeave's Nov 10 2026 report
