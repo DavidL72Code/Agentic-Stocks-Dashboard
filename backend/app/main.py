@@ -92,6 +92,36 @@ async def _warm() -> None:
 IO_THREADS = 32
 
 
+# ── staying awake ──
+# Render's free tier sleeps after 15 minutes without an inbound request, and a
+# visit to a sleeping server waits about a minute. The GitHub keep-warm job was
+# meant to prevent that, but GitHub runs a repo's 5-minute schedule when it
+# gets round to it: on Nov 12 2026 it ran at 11:45, 18:43 and 23:53 UTC, and a
+# visit at 9pm New York time sat on a loading screen for a minute. So the server
+# pings itself through its public address (Render routes that back in as
+# inbound traffic) every 10 minutes from 6am to midnight New York time, and
+# sleeps overnight - ~560 of the workspace's 750 free hours a month. The GitHub
+# job still wakes it in the morning; the first visitor does too.
+AWAKE_FROM, AWAKE_UNTIL = 6, 24          # New York hours
+
+
+async def _keep_awake() -> None:
+    import asyncio
+    url = os.environ.get("RENDER_EXTERNAL_URL", "").rstrip("/")
+    if not url:                           # not on Render: nothing to keep awake
+        return
+    from .clock import ny_now
+    from . import http
+    while True:
+        await asyncio.sleep(600)
+        if not (AWAKE_FROM <= ny_now().hour < AWAKE_UNTIL):
+            continue                      # let it sleep overnight
+        try:
+            await http.client("self", timeout=30).get(url + "/api/health")
+        except Exception as e:
+            log.info("keep-awake ping failed: %s", e)
+
+
 @contextlib.asynccontextmanager
 async def lifespan(_app):
     import asyncio
@@ -106,12 +136,14 @@ async def lifespan(_app):
     asyncio.get_running_loop().set_default_executor(
         ThreadPoolExecutor(max_workers=IO_THREADS, thread_name_prefix="io"))
     WARM.update(cpu_count=os.cpu_count(), io_threads=IO_THREADS)
-    task = None
+    WARM["started_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    tasks = [asyncio.create_task(_keep_awake())]
     if os.environ.get("WARMUP", "1") != "0":
-        task = asyncio.create_task(_warm())
+        tasks.append(asyncio.create_task(_warm()))
     yield
-    if task and not task.done():
-        task.cancel()
+    for t in tasks:
+        if not t.done():
+            t.cancel()
 
 
 app = FastAPI(title="Agentic Fintech", version="0.1", lifespan=lifespan)
@@ -120,6 +152,16 @@ app.add_middleware(CORSMiddleware,
                    allow_credentials=False,
                    allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
                    allow_headers=["Content-Type"])
+
+# Endpoints whose answer does not depend on who asks - and only these may be
+# cached at the edge. Everything with an account behind it (me, auth, watchlist,
+# portfolio, the brief, the agent) is not in this list and stays no-store.
+import re as _re
+PUBLIC_API = _re.compile(
+    r"^/api/(quotes|indices|sparklines|search|compare|calendar/earnings"
+    r"|(bars|overview|financials|news|analysts|events|logo)/[^/]+"
+    r"|related/[^/]+(/event-study/[^/]+)?)$")
+
 
 @app.middleware("http")
 async def no_store_api(request, call_next):
@@ -141,8 +183,18 @@ async def no_store_api(request, call_next):
         ACTIVITY["inflight"] -= 1
         ACTIVITY["last"] = time.time()
     if request.url.path.startswith("/api/"):
-        resp.headers["Cache-Control"] = "no-store, private"
-        resp.headers["Vary"] = "Cookie"
+        if (request.method == "GET" and resp.status_code == 200
+                and PUBLIC_API.match(request.url.path)):
+            # The same answer for every visitor, so Vercel's CDN may keep it -
+            # and keep serving it while it fetches a fresh one. At night, when
+            # this server sleeps, a visitor gets the last prices at once
+            # instead of a minute of skeletons; the refresh wakes the server.
+            # Browsers still never store it (vercel.json sends no-store).
+            resp.headers["Cache-Control"] = "no-cache"
+            resp.headers["Vercel-CDN-Cache-Control"] = "max-age=20, stale-while-revalidate=86400"
+        else:
+            resp.headers["Cache-Control"] = "no-store, private"
+            resp.headers["Vary"] = "Cookie"
     return resp
 
 

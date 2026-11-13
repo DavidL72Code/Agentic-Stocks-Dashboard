@@ -51,19 +51,41 @@ def main(run_agent: bool) -> int:
     r = c.get("/build")
     chk("/build", "build_stamp", r.status_code == 200 and r.json().get("build"),
         r.json(), "the footer stamp proves which build you are looking at")
-    print("\n── no API response may be CDN-cached ──")
-    # Vercel caches rewrites to external origins BY DEFAULT and honours
-    # upstream cache-control. Nothing here sent any, so /api/me and
-    # /api/portfolio could have been cached at the edge and served to a
-    # different visitor - the cross-user leak the tenancy probe guards, one
-    # layer up where no application test would have seen it.
-    for ep in ("/api/me", "/api/portfolio", "/api/watchlist",
-               "/api/quotes?symbols=NVDA", "/api/health"):
+    print("\n── only answers that are the same for everyone may be CDN-cached ──")
+    # Vercel caches rewrites to external origins and honours upstream cache
+    # headers. Anything with an account behind it - /api/me, the portfolio,
+    # the watchlist - cached at the edge would be served to the wrong person:
+    # the cross-user leak the tenancy probe guards, one layer up. Public market
+    # data is cached there on purpose (so a sleeping server still shows prices
+    # at once), and only through Vercel-CDN-Cache-Control.
+    for ep in ("/api/me", "/api/portfolio", "/api/watchlist", "/api/health"):
         h = c.get(ep).headers
         cc = (h.get("cache-control") or "").lower()
         chk(ep.split("?")[0], f"no_store{ep.split('?')[0].replace('/', '_')}",
-            "no-store" in cc and "private" in cc, cc or "MISSING",
+            "no-store" in cc and "private" in cc and not h.get("vercel-cdn-cache-control"),
+            f"{cc or 'MISSING'}; cdn: {h.get('vercel-cdn-cache-control')}",
             "a per-user response cached by a CDN is served to the wrong person")
+    h = c.get("/api/quotes?symbols=NVDA").headers
+    chk("/api/quotes", "public_data_edge_cacheable",
+        "stale-while-revalidate" in (h.get("vercel-cdn-cache-control") or "")
+        and "cookie" not in (h.get("vary") or "").lower(),
+        f"cdn: {h.get('vercel-cdn-cache-control')}; vary: {h.get('vary')}",
+        "public prices served from the edge while the server sleeps")
+    # and nothing the public pattern admits may read who is asking
+    import inspect as _insp, re as _re2
+    import backend.app.main as _Mm
+    leaks = []
+    for route in _Mm.app.routes:
+        path, methods = getattr(route, "path", ""), getattr(route, "methods", set()) or set()
+        if not path.startswith("/api/") or "GET" not in methods:
+            continue
+        if _Mm.PUBLIC_API.match(_re2.sub(r"\{[^}]+\}", "X", path)):
+            src = _insp.getsource(route.endpoint)
+            if _re2.search(r"\bstore\.|current_user|_require_account|request\.cookies|\bdb\.", src):
+                leaks.append(path)
+    chk("meta", "edge_cached_routes_are_user_independent", not leaks,
+        leaks or "every edge-cacheable route reads no session, store or database",
+        "a route that reads the visitor and is cached at the edge leaks it")
     chk("/api/me", "varies_on_cookie",
         "cookie" in (c.get("/api/me").headers.get("vary") or "").lower(),
         c.get("/api/me").headers.get("vary"),
