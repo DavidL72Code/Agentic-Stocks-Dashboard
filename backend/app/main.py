@@ -175,13 +175,20 @@ async def no_store_api(request, call_next):
     Cheap to state explicitly, and correct behind any proxy, not just Vercel.
     """
     from .status import ACTIVITY
-    ACTIVITY["inflight"] += 1
-    ACTIVITY["last"] = time.time()
+    # Health checks are not activity: Render polls /api/health every few
+    # seconds (healthCheckPath in render.yaml), and so does the keep-awake
+    # ping. Counted, they kept the server from ever looking idle - the agent
+    # import waiting for a quiet moment never ran on Render.
+    track = request.url.path != "/api/health" and request.method != "HEAD"
+    if track:
+        ACTIVITY["inflight"] += 1
+        ACTIVITY["last"] = time.time()
     try:
         resp = await call_next(request)
     finally:
-        ACTIVITY["inflight"] -= 1
-        ACTIVITY["last"] = time.time()
+        if track:
+            ACTIVITY["inflight"] -= 1
+            ACTIVITY["last"] = time.time()
     if request.url.path.startswith("/api/"):
         if (request.method == "GET" and resp.status_code == 200
                 and PUBLIC_API.match(request.url.path)):
